@@ -333,13 +333,13 @@ public sealed partial class VippsClient : IVippsClient
         var body = await response.Content.ReadAsStringAsync(ct);
         if (response.IsSuccessStatusCode) return body;
 
-        // A failed body may echo a phone number, a name or an agreement id. Vipps's own error ids are
-        // logged in its place, and the body only when it carries none.
+        // A failed body may echo a phone number, a name or an agreement id, so Vipps's own error ids
+        // are logged in its place. The body only when the app turns that on, and none came.
         var (errorCode, errorRef, traceId) = ErrorIds(body);
-        if (errorCode == null && errorRef == null && traceId == null)
+        if (errorCode == null && errorRef == null && traceId == null && _options.LogFailedResponseBodies)
             LogFailedWithBody(_logger, operation, (int)response.StatusCode, body);
         else
-            LogFailed(_logger, operation, (int)response.StatusCode, errorCode ?? "-", errorRef ?? "-", traceId ?? "-");
+            LogFailed(_logger, operation, (int)response.StatusCode, errorCode ?? "-", errorRef ?? "-", traceId ?? "-", body.Length);
         response.EnsureSuccessStatusCode();
         return body;
     }
@@ -366,8 +366,8 @@ public sealed partial class VippsClient : IVippsClient
     [LoggerMessage(Level = LogLevel.Error, Message = "Vipps {Operation} failed: {Status} body={Body}")]
     private static partial void LogFailedWithBody(ILogger logger, string operation, int status, string body);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Vipps {Operation} failed: {Status} ErrorCode={ErrorCode} ErrorRef={ErrorRef} TraceId={TraceId}")]
-    private static partial void LogFailed(ILogger logger, string operation, int status, string errorCode, string errorRef, string traceId);
+    [LoggerMessage(Level = LogLevel.Error, Message = "Vipps {Operation} failed: {Status} ErrorCode={ErrorCode} ErrorRef={ErrorRef} TraceId={TraceId} BodyLength={BodyLength}")]
+    private static partial void LogFailed(ILogger logger, string operation, int status, string errorCode, string errorRef, string traceId, int bodyLength);
 
     private sealed class PaymentDto
     {

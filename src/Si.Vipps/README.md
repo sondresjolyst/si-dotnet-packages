@@ -51,8 +51,8 @@ The client holds the limits Vipps sets, listed in `VippsLimits`:
   total.
 
 A failed call throws `HttpRequestException`. It logs Vipps's error code, error reference and trace
-id rather than the body, which may echo a phone number or a name, and the body only when it has none
-of them.
+id and the body's length, never the body, which may echo a phone number or a name. For debugging,
+`LogFailedResponseBodies` logs the body of a failure that carries no error ids.
 
 ## Webhooks
 

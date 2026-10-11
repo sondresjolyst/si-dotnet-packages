@@ -423,16 +423,29 @@ public class VippsClientTests
 
         await Assert.ThrowsAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
         var line = Assert.Single(log.Lines, l => l.StartsWith("Error", StringComparison.Ordinal));
-        Assert.Contains("ErrorCode=E1 ErrorRef=R1 TraceId=T1", line, StringComparison.Ordinal);
+        Assert.Contains("ErrorCode=E1 ErrorRef=R1 TraceId=T1 BodyLength=", line, StringComparison.Ordinal);
         Assert.DoesNotContain("4791234567", line, StringComparison.Ordinal);
         Assert.Contains("get-agreement failed: 400", line, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task AFailure_WithoutVippsErrorIds_LogsTheBody()
+    public async Task AFailure_WithoutVippsErrorIds_LogsOnlyTheBodyLength()
     {
         var (client, vipps, _, _, log) = Create();
-        vipps.Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get" ? (HttpStatusCode.Unauthorized, "not json") : (HttpStatusCode.OK, "{}");
+        vipps.Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get" ? (HttpStatusCode.BadRequest, """{"phoneNumber":"4791234567"}""") : (HttpStatusCode.OK, "{}");
+        await Assert.ThrowsAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
+        var line = Assert.Single(log.Lines, l => l.StartsWith("Error", StringComparison.Ordinal));
+        Assert.Contains("accesstoken/get failed: 400 ErrorCode=- ErrorRef=- TraceId=- BodyLength=28", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("4791234567", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AFailure_WithoutVippsErrorIds_LogsTheBody_WhenTheAppTurnsThatOn()
+    {
+        var vipps = new FakeVipps { Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get" ? (HttpStatusCode.Unauthorized, "not json") : (HttpStatusCode.OK, "{}") };
+        var log = new ListLogger();
+        var options = Options.Create(new VippsOptions { LogFailedResponseBodies = true, SystemName = "x" });
+        var client = new VippsClient(new HttpClient(vipps), options, new FixedVippsEnvironment(false), log, new FakeTimeProvider(Now));
         await Assert.ThrowsAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
         Assert.Contains(log.Lines, l => l.Contains("accesstoken/get failed: 401 body=not json", StringComparison.Ordinal));
     }

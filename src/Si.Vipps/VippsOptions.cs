@@ -28,6 +28,12 @@ public sealed class VippsOptions
     /// <summary>The <c>Vipps-System-Version</c> header. Build metadata after a <c>+</c> is left out.</summary>
     public string SystemVersion { get; set; } = "1.0.0";
 
+    /// <summary>
+    /// Logs the body of a failed response that carries no Vipps error ids. Off by default, since a body
+    /// may echo a phone number, a name or an agreement id. For debugging only.
+    /// </summary>
+    public bool LogFailedResponseBodies { get; set; }
+
     /// <summary>The credentials for an environment.</summary>
     public VippsCredentials For(bool isTest) => isTest ? Test : Live;
 }
