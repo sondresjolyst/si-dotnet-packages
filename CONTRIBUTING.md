@@ -16,8 +16,8 @@ tests on every pull request.
 ## Good to know
 
 - The packages target .NET 10. Warnings are errors, at the `latest-recommended` analysis level.
-- A package depends only on `Microsoft.Extensions.*` abstractions, at the lowest version it needs,
-  so an app picks its own versions.
+- A package depends only on `Microsoft.Extensions.*` packages, kept at their current version.
+  Dependabot raises them, and a release follows.
 - A package holds no app's types. An app maps its own models to the package's requests.
 - A new area is a new package named `SjolystInnovation.AppKit.<Area>`, in `src/` with its tests in
   `tests/`, and a namespace of the same name.
