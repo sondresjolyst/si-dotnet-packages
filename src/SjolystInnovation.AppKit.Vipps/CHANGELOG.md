@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Vipps-v0.1.0...SjolystInnovation.AppKit.Vipps-v0.1.1) (2026-10-11)
+
+
+### Dependencies
+
+* **nuget:** Bump Microsoft.Extensions.Http and 2 others ([#4](https://github.com/sondresjolyst/si-dotnet-packages/issues/4)) ([60800fd](https://github.com/sondresjolyst/si-dotnet-packages/commit/60800fd8fa000a43c913d7e4228fb06918d19de0))
+
 ## 0.1.0 (2026-10-11)
 
 
