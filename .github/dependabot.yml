@@ -1,0 +1,34 @@
+version: 2
+updates:
+- package-ecosystem: github-actions
+  directory: /
+  groups:
+    github-actions:
+      patterns:
+      - '*'
+  schedule:
+    interval: weekly
+    day: sunday
+    time: '03:00'
+    timezone: Europe/Oslo
+  cooldown:
+    default-days: 7
+  commit-message:
+    prefix: ci(github-actions)
+- package-ecosystem: nuget
+  directory: /
+  groups:
+    testing:
+      patterns:
+      - xunit*
+      - Microsoft.NET.Test.Sdk
+      - Microsoft.Extensions.TimeProvider.Testing
+  schedule:
+    interval: weekly
+    day: sunday
+    time: '03:00'
+    timezone: Europe/Oslo
+  cooldown:
+    default-days: 7
+  commit-message:
+    prefix: deps(nuget)

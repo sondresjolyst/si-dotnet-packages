@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      path:
+        description: "Package to publish again, for a tagged release that did not reach NuGet."
+        type: choice
+        options:
+          - src/Si.Vipps
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Release Please
+    uses: equinor/ops-actions/.github/workflows/release-please-manifest.yml@af5bad1a47ab8f8c333f8910f06c1938dd962dac # v9.43.0
+    permissions:
+      contents: write
+      pull-requests: write
+
+  publish:
+    name: Publish on NuGet
+    needs: release-please
+    if: ${{ github.ref == 'refs/heads/main' && (needs.release-please.outputs.releases_created == 'true' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: nuget
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        path: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.path) || needs.release-please.outputs.paths_released) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Pack ${{ matrix.path }}
+        run: dotnet pack "${{ matrix.path }}" --configuration Release --output artifacts
+
+      # Trusted publishing: a short-lived key from the workflow's OIDC token, no stored API key.
+      - name: NuGet login
+        id: login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      - name: Push
+        run: dotnet nuget push "artifacts/*.nupkg" --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate

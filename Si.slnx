@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Si.Vipps/Si.Vipps.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Si.Vipps.Tests/Si.Vipps.Tests.csproj" />
+  </Folder>
+</Solution>
