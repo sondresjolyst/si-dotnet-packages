@@ -1,4 +1,4 @@
-namespace Si.Vipps;
+namespace SjolystInnovation.AppKit.Vipps;
 
 /// <summary>The credentials for one Vipps environment, from the merchant portal.</summary>
 public sealed class VippsCredentials

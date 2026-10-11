@@ -7,7 +7,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace Si.Vipps;
+namespace SjolystInnovation.AppKit.Vipps;
 
 /// <summary>The Vipps Recurring, ePayment, Userinfo and Webhooks APIs.</summary>
 public interface IVippsClient

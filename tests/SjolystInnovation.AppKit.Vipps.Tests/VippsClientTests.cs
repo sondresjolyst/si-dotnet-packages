@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
-namespace Si.Vipps.Tests;
+namespace SjolystInnovation.AppKit.Vipps.Tests;
 
 public class VippsClientTests
 {

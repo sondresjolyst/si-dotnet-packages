@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace Si.Vipps;
+namespace SjolystInnovation.AppKit.Vipps;
 
 public enum VippsWebhookResult
 {

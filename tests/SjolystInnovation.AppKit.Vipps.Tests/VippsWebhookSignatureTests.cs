@@ -2,7 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Xunit;
 
-namespace Si.Vipps.Tests;
+namespace SjolystInnovation.AppKit.Vipps.Tests;
 
 public class VippsWebhookSignatureTests
 {

@@ -1,4 +1,4 @@
-namespace Si.Vipps;
+namespace SjolystInnovation.AppKit.Vipps;
 
 /// <summary>How often a recurring agreement charges.</summary>
 public enum VippsInterval

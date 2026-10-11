@@ -1,4 +1,4 @@
-namespace Si.Vipps;
+namespace SjolystInnovation.AppKit.Vipps;
 
 /// <summary>A Vipps address on one line, for an invoice or an order.</summary>
 public static class VippsAddressFormatter

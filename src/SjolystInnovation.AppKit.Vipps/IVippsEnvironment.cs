@@ -1,4 +1,4 @@
-namespace Si.Vipps;
+namespace SjolystInnovation.AppKit.Vipps;
 
 /// <summary>
 /// Decides whether a call that creates something new goes to the test environment. A call on an

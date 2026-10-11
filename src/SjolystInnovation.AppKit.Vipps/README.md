@@ -1,4 +1,4 @@
-# Si.Vipps
+# SjolystInnovation.AppKit.Vipps
 
 A client for the Vipps MobilePay Recurring, ePayment, Userinfo and Webhooks APIs, with webhook
 signature checks. It targets .NET 10.

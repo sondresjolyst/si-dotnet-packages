@@ -2,7 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Xunit;
 
-namespace Si.Vipps.Tests;
+namespace SjolystInnovation.AppKit.Vipps.Tests;
 
 public class VippsHelpersTests
 {

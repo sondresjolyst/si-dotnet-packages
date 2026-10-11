@@ -1,8 +1,8 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/Si.Vipps/Si.Vipps.csproj" />
+    <Project Path="src/SjolystInnovation.AppKit.Vipps/SjolystInnovation.AppKit.Vipps.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/Si.Vipps.Tests/Si.Vipps.Tests.csproj" />
+    <Project Path="tests/SjolystInnovation.AppKit.Vipps.Tests/SjolystInnovation.AppKit.Vipps.Tests.csproj" />
   </Folder>
 </Solution>

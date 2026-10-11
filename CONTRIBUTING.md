@@ -7,7 +7,7 @@ issue first so we can agree on the shape.
 
 ```sh
 dotnet build
-dotnet run --project tests/Si.Vipps.Tests
+dotnet run --project tests/SjolystInnovation.AppKit.Vipps.Tests
 ```
 
 The tests run on Microsoft.Testing.Platform, so they run as a program. CI runs the same build and
@@ -19,6 +19,8 @@ tests on every pull request.
 - A package depends only on `Microsoft.Extensions.*` abstractions, at the lowest version it needs,
   so an app picks its own versions.
 - A package holds no app's types. An app maps its own models to the package's requests.
+- A new area is a new package named `SjolystInnovation.AppKit.<Area>`, in `src/` with its tests in
+  `tests/`, and a namespace of the same name.
 - Versions come from release-please, out of Conventional Commits. Do not edit `<Version>` by hand.
 
 ## Commits

@@ -1,4 +1,4 @@
-namespace Si.Vipps;
+namespace SjolystInnovation.AppKit.Vipps;
 
 /// <summary>The webhook event names, for registering a webhook and telling events apart.</summary>
 public static class VippsEvents

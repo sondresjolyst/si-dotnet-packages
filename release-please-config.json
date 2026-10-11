@@ -3,13 +3,13 @@
   "pull-request-title-pattern": "chore: release ${component} ${version}",
   "separate-pull-requests": false,
   "packages": {
-    "src/Si.Vipps": {
+    "src/SjolystInnovation.AppKit.Vipps": {
       "release-type": "simple",
-      "component": "Si.Vipps",
+      "component": "SjolystInnovation.AppKit.Vipps",
       "initial-version": "0.1.0",
       "bump-minor-pre-major": true,
       "extra-files": [
-        "Si.Vipps.csproj"
+        "SjolystInnovation.AppKit.Vipps.csproj"
       ],
       "changelog-sections": [
         {

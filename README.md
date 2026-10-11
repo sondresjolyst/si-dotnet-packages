@@ -1,13 +1,15 @@
 # si-dotnet-packages
 
-Shared .NET packages for the Sjølyst Innovation apps, published on NuGet under Apache-2.0.
+Shared .NET packages for the Sjølyst Innovation apps, published on NuGet under Apache-2.0. They are
+the .NET side of `@sjolystinnovation/app-kit`, one package per area, each named
+`SjolystInnovation.AppKit.<Area>` with a namespace of the same name.
 
 | Package | What it does |
 | --- | --- |
-| [Si.Vipps](src/Si.Vipps/README.md) | A client for the Vipps MobilePay Recurring, ePayment, Userinfo and Webhooks APIs, with webhook signature checks. |
+| [SjolystInnovation.AppKit.Vipps](src/SjolystInnovation.AppKit.Vipps/README.md) | A client for the Vipps MobilePay Recurring, ePayment, Userinfo and Webhooks APIs, with webhook signature checks. |
 
 ```sh
-dotnet add package Si.Vipps
+dotnet add package SjolystInnovation.AppKit.Vipps
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) to work on them.

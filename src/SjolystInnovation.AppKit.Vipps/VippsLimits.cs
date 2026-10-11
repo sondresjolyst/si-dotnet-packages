@@ -1,4 +1,4 @@
-namespace Si.Vipps;
+namespace SjolystInnovation.AppKit.Vipps;
 
 /// <summary>Limits the Vipps APIs set on request fields.</summary>
 public static class VippsLimits

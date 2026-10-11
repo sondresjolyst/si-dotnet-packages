@@ -10,7 +10,7 @@ on:
         description: "Package to publish again, for a tagged release that did not reach NuGet."
         type: choice
         options:
-          - src/Si.Vipps
+          - src/SjolystInnovation.AppKit.Vipps
         required: true
 
 permissions: {}

@@ -6,7 +6,7 @@
 
 ```sh
 dotnet build
-dotnet run --project tests/Si.Vipps.Tests
+dotnet run --project tests/SjolystInnovation.AppKit.Vipps.Tests
 ```
 
 ## Never
