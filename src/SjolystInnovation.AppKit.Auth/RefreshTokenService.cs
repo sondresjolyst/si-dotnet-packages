@@ -19,6 +19,13 @@ public interface IRefreshTokenService
     /// token that was already used revokes every live token of the user.
     /// </summary>
     Task<RotationResult> RotateAsync(string userId, string rawToken, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes a live refresh token, as at sign-out, and returns whether there was one. A later use of
+    /// it is refused as unknown rather than taken for a replay. A token already used is left alone, so
+    /// presenting it still counts as a replay. This call saves.
+    /// </summary>
+    Task<bool> RevokeAsync(string rawToken, CancellationToken cancellationToken = default);
 }
 
 public enum RotationStatus
@@ -113,6 +120,26 @@ internal sealed class RefreshTokenService<TContext>(
         await tx.RollbackAsync(cancellationToken);
         await RevokeAllAsync(userId, cancellationToken);
         return new RotationResult(RotationStatus.Replayed);
+    }
+
+    public async Task<bool> RevokeAsync(string rawToken, CancellationToken cancellationToken = default)
+    {
+        var hashed = VerificationCodes.Hash(rawToken);
+        var token = await db.RefreshTokens.FirstOrDefaultAsync(t => t.Token == hashed && t.Revoked == null, cancellationToken);
+        if (token == null)
+            return false;
+        db.RefreshTokens.Remove(token);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // A refresh used the token in the meantime, so it is no longer live.
+            db.Entry(token).State = EntityState.Detached;
+            return false;
+        }
     }
 
     /// <summary>Revokes every live token of the user, trying again while other requests change them.</summary>

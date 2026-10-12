@@ -73,6 +73,17 @@ return Ok(new { token = jwt.Build(user, await users.GetRolesAsync(user)), refres
 `RotateAsync` saves and commits on its own. A token that was already used gives `Replayed` and
 revokes every live token of the user, so a stolen token stops working for everyone holding one.
 
+## Signing out
+
+```csharp
+await refreshTokens.RevokeAsync(request.RefreshToken);
+return NoContent();
+```
+
+`RevokeAsync` deletes the token while it is live, so a stale tab that sends it later gets a plain
+refusal instead of setting off replay detection. A token that was already used stays, so presenting
+it still revokes every session of the user.
+
 ## Password reset
 
 The user implements `IPasswordResetUser` with `PasswordResetCodeHash`, `PasswordResetCodeExpiration`
