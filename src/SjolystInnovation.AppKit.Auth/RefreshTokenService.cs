@@ -19,6 +19,20 @@ public interface IRefreshTokenService
     /// token that was already used revokes every live token of the user.
     /// </summary>
     Task<RotationResult> RotateAsync(string userId, string rawToken, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes a live refresh token, as at sign-out, and returns whether there was one. A later use of
+    /// it is refused as unknown rather than taken for a replay. A token already used is left alone, so
+    /// presenting it still counts as a replay. This call saves.
+    /// </summary>
+    Task<bool> RevokeAsync(string rawToken, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes every live refresh token of the user, as after a password reset, and returns how many
+    /// there were. Each device then has to sign in again. A device that sends its old token is refused
+    /// as unknown rather than taken for a replay. This call saves.
+    /// </summary>
+    Task<int> RevokeAllForUserAsync(string userId, CancellationToken cancellationToken = default);
 }
 
 public enum RotationStatus
@@ -111,12 +125,52 @@ internal sealed class RefreshTokenService<TContext>(
         }
 
         await tx.RollbackAsync(cancellationToken);
-        await RevokeAllAsync(userId, cancellationToken);
+        await RevokeAfterReplayAsync(userId, cancellationToken);
         return new RotationResult(RotationStatus.Replayed);
     }
 
+    public async Task<bool> RevokeAsync(string rawToken, CancellationToken cancellationToken = default)
+    {
+        var hashed = VerificationCodes.Hash(rawToken);
+        var token = await db.RefreshTokens.FirstOrDefaultAsync(t => t.Token == hashed && t.Revoked == null, cancellationToken);
+        if (token == null)
+            return false;
+        db.RefreshTokens.Remove(token);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // A refresh used the token in the meantime, so it is no longer live.
+            db.Entry(token).State = EntityState.Detached;
+            return false;
+        }
+    }
+
+    public async Task<int> RevokeAllForUserAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            var live = await db.RefreshTokens.Where(t => t.UserId == userId && t.Revoked == null).ToListAsync(cancellationToken);
+            db.RefreshTokens.RemoveRange(live);
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+                return live.Count;
+            }
+            catch (DbUpdateConcurrencyException) when (attempt < 3)
+            {
+                // A refresh used one of them in the meantime. Start over with what is live now.
+                foreach (var entry in db.ChangeTracker.Entries<RefreshToken>().ToList())
+                    entry.State = EntityState.Detached;
+            }
+        }
+    }
+
     /// <summary>Revokes every live token of the user, trying again while other requests change them.</summary>
-    private async Task RevokeAllAsync(string userId, CancellationToken cancellationToken)
+    private async Task RevokeAfterReplayAsync(string userId, CancellationToken cancellationToken)
     {
         for (var attempt = 1; ; attempt++)
         {

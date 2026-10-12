@@ -289,6 +289,123 @@ public sealed class RefreshTokenServiceTests : IDisposable
         Assert.All(Tokens("ada"), t => Assert.NotNull(t.Revoked));
     }
 
+    private async Task<bool> Revoke(string raw)
+    {
+        await using var db = _db.NewContext();
+        return await Service(db).RevokeAsync(raw);
+    }
+
+    [Fact]
+    public async Task Revoke_DeletesTheLiveTokenAndLeavesTheOthers()
+    {
+        Seed("ada", "phone", Start.AddDays(-1));
+        Seed("ada", "laptop", Start.AddDays(-1));
+        Seed("bob", "bobs", Start.AddDays(-1));
+
+        Assert.True(await Revoke("phone"));
+
+        Assert.Equal([VerificationCodes.Hash("laptop")], Tokens("ada").Select(t => t.Token));
+        Assert.Null(Tokens("ada").Single().Revoked);
+        Assert.Single(Tokens("bob"));
+    }
+
+    [Fact]
+    public async Task Revoke_AfterwardsTheTokenIsRefusedAsUnknownNotAsAReplay()
+    {
+        Seed("ada", "phone", Start.AddDays(-1));
+        Seed("ada", "laptop", Start.AddDays(-1));
+        await Revoke("phone");
+
+        var result = await Rotate("ada", "phone");
+
+        Assert.Equal(RotationStatus.Rejected, result.Status);
+        Assert.Null(Tokens("ada").Single().Revoked);
+        Assert.Empty(_logger.Collector.GetSnapshot());
+    }
+
+    [Fact]
+    public async Task Revoke_LeavesAUsedTokenSoItStillCountsAsAReplay()
+    {
+        Seed("ada", "used", Start.AddDays(-1), revoked: Start.AddHours(-1));
+        Seed("ada", "laptop", Start.AddDays(-1));
+
+        Assert.False(await Revoke("used"));
+        Assert.Equal(2, Tokens("ada").Count);
+        Assert.Equal(RotationStatus.Replayed, (await Rotate("ada", "used")).Status);
+    }
+
+    [Fact]
+    public async Task Revoke_AnUnknownTokenChangesNothing()
+    {
+        Seed("ada", "phone", Start.AddDays(-1));
+
+        Assert.False(await Revoke("made-up"));
+        Assert.Single(Tokens("ada"));
+    }
+
+    [Fact]
+    public async Task Revoke_LosingARaceWithARefreshLeavesTheTokenUsed()
+    {
+        Seed("ada", "phone", Start.AddDays(-1));
+        await using var db = _db.NewContext(new ParallelUse(VerificationCodes.Hash("phone"), Start));
+
+        Assert.False(await Service(db).RevokeAsync("phone"));
+        Assert.NotNull(Assert.Single(Tokens("ada")).Revoked);
+        Assert.Empty(db.ChangeTracker.Entries<RefreshToken>());
+    }
+
+    private async Task<int> RevokeAll(string userId, params IInterceptor[] interceptors)
+    {
+        await using var db = _db.NewContext(interceptors);
+        return await Service(db).RevokeAllForUserAsync(userId);
+    }
+
+    [Fact]
+    public async Task RevokeAll_DeletesEveryLiveTokenOfTheUserOnly()
+    {
+        Seed("ada", "phone", Start.AddDays(-1));
+        Seed("ada", "laptop", Start.AddDays(-1));
+        Seed("ada", "used", Start.AddDays(-2), revoked: Start.AddDays(-1));
+        Seed("bob", "bobs", Start.AddDays(-1));
+
+        Assert.Equal(2, await RevokeAll("ada"));
+
+        Assert.Equal([VerificationCodes.Hash("used")], Tokens("ada").Select(t => t.Token));
+        Assert.Single(Tokens("bob"));
+    }
+
+    [Fact]
+    public async Task RevokeAll_AfterwardsAnOldTokenIsRefusedAsUnknown()
+    {
+        Seed("ada", "phone", Start.AddDays(-1));
+        await RevokeAll("ada");
+
+        Assert.Equal(RotationStatus.Rejected, (await Rotate("ada", "phone")).Status);
+        Assert.Empty(_logger.Collector.GetSnapshot());
+    }
+
+    [Fact]
+    public async Task RevokeAll_WithNothingLiveReturnsZero()
+    {
+        Seed("ada", "used", Start.AddDays(-2), revoked: Start.AddDays(-1));
+
+        Assert.Equal(0, await RevokeAll("ada"));
+        Assert.Single(Tokens("ada"));
+    }
+
+    [Fact]
+    public async Task RevokeAll_TriesAgainWhenARefreshUsesATokenMeanwhile()
+    {
+        Seed("ada", "phone", Start.AddDays(-1));
+        Seed("ada", "laptop", Start.AddDays(-1));
+
+        var count = await RevokeAll("ada", new ParallelUse(VerificationCodes.Hash("phone"), Start));
+
+        Assert.Equal(1, count);
+        Assert.Equal([VerificationCodes.Hash("phone")], Tokens("ada").Select(t => t.Token));
+        Assert.NotNull(Tokens("ada").Single().Revoked);
+    }
+
     [Fact]
     public async Task Rotate_ReplayWithNothingLeftToRevokeLogsNothing()
     {
