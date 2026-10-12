@@ -9,6 +9,8 @@ public static class VippsLimits
     public const int ProductNameLength = 45;
     /// <summary>The longest recurring <c>productDescription</c>.</summary>
     public const int ProductDescriptionLength = 100;
+    /// <summary>The longest recurring refund <c>description</c>.</summary>
+    public const int RefundDescriptionLength = 100;
     /// <summary>The longest recurring charge <c>orderId</c>.</summary>
     public const int ChargeOrderIdLength = 50;
     /// <summary>The longest <c>Vipps-System-Name</c> and <c>Vipps-System-Version</c>.</summary>

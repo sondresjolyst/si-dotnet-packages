@@ -223,6 +223,30 @@ public class VippsClientTests
     }
 
     [Fact]
+    public async Task RefundCharge_PostsTheAmountAndDescriptionToTheCharge()
+    {
+        var (client, vipps, _, _, _) = Create();
+
+        await client.RefundChargeAsync("agr_1", "chr/7", 12500, "Refund of October", "refund-41-0");
+
+        var (request, body) = vipps.Api.Single();
+        Assert.Equal(HttpMethod.Post, request.Method);
+        Assert.Equal("/recurring/v3/agreements/agr_1/charges/chr%2F7/refund", request.RequestUri!.AbsolutePath);
+        Assert.Equal("""{"amount":12500,"description":"Refund of October"}""", body);
+        Assert.Equal("refund-41-0", request.Headers.GetValues("Idempotency-Key").Single());
+    }
+
+    [Fact]
+    public async Task RefundCharge_CutsTheDescriptionTo100Characters()
+    {
+        var (client, vipps, _, _, _) = Create();
+
+        await client.RefundChargeAsync("agr_1", "chr_1", 100, new string('d', 120), "k");
+
+        Assert.Equal(new string('d', 100), vipps.Body("/recurring/v3/agreements/agr_1/charges/chr_1/refund").GetProperty("description").GetString());
+    }
+
+    [Fact]
     public async Task CreatePayment_SendsAReservedWalletPaymentWithAReceipt()
     {
         var (client, vipps, env, _, _) = Create();
