@@ -1,8 +1,10 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/SjolystInnovation.AppKit.Auth/SjolystInnovation.AppKit.Auth.csproj" />
     <Project Path="src/SjolystInnovation.AppKit.Vipps/SjolystInnovation.AppKit.Vipps.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/SjolystInnovation.AppKit.Auth.Tests/SjolystInnovation.AppKit.Auth.Tests.csproj" />
     <Project Path="tests/SjolystInnovation.AppKit.Vipps.Tests/SjolystInnovation.AppKit.Vipps.Tests.csproj" />
   </Folder>
 </Solution>

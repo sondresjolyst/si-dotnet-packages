@@ -6,13 +6,14 @@
 
 ```sh
 dotnet build
+dotnet run --project tests/SjolystInnovation.AppKit.Auth.Tests
 dotnet run --project tests/SjolystInnovation.AppKit.Vipps.Tests
 ```
 
 ## Never
 
 - Never put an app's models or settings into a package. Take plain request records.
-- Never pin a `Microsoft.Extensions.*` package below its current version. Dependabot keeps them
+- Never pin a Microsoft package below its current version. Dependabot keeps them
   current.
 - Never edit `<Version>` by hand. release-please owns it.
 - Never commit, push or open a pull request unless asked.
