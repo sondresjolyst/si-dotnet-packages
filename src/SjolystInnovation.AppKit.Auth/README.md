@@ -102,6 +102,7 @@ switch (PasswordResetCodes.Check(user, dto.Code))
 // reset the password with UserManager, then
 PasswordResetCodes.Complete(user);                // also clears the lockout
 await users.UpdateAsync(user);
+await refreshTokens.RevokeAllForUserAsync(user.Id); // every device signs in again
 ```
 
 ## Email verification

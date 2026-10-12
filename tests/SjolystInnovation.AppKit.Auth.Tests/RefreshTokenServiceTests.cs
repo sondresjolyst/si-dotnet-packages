@@ -354,6 +354,58 @@ public sealed class RefreshTokenServiceTests : IDisposable
         Assert.Empty(db.ChangeTracker.Entries<RefreshToken>());
     }
 
+    private async Task<int> RevokeAll(string userId, params IInterceptor[] interceptors)
+    {
+        await using var db = _db.NewContext(interceptors);
+        return await Service(db).RevokeAllForUserAsync(userId);
+    }
+
+    [Fact]
+    public async Task RevokeAll_DeletesEveryLiveTokenOfTheUserOnly()
+    {
+        Seed("ada", "phone", Start.AddDays(-1));
+        Seed("ada", "laptop", Start.AddDays(-1));
+        Seed("ada", "used", Start.AddDays(-2), revoked: Start.AddDays(-1));
+        Seed("bob", "bobs", Start.AddDays(-1));
+
+        Assert.Equal(2, await RevokeAll("ada"));
+
+        Assert.Equal([VerificationCodes.Hash("used")], Tokens("ada").Select(t => t.Token));
+        Assert.Single(Tokens("bob"));
+    }
+
+    [Fact]
+    public async Task RevokeAll_AfterwardsAnOldTokenIsRefusedAsUnknown()
+    {
+        Seed("ada", "phone", Start.AddDays(-1));
+        await RevokeAll("ada");
+
+        Assert.Equal(RotationStatus.Rejected, (await Rotate("ada", "phone")).Status);
+        Assert.Empty(_logger.Collector.GetSnapshot());
+    }
+
+    [Fact]
+    public async Task RevokeAll_WithNothingLiveReturnsZero()
+    {
+        Seed("ada", "used", Start.AddDays(-2), revoked: Start.AddDays(-1));
+
+        Assert.Equal(0, await RevokeAll("ada"));
+        Assert.Single(Tokens("ada"));
+    }
+
+    [Fact]
+    public async Task RevokeAll_TriesAgainWhenARefreshUsesATokenMeanwhile()
+    {
+        Seed("ada", "phone", Start.AddDays(-1));
+        Seed("ada", "laptop", Start.AddDays(-1));
+
+        var count = await RevokeAll("ada", new ParallelUse(VerificationCodes.Hash("phone"), Start));
+
+        Assert.Equal(1, count);
+        Assert.Equal([VerificationCodes.Hash("phone")], Tokens("ada").Select(t => t.Token));
+        Assert.NotNull(Tokens("ada").Single().Revoked);
+    }
+
     [Fact]
     public async Task Rotate_ReplayWithNothingLeftToRevokeLogsNothing()
     {
