@@ -2,7 +2,7 @@
   <PropertyGroup>
     <PackageId>SjolystInnovation.AppKit.Vipps</PackageId>
     <!-- x-release-please-start-version -->
-    <Version>0.1.1</Version>
+    <Version>0.2.0</Version>
     <!-- x-release-please-end -->
     <Description>A client for the Vipps MobilePay Recurring, ePayment, Userinfo and Webhooks APIs, with webhook signature checks.</Description>
     <PackageTags>vipps;mobilepay;payments;recurring;epayment;webhooks</PackageTags>

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Vipps-v0.1.1...SjolystInnovation.AppKit.Vipps-v0.2.0) (2026-10-12)
+
+
+### Features
+
+* **vipps:** add RefundChargeAsync for recurring charges ([#12](https://github.com/sondresjolyst/si-dotnet-packages/issues/12)) ([81691e6](https://github.com/sondresjolyst/si-dotnet-packages/commit/81691e64abd7841eeb6a32a75484d9033e2bf065))
+
 ## [0.1.1](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Vipps-v0.1.0...SjolystInnovation.AppKit.Vipps-v0.1.1) (2026-10-11)
 
 
