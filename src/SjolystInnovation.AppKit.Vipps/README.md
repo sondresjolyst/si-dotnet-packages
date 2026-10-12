@@ -32,7 +32,7 @@ switching the setting never sends it to the wrong one.
 | Call | Vipps API |
 | --- | --- |
 | `CreateAgreementAsync`, `GetAgreementAsync`, `StopAgreementAsync`, `UpdateAgreementMaxAmountAsync` | Recurring v3 agreements, with variable pricing |
-| `CreateChargeAsync` | Recurring v3 charges |
+| `CreateChargeAsync`, `RefundChargeAsync` | Recurring v3 charges, and refunds of captured ones |
 | `CreatePaymentAsync`, `GetPaymentAsync`, `CapturePaymentAsync`, `CancelPaymentAsync`, `RefundPaymentAsync` | ePayment v1, reserved and captured later, with a receipt |
 | `GetUserInfoAsync` | Userinfo, for the profile a user shared |
 | `RegisterWebhookAsync`, `ListWebhooksAsync`, `DeleteWebhookAsync` | Webhooks v1 |
@@ -47,6 +47,7 @@ The client holds the limits Vipps sets, listed in `VippsLimits`:
   sent.
 - A product name is cut to 45 characters and a description to 100, never inside a character.
 - A charge falls due two days from today at the earliest, and its order id is cut to 50 characters.
+- A charge refund answers without a body and Vipps sends no webhook for it, so record the refund when the call returns. Its description is cut to 100 characters.
 - A receipt line sends its VAT rate as `taxRate` in basis points, with the VAT split out of the line
   total.
 

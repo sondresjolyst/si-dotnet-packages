@@ -20,6 +20,11 @@ public interface IVippsClient
     Task StopAgreementAsync(string agreementId, string idempotencyKey, bool? isTest = null, CancellationToken ct = default);
     Task UpdateAgreementMaxAmountAsync(string agreementId, int maxAmountInOre, string idempotencyKey, bool? isTest = null, CancellationToken ct = default);
     Task<VippsCreateChargeResponse> CreateChargeAsync(string agreementId, VippsCreateChargeRequest request, string idempotencyKey, bool? isTest = null, CancellationToken ct = default);
+    /// <summary>
+    /// Refunds part or all of a captured recurring charge. Vipps answers without a body, and sends no
+    /// webhook, so the caller records the refund when this returns.
+    /// </summary>
+    Task RefundChargeAsync(string agreementId, string chargeId, int amountInOre, string description, string idempotencyKey, bool? isTest = null, CancellationToken ct = default);
 
     Task<VippsCreatePaymentResponse> CreatePaymentAsync(VippsCreatePaymentRequest request, string idempotencyKey, CancellationToken ct = default);
     Task<VippsPayment> GetPaymentAsync(string reference, bool? isTest = null, CancellationToken ct = default);
@@ -123,6 +128,14 @@ public sealed partial class VippsClient : IVippsClient
         };
         var json = await SendAsync(target, HttpMethod.Post, $"/recurring/v3/agreements/{Escape(agreementId)}/charges", body, idempotencyKey, "create-charge", ct);
         return Deserialize<VippsCreateChargeResponse>(json);
+    }
+
+    public async Task RefundChargeAsync(string agreementId, string chargeId, int amountInOre, string description, string idempotencyKey, bool? isTest = null, CancellationToken ct = default)
+    {
+        var target = await TargetAsync(isTest, ct);
+        var body = new { amount = amountInOre, description = VippsLimits.Truncate(description, VippsLimits.RefundDescriptionLength) };
+        await SendAsync(target, HttpMethod.Post,
+            $"/recurring/v3/agreements/{Escape(agreementId)}/charges/{Escape(chargeId)}/refund", body, idempotencyKey, "refund-charge", ct);
     }
 
     public async Task<VippsCreatePaymentResponse> CreatePaymentAsync(VippsCreatePaymentRequest request, string idempotencyKey, CancellationToken ct = default)
