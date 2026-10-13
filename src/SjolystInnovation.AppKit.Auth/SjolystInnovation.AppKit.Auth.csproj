@@ -4,7 +4,7 @@
     <!-- x-release-please-start-version -->
     <Version>0.2.0</Version>
     <!-- x-release-please-end -->
-    <Description>JWT access tokens, rotating refresh tokens with reuse detection, and password reset and email verification codes for ASP.NET Core Identity apps.</Description>
+    <Description>JWT access tokens and bearer validation, rotating refresh tokens with reuse detection and cleanup, Identity defaults, and password reset and email verification codes for ASP.NET Core Identity apps.</Description>
     <PackageTags>jwt;refresh-token;identity;password-reset;email-verification</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
@@ -15,10 +15,12 @@
     <InternalsVisibleTo Include="SjolystInnovation.AppKit.Auth.Tests" />
   </ItemGroup>
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.12" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.12" />
-    <PackageReference Include="Microsoft.Extensions.Identity.Stores" Version="10.0.12" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
-    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.12" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.23.0" />
   </ItemGroup>
 </Project>

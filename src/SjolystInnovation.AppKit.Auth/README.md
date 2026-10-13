@@ -1,7 +1,8 @@
 # SjolystInnovation.AppKit.Auth
 
-Access tokens, rotating refresh tokens and email codes for an ASP.NET Core Identity app. The app
-keeps its own endpoints, messages and emails, and calls these services from them.
+Identity defaults, access tokens and their validation, rotating refresh tokens and email codes for an
+ASP.NET Core Identity app. The app keeps its own endpoints, messages and emails, and calls these
+services from them.
 
 ```sh
 dotnet add package SjolystInnovation.AppKit.Auth
@@ -22,8 +23,14 @@ The settings come from the `Jwt` configuration section.
 The app fails to start when the key is too short or a lifetime or the cap is not positive.
 
 ```csharp
+builder.Services.AddAppKitIdentity<User, ApplicationDbContext>();
 builder.Services.AddAppKitAuth<ApplicationDbContext>(builder.Configuration.GetSection("Jwt"));
+builder.Services.AddAppKitJwtBearer<User>(isActive: u => !u.IsDeleted);
 ```
+
+`AddAppKitAuth` also runs a hosted service that deletes expired refresh tokens when the app starts
+and once a day after. A revoked token is kept until it expires, so presenting it again is still
+caught as a replay.
 
 The DbContext holds the refresh tokens:
 
@@ -44,6 +51,38 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 `AddAppKitRefreshTokens` maps the `RefreshTokens` table: `Id`, `Token` (the SHA-256 hash), `UserId`,
 `Expires`, `Created` and `Revoked`, with a foreign key to the user that cascades on delete and an
 index on `UserId`.
+
+## Identity
+
+`AddAppKitIdentity<TUser, TContext>` registers ASP.NET Core Identity with `IdentityRole`, EF stores and
+the default token providers.
+
+| Rule | |
+| --- | --- |
+| Lockout | 30 minutes after 5 failed sign-ins, new users included. |
+| Password | At least 8 characters with a digit, a lower case and an upper case letter. No symbol needed. |
+| Email | Unique per user. |
+
+Pass a callback to change any of them. It runs after the defaults.
+
+## Bearer tokens
+
+`AddAppKitJwtBearer<TUser>` makes JWT bearer the default scheme, also when Identity was registered
+first, and validates the tokens `IJwtTokenService` writes: the signature, the issuer and audience,
+and the lifetime with 30 seconds of clock skew. Call it after `AddAppKitAuth`.
+
+A token is refused when its user no longer exists or `isActive` returns false for the user. The
+answer is cached per user for a minute, so a deleted account stops working within a minute instead of
+when its access token expires.
+
+SignalR cannot send a header when it opens a WebSocket, so list the paths that may take the token as
+`?access_token=`:
+
+```csharp
+builder.Services.AddAppKitJwtBearer<User>(u => !u.IsDeleted, o => o.QueryTokenPaths.Add("/hubs"));
+```
+
+Keep access logs for those paths from writing the query string.
 
 ## Signing in
 
