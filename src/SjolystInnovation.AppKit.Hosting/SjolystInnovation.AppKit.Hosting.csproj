@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>SjolystInnovation.AppKit.Hosting</PackageId>
+    <!-- x-release-please-start-version -->
+    <Version>0.1.0</Version>
+    <!-- x-release-please-end -->
+    <Description>Forwarded headers from trusted proxies only, per-IP rate limiting, security headers, HTTPS and health checks for ASP.NET Core APIs behind an ingress.</Description>
+    <PackageTags>forwarded-headers;rate-limiting;security-headers;health-checks;aspnetcore</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <InternalsVisibleTo Include="SjolystInnovation.AppKit.Hosting.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="10.0.12" />
+  </ItemGroup>
+</Project>

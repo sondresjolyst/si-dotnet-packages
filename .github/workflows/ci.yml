@@ -32,10 +32,14 @@ jobs:
       - name: Test Auth
         run: dotnet run --project tests/SjolystInnovation.AppKit.Auth.Tests --configuration Release --no-build
 
+      - name: Test Hosting
+        run: dotnet run --project tests/SjolystInnovation.AppKit.Hosting.Tests --configuration Release --no-build
+
       - name: Test Vipps
         run: dotnet run --project tests/SjolystInnovation.AppKit.Vipps.Tests --configuration Release --no-build
 
       - name: Pack
         run: |
           dotnet pack src/SjolystInnovation.AppKit.Auth --configuration Release --no-build --output artifacts
+          dotnet pack src/SjolystInnovation.AppKit.Hosting --configuration Release --no-build --output artifacts
           dotnet pack src/SjolystInnovation.AppKit.Vipps --configuration Release --no-build --output artifacts

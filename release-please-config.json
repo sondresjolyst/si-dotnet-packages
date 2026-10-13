@@ -55,6 +55,58 @@
         }
       ]
     },
+    "src/SjolystInnovation.AppKit.Hosting": {
+      "release-type": "simple",
+      "component": "SjolystInnovation.AppKit.Hosting",
+      "initial-version": "0.1.0",
+      "bump-minor-pre-major": true,
+      "extra-files": [
+        "SjolystInnovation.AppKit.Hosting.csproj"
+      ],
+      "changelog-sections": [
+        {
+          "type": "feat",
+          "section": "Features"
+        },
+        {
+          "type": "fix",
+          "section": "Bug Fixes"
+        },
+        {
+          "type": "deps",
+          "section": "Dependencies"
+        },
+        {
+          "type": "revert",
+          "section": "Reverts"
+        },
+        {
+          "type": "docs",
+          "section": "Documentation",
+          "hidden": true
+        },
+        {
+          "type": "style",
+          "section": "Styles",
+          "hidden": true
+        },
+        {
+          "type": "chore",
+          "section": "Miscellaneous Chores",
+          "hidden": true
+        },
+        {
+          "type": "refactor",
+          "section": "Code Refactoring",
+          "hidden": true
+        },
+        {
+          "type": "ci",
+          "section": "Continuous Integration",
+          "hidden": true
+        }
+      ]
+    },
     "src/SjolystInnovation.AppKit.Vipps": {
       "release-type": "simple",
       "component": "SjolystInnovation.AppKit.Vipps",

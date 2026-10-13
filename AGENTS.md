@@ -7,6 +7,7 @@
 ```sh
 dotnet build
 dotnet run --project tests/SjolystInnovation.AppKit.Auth.Tests
+dotnet run --project tests/SjolystInnovation.AppKit.Hosting.Tests
 dotnet run --project tests/SjolystInnovation.AppKit.Vipps.Tests
 ```
 
