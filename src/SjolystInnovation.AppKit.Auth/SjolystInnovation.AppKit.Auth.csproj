@@ -2,7 +2,7 @@
   <PropertyGroup>
     <PackageId>SjolystInnovation.AppKit.Auth</PackageId>
     <!-- x-release-please-start-version -->
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <!-- x-release-please-end -->
     <Description>JWT access tokens and bearer validation, rotating refresh tokens with reuse detection and cleanup, Identity defaults, and password reset and email verification codes for ASP.NET Core Identity apps.</Description>
     <PackageTags>jwt;refresh-token;identity;password-reset;email-verification</PackageTags>

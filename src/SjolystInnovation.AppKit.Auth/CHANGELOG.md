@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v0.2.0...SjolystInnovation.AppKit.Auth-v0.3.0) (2026-10-13)
+
+
+### Features
+
+* **auth:** add Identity defaults, JWT bearer validation with a user check, and refresh token cleanup ([#17](https://github.com/sondresjolyst/si-dotnet-packages/issues/17)) ([240b0a6](https://github.com/sondresjolyst/si-dotnet-packages/commit/240b0a6ba936daf130df11230581fdbfec76ec14))
+
 ## [0.2.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v0.1.0...SjolystInnovation.AppKit.Auth-v0.2.0) (2026-10-12)
 
 
