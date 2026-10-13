@@ -17,7 +17,7 @@ public sealed class RateLimitRule
 {
     /// <summary>
     /// <c>VERB:/path</c>, where the verb is an HTTP method or <c>*</c> for any, and <c>*</c> in the path
-    /// matches any run of characters. The whole path must match, ignoring case.
+    /// matches any run of characters. The whole path must match, ignoring case and trailing slashes.
     /// </summary>
     public string Endpoint { get; set; } = "";
 
@@ -139,7 +139,17 @@ internal sealed partial class CompiledRule
 
     public bool Matches(HttpRequest request) =>
         (_verb is null || string.Equals(_verb, request.Method, StringComparison.OrdinalIgnoreCase))
-        && _path.IsMatch(request.Path.Value ?? "");
+        && _path.IsMatch(Normalize(request.Path.Value));
+
+    /// <summary>
+    /// Routing reaches the same endpoint with or without a trailing slash, so trailing slashes are
+    /// dropped before matching. Kestrel has already resolved dot segments.
+    /// </summary>
+    internal static string Normalize(string? path)
+    {
+        var trimmed = (path ?? "").TrimEnd('/');
+        return trimmed.Length == 0 ? "/" : trimmed;
+    }
 
     public static CompiledRule Compile(RateLimitRule rule) =>
         TryCompile(rule, out var compiled) ? compiled : throw new InvalidOperationException($"Rate limit rule '{rule.Endpoint}' is invalid.");

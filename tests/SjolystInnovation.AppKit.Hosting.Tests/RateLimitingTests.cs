@@ -88,6 +88,30 @@ public sealed class RateLimitingTests
         Assert.Equal(200, await StatusAfterAsync(app, 3, "/v2/api/auth/login"));
     }
 
+    [Theory]
+    [InlineData("/api/auth/login/")]
+    [InlineData("/api/auth/login//")]
+    public async Task A_trailing_slash_counts_as_the_same_path(string variant)
+    {
+        await using var app = await StartAsync(Rules(("*:/api/auth/login", "1m", 2)));
+
+        await app.SendAsync("/api/auth/login");
+        await app.SendAsync(variant);
+
+        Assert.Equal(429, (await app.SendAsync(variant)).Response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("/", "/")]
+    [InlineData("", "/")]
+    [InlineData(null, "/")]
+    [InlineData("/api/", "/api")]
+    [InlineData("/api", "/api")]
+    public void Normalizing_keeps_the_root_and_drops_trailing_slashes(string? path, string expected)
+    {
+        Assert.Equal(expected, CompiledRule.Normalize(path));
+    }
+
     [Fact]
     public async Task A_rule_for_one_verb_leaves_the_others_alone()
     {

@@ -65,7 +65,7 @@ Call it first, so later middleware sees the client's address and scheme.
 
 | Field | |
 | --- | --- |
-| `Endpoint` | `VERB:/path`. The verb is an HTTP method or `*`. In the path, `*` matches any run of characters. The whole path must match, ignoring case. |
+| `Endpoint` | `VERB:/path`. The verb is an HTTP method or `*`. In the path, `*` matches any run of characters. The whole path must match, ignoring case and trailing slashes. |
 | `Period` | A whole number with `s`, `m`, `h` or `d`. |
 | `Limit` | Requests per client IP in each period. |
 
