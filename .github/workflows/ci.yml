@@ -32,6 +32,9 @@ jobs:
       - name: Test Auth
         run: dotnet run --project tests/SjolystInnovation.AppKit.Auth.Tests --configuration Release --no-build
 
+      - name: Test Email
+        run: dotnet run --project tests/SjolystInnovation.AppKit.Email.Tests --configuration Release --no-build
+
       - name: Test Hosting
         run: dotnet run --project tests/SjolystInnovation.AppKit.Hosting.Tests --configuration Release --no-build
 
@@ -41,5 +44,6 @@ jobs:
       - name: Pack
         run: |
           dotnet pack src/SjolystInnovation.AppKit.Auth --configuration Release --no-build --output artifacts
+          dotnet pack src/SjolystInnovation.AppKit.Email --configuration Release --no-build --output artifacts
           dotnet pack src/SjolystInnovation.AppKit.Hosting --configuration Release --no-build --output artifacts
           dotnet pack src/SjolystInnovation.AppKit.Vipps --configuration Release --no-build --output artifacts
