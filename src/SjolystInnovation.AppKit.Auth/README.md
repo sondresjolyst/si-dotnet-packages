@@ -88,10 +88,10 @@ Keep access logs for those paths from writing the query string.
 ## Endpoints
 
 `MapAppKitAuthEndpoints<TUser, TContext>` maps the sign-in endpoints, so the app does not write them.
-The app sends the reset email with its own template through `IAuthEmails<TUser>`.
+The reset email goes out through `IAuthEmails<TUser>`, which [Emails](#emails) provides.
 
 ```csharp
-builder.Services.AddScoped<IAuthEmails<User>, AuthEmails>();
+builder.Services.AddAppKitAuthEmails<User>(o => o.SetPasswordUrl = "https://example.com/reset-password");
 
 app.MapAppKitAuthEndpoints<User, ApplicationDbContext>("/api/auth", o => o.IsActive = u => !u.IsDeleted);
 ```
@@ -111,6 +111,58 @@ problem keyed by field, as does a password Identity rejects. A user `IsActive` r
 like an unknown one. Every message is in `o.Messages` and can be translated.
 
 The endpoints log user ids, never addresses.
+
+## Emails
+
+`AddAppKitAuthEmails<TUser>` registers an `IAuthEmails<TUser>` that sends the password reset and
+invite codes. `AddAppKitVerificationEmails<TUser>` adds an `IVerificationEmails<TUser>` for the email
+verification code. All three share one layout: a coloured header with the company details, the code
+in a large box, a button to the app's page and the same link as text under it.
+
+The emails go through `IEmailSender` from SjolystInnovation.AppKit.Email. The company details come
+from an `IEmailBrand` the app registers, so they can follow the app's own settings.
+
+```csharp
+builder.Services.AddAppKitBrevo(builder.Configuration.GetSection("BrevoSettings"));
+builder.Services.AddScoped<IEmailBrand, EmailBrandFromSettings>();
+builder.Services.AddAppKitAuthEmails<User>(o =>
+{
+    o.Language = EmailLanguage.Norwegian;
+    o.HeaderColor = "#0f3d3a";
+    o.AccentColor = "#00887a";
+    o.SetPasswordUrl = "https://example.com/reset-password";
+    o.VerifyEmailUrl = "https://example.com/profile";
+});
+builder.Services.AddAppKitVerificationEmails<User>();
+```
+
+```csharp
+public sealed class EmailBrandFromSettings(ApplicationDbContext db) : IEmailBrand
+{
+    public async Task<EmailBrand> GetBrandAsync(CancellationToken cancellationToken)
+    {
+        var s = await db.AppSettings.SingleAsync(cancellationToken);
+        return new EmailBrand(s.CompanyName) { LegalName = s.LegalName, OrgNumber = $"Org.nr. {s.OrgNumber}", Address = s.Address, Email = s.PublicEmail };
+    }
+}
+```
+
+| Option | Default | |
+| --- | --- | --- |
+| `Language` | `English` | `English` or `Norwegian`. |
+| `HeaderColor` | `#182232` | The header and the code, as `#rrggbb`. |
+| `AccentColor` | `#0284c7` | The button and the code label, as `#rrggbb`. |
+| `SetPasswordUrl` | | Required. The page that takes a reset or invite code. |
+| `VerifyEmailUrl` | | Required with verification emails. The page that takes a verification code. |
+
+Text on the header and the button is white. When a colour is too light for white text, below a
+WCAG contrast of 3 to 1, that text turns near black, and so do the code and its label, so a yellow
+brand stays readable.
+
+The links add `email` and `code` to the page's query string, so the page can fill them in. The
+expiry in the text is read from the code itself, so an invite says 7 days and a reset 30 minutes.
+The options are checked at startup. A user without an issued code is refused with
+`InvalidOperationException`.
 
 ## User administration
 
