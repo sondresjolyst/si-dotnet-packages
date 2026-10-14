@@ -15,8 +15,12 @@ public interface IAuthEmails<in TUser>
     /// <summary>Sends the password reset code to the user's email address.</summary>
     Task SendPasswordResetAsync(TUser user, string code, CancellationToken cancellationToken);
 
-    /// <summary>Sends an invited user the code they choose their first password with.</summary>
-    Task SendInviteAsync(TUser user, string code, CancellationToken cancellationToken);
+    /// <summary>
+    /// Sends an invited user the code they choose their first password with. Only an app that maps
+    /// <see cref="UserAdminExtensions.MapAppKitUserAdmin{TUser, TContext}"/> needs it, so by default it throws.
+    /// </summary>
+    Task SendInviteAsync(TUser user, string code, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Implement IAuthEmails.SendInviteAsync to send invites.");
 }
 
 internal sealed record LoginRequest(string? Email, string? Password);

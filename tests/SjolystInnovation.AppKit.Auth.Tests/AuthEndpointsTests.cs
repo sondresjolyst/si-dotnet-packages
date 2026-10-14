@@ -26,8 +26,6 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
             Sent.Add((user.Id, code));
             return Task.CompletedTask;
         }
-
-        public Task SendInviteAsync(IdentityTestUser user, string code, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     private const string Password = "Password1";
@@ -499,6 +497,14 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(["Code", "NewPassword"], await ErrorFieldsAsync(response));
+    }
+
+    [Fact]
+    public async Task An_app_that_sends_no_invites_need_not_implement_them()
+    {
+        IAuthEmails<IdentityTestUser> emails = new FakeEmails();
+
+        await Assert.ThrowsAsync<NotSupportedException>(() => emails.SendInviteAsync(new IdentityTestUser(), "ABC123", CancellationToken.None));
     }
 
     [Fact]

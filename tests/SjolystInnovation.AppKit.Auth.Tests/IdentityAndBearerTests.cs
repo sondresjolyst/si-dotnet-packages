@@ -92,6 +92,7 @@ public sealed class IdentityAndBearerTests : IAsyncDisposable
                     {
                         e.MapGet("/me", (ClaimsPrincipal user) => user.FindFirstValue(ClaimTypes.NameIdentifier)).RequireAuthorization();
                         e.MapGet("/hubs/devices", (ClaimsPrincipal user) => user.FindFirstValue(ClaimTypes.NameIdentifier)).RequireAuthorization();
+                        e.MapGet("/admin", () => "ok").RequireAuthorization(p => p.RequireRole("Admin"));
                     });
                 }))
             .Build();
@@ -223,6 +224,56 @@ public sealed class IdentityAndBearerTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await GetAsync(client, "/me", deleted)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await GetAsync(client, "/me", active)).StatusCode);
+    }
+
+    private async Task<string> AdminTokenAsync(string id, bool inRole, bool roleInToken)
+    {
+        using var scope = _host!.Services.CreateScope();
+        var roles = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+        if (!await roles.RoleExistsAsync("Admin"))
+            await roles.CreateAsync(new IdentityRole("Admin"));
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityTestUser>>();
+        var user = new IdentityTestUser { Id = id, UserName = id, Email = $"{id}@example.invalid" };
+        Assert.True((await users.CreateAsync(user)).Succeeded);
+        if (inRole)
+            await users.AddToRoleAsync(user, "Admin");
+        return scope.ServiceProvider.GetRequiredService<IJwtTokenService>().Build(user, roleInToken ? ["Admin"] : []);
+    }
+
+    [Fact]
+    public async Task A_role_taken_away_stops_counting_once_the_cached_answer_expires()
+    {
+        var client = await StartAsync(configure: o => o.UserCheckCacheDuration = TimeSpan.FromMilliseconds(300));
+        var token = await AdminTokenAsync("demoted", inRole: true, roleInToken: true);
+        Assert.Equal(HttpStatusCode.OK, (await GetAsync(client, "/admin", token)).StatusCode);
+
+        using (var scope = _host!.Services.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityTestUser>>();
+            await users.RemoveFromRoleAsync((await users.FindByIdAsync("demoted"))!, "Admin");
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await GetAsync(client, "/admin", token)).StatusCode);
+        await Task.Delay(400);
+        Assert.Equal(HttpStatusCode.Forbidden, (await GetAsync(client, "/admin", token)).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_role_given_after_the_token_was_issued_counts()
+    {
+        var client = await StartAsync();
+        var token = await AdminTokenAsync("promoted", inRole: true, roleInToken: false);
+
+        Assert.Equal(HttpStatusCode.OK, (await GetAsync(client, "/admin", token)).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_role_in_the_token_that_the_user_never_had_does_not_count()
+    {
+        var client = await StartAsync();
+        var token = await AdminTokenAsync("pretender", inRole: false, roleInToken: true);
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await GetAsync(client, "/admin", token)).StatusCode);
     }
 
     [Fact]

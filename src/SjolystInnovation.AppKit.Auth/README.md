@@ -72,8 +72,9 @@ first, and validates the tokens `IJwtTokenService` writes: the signature, the is
 and the lifetime with 30 seconds of clock skew. Call it after `AddAppKitAuth`.
 
 A token is refused when its user no longer exists or `isActive` returns false for the user. The
-answer is cached per user for a minute, so a deleted account stops working within a minute instead of
-when its access token expires.
+check also replaces the token's roles with the user's current roles. The answer is cached per user
+for a minute, so a deleted account stops working, and a role taken away stops counting, within a
+minute instead of when the access token expires.
 
 SignalR cannot send a header when it opens a WebSocket, so list the paths that may take the token as
 `?access_token=`:
@@ -115,7 +116,7 @@ The endpoints log user ids, never addresses.
 
 `MapAppKitUserAdmin<TUser, TContext>` maps the admin endpoints for users and roles. The user implements
 `IAppKitAccount` (`FirstName`, `LastName`, `CreatedAt`, `IsDeleted`), and the invite email goes out
-through `IAuthEmails<TUser>.SendInviteAsync`.
+through `IAuthEmails<TUser>.SendInviteAsync`, which throws unless the app implements it.
 
 ```csharp
 app.MapAppKitUserAdmin<User, ApplicationDbContext>("/api/users", o =>
