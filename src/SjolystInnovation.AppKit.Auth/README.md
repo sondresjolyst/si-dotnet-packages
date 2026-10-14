@@ -145,6 +145,44 @@ role. It does nothing until both are set.
 await app.Services.SeedAppKitFirstAdminAsync<User>(app.Configuration, (email, first, last) => new User { FirstName = first, LastName = last });
 ```
 
+## Account deletion
+
+`AddAppKitAccounts<TUser, TContext>` registers `IAccountDeleter<TUser>`. Deleting keeps the user row, so
+records that point at it, such as invoices kept for bookkeeping, keep a valid user. In one transaction
+it runs every `IAccountDataEraser<TUser>` the app registers, then scrubs the user: names, email and
+username become placeholders, the phone, password, codes and confirmed email are cleared, the account
+is locked for good, `IsDeleted` and `DeletedAt` are set and the security stamp is rotated. Every
+refresh token is deleted. A failing step rolls all of it back. Once committed, every
+`IAccountDeletedHandler<TUser>` runs, such as one that closes the user's live connections, and the
+bearer check forgets the user so a token in use stops at once on that instance. Other instances keep
+their cached answer until it expires, within `UserCheckCacheDuration`, and no instance can issue a new
+token since the refresh tokens are gone.
+
+```csharp
+builder.Services.AddAppKitAccounts<User, ApplicationDbContext>(o => o.AdminRole = RoleNames.Admin);
+builder.Services.AddScoped<IAccountDataEraser<User>, DeviceDataEraser>();
+```
+
+The last active admin cannot be deleted: `DeleteAsync` throws `LastAdminException`. The deletion runs
+serializable with that check inside, so two admins deleting each other at once cannot both succeed. The
+database aborts one, and `DeleteAsync` throws `AccountChangeConflictException`, after which trying again
+may succeed.
+
+## Account endpoints
+
+`MapAppKitAccount<TUser>` maps the signed-in user's own account under the prefix. The user or an admin
+may act, except that only the user changes their own password.
+
+| Route | Answer |
+| --- | --- |
+| `GET {id}/profile` | `{ id, userName, firstName, lastName, email, createdAt }` |
+| `PUT {id}/profile` with `firstName`, `lastName` | The updated profile. Names are required, at most 50 characters. |
+| `PUT {id}/password` with `currentPassword`, `newPassword` | `200`. A wrong current password or a weak new one is a validation problem on `NewPassword`. |
+| `GET {id}/export` | `{ account, roles, exportedAt }`, plus `data` from an `IAccountExport<TUser>` when the app registers one. |
+| `DELETE {id}/account` | `204` through `IAccountDeleter`. The last admin, or a change that collided with it, gives `409`. |
+
+A missing or deleted account gives `404`, and someone else's account `403`.
+
 ## Signing in
 
 ```csharp

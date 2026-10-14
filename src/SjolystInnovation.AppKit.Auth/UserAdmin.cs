@@ -12,13 +12,14 @@ using Microsoft.Extensions.Logging;
 
 namespace SjolystInnovation.AppKit.Auth;
 
-/// <summary>The user fields the admin endpoints read.</summary>
+/// <summary>The user fields the account and admin endpoints read and the account deleter scrubs.</summary>
 public interface IAppKitAccount
 {
-    string FirstName { get; }
-    string LastName { get; }
+    string FirstName { get; set; }
+    string LastName { get; set; }
     DateTime CreatedAt { get; }
-    bool IsDeleted { get; }
+    bool IsDeleted { get; set; }
+    DateTime? DeletedAt { get; set; }
 }
 
 /// <summary>Settings for <see cref="UserAdminExtensions.MapAppKitUserAdmin{TUser, TContext}"/>.</summary>
