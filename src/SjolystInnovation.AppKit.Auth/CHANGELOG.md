@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v0.7.0...SjolystInnovation.AppKit.Auth-v0.8.0) (2026-10-14)
+
+
+### Features
+
+* **auth:** run IUserRolesChangedHandler after role changes and apply them at once ([#29](https://github.com/sondresjolyst/si-dotnet-packages/issues/29)) ([3594e6f](https://github.com/sondresjolyst/si-dotnet-packages/commit/3594e6f3a4753703125151bab3b8512158dbb211))
+
 ## [0.7.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v0.6.0...SjolystInnovation.AppKit.Auth-v0.7.0) (2026-10-14)
 
 
