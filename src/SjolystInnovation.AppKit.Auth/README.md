@@ -84,6 +84,33 @@ builder.Services.AddAppKitJwtBearer<User>(u => !u.IsDeleted, o => o.QueryTokenPa
 
 Keep access logs for those paths from writing the query string.
 
+## Endpoints
+
+`MapAppKitAuthEndpoints<TUser, TContext>` maps the sign-in endpoints, so the app does not write them.
+The app sends the reset email with its own template through `IAuthEmails<TUser>`.
+
+```csharp
+builder.Services.AddScoped<IAuthEmails<User>, AuthEmails>();
+
+app.MapAppKitAuthEndpoints<User, ApplicationDbContext>("/api/auth", o => o.IsActive = u => !u.IsDeleted);
+```
+
+All are anonymous POSTs under the prefix:
+
+| Route | Body | Answer |
+| --- | --- | --- |
+| `login` | `email`, `password` | `200 { token, refreshToken }`. A wrong password counts towards the lockout. |
+| `refresh-token` | `token`, `refreshToken` | `200 { token, refreshToken }`. A used token ends every session. |
+| `logout` | `refreshToken` | `204`, whether or not the token was live. |
+| `request-password-reset` | `email` | `200`, whether or not the address has an account. Emails a code to one that does. |
+| `reset-password` | `email`, `code`, `newPassword` | `200`, and every session ends. `429` after 5 wrong codes. |
+
+Refusals answer `{ message }` with `400` or `401`. A missing or malformed field answers a validation
+problem keyed by field, as does a password Identity rejects. A user `IsActive` refuses is treated
+like an unknown one. Every message is in `o.Messages` and can be translated.
+
+The endpoints log user ids, never addresses.
+
 ## Signing in
 
 ```csharp
