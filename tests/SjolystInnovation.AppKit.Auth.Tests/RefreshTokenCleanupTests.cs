@@ -68,18 +68,23 @@ public sealed class RefreshTokenCleanupTests : IDisposable
         Seed(("expired", TimeSpan.FromSeconds(-1), false), ("tomorrow", TimeSpan.FromHours(12), false));
         var service = Service();
 
+        // The service and the test share one in-memory connection, which is not thread safe, so the test
+        // follows the service through its log while it runs and reads the database once it has stopped.
         await service.StartAsync(CancellationToken.None);
-        await WaitUntil(() => Remaining().Length == 1);
-        Assert.Equal(["tomorrow"], Remaining());
-
+        await WaitUntil(() => Runs() == 1);
         _time.Advance(TimeSpan.FromHours(23));
         await Task.Delay(100);
-        Assert.Equal(["tomorrow"], Remaining());
+        Assert.Equal(1, Runs());
 
         _time.Advance(TimeSpan.FromHours(1));
-        await WaitUntil(() => Remaining().Length == 0);
+        await WaitUntil(() => Runs() == 2);
         await service.StopAsync(CancellationToken.None);
+
+        Assert.Empty(Remaining());
+        Assert.DoesNotContain(_logger.Collector.GetSnapshot(), r => r.Level == LogLevel.Error);
     }
+
+    private int Runs() => _logger.Collector.GetSnapshot().Count(r => r.Message.StartsWith("Deleted 1 expired", StringComparison.Ordinal));
 
     [Fact]
     public async Task A_failed_run_is_logged_and_does_not_stop_the_service()
@@ -105,7 +110,7 @@ public sealed class RefreshTokenCleanupTests : IDisposable
 
     private static async Task WaitUntil(Func<bool> condition)
     {
-        for (var i = 0; i < 100 && !condition(); i++)
+        for (var i = 0; i < 500 && !condition(); i++)
             await Task.Delay(20);
         Assert.True(condition());
     }
