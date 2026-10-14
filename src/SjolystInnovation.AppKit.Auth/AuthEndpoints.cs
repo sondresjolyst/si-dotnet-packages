@@ -14,6 +14,9 @@ public interface IAuthEmails<in TUser>
 {
     /// <summary>Sends the password reset code to the user's email address.</summary>
     Task SendPasswordResetAsync(TUser user, string code, CancellationToken cancellationToken);
+
+    /// <summary>Sends an invited user the code they choose their first password with.</summary>
+    Task SendInviteAsync(TUser user, string code, CancellationToken cancellationToken);
 }
 
 internal sealed record LoginRequest(string? Email, string? Password);

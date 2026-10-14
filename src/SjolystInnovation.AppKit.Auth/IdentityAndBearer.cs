@@ -66,7 +66,9 @@ public static class IdentityAndBearerExtensions
     /// <see cref="AuthOptions.Issuer"/>, and the lifetime with 30 seconds of clock skew. Call it after
     /// <see cref="ServiceCollectionExtensions.AddAppKitAuth{TContext}"/>. A token is refused when its
     /// user no longer exists or <paramref name="isActive"/> returns false for the user, so a deleted
-    /// account stops working within <see cref="AppKitJwtBearerOptions.UserCheckCacheDuration"/>.
+    /// account stops working within <see cref="AppKitJwtBearerOptions.UserCheckCacheDuration"/>. The
+    /// token's role claims are replaced with the user's current roles from the same check, so a role
+    /// taken away stops counting within that time too.
     /// </summary>
     public static AuthenticationBuilder AddAppKitJwtBearer<TUser>(this IServiceCollection services,
         Func<TUser, bool>? isActive = null, Action<AppKitJwtBearerOptions>? configure = null)
@@ -130,14 +132,28 @@ public static class IdentityAndBearerExtensions
 
         var services = context.HttpContext.RequestServices;
         var cache = services.GetRequiredService<IMemoryCache>();
-        var key = $"SjolystInnovation.AppKit.Auth:user-active:{userId}";
-        if (!cache.TryGetValue(key, out bool active))
+        var key = $"SjolystInnovation.AppKit.Auth:user-check:{userId}";
+        if (!cache.TryGetValue(key, out IReadOnlyList<string>? roles))
         {
-            var user = await services.GetRequiredService<UserManager<TUser>>().FindByIdAsync(userId);
-            active = user is not null && (isActive is null || isActive(user));
-            cache.Set(key, active, cacheFor);
+            var users = services.GetRequiredService<UserManager<TUser>>();
+            var user = await users.FindByIdAsync(userId);
+            // Null means the user is gone or not active.
+            roles = user is not null && (isActive is null || isActive(user)) ? [.. await users.GetRolesAsync(user)] : null;
+            cache.Set(key, roles, cacheFor);
         }
-        if (!active)
+        if (roles is null)
+        {
             context.Fail("The user no longer exists or is not active.");
+            return;
+        }
+
+        // The roles in the token were true when it was issued. The current ones replace them.
+        if (context.Principal?.Identity is ClaimsIdentity identity)
+        {
+            foreach (var claim in identity.FindAll(identity.RoleClaimType).ToList())
+                identity.RemoveClaim(claim);
+            foreach (var role in roles)
+                identity.AddClaim(new Claim(identity.RoleClaimType, role));
+        }
     }
 }

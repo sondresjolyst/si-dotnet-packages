@@ -72,8 +72,9 @@ first, and validates the tokens `IJwtTokenService` writes: the signature, the is
 and the lifetime with 30 seconds of clock skew. Call it after `AddAppKitAuth`.
 
 A token is refused when its user no longer exists or `isActive` returns false for the user. The
-answer is cached per user for a minute, so a deleted account stops working within a minute instead of
-when its access token expires.
+check also replaces the token's roles with the user's current roles. The answer is cached per user
+for a minute, so a deleted account stops working, and a role taken away stops counting, within a
+minute instead of when the access token expires.
 
 SignalR cannot send a header when it opens a WebSocket, so list the paths that may take the token as
 `?access_token=`:
@@ -110,6 +111,39 @@ problem keyed by field, as does a password Identity rejects. A user `IsActive` r
 like an unknown one. Every message is in `o.Messages` and can be translated.
 
 The endpoints log user ids, never addresses.
+
+## User administration
+
+`MapAppKitUserAdmin<TUser, TContext>` maps the admin endpoints for users and roles. The user implements
+`IAppKitAccount` (`FirstName`, `LastName`, `CreatedAt`, `IsDeleted`), and the invite email goes out
+through `IAuthEmails<TUser>.SendInviteAsync`.
+
+```csharp
+app.MapAppKitUserAdmin<User, ApplicationDbContext>("/api/users", o =>
+{
+    o.Roles = RoleNames.AllRoles;
+    o.AdminRole = RoleNames.Admin;
+    o.Policy = Policies.Admin;
+    o.NewUser = (email, first, last) => new User { FirstName = first, LastName = last };
+});
+```
+
+| Route | Answer |
+| --- | --- |
+| `GET` | Users by email with their roles. `?includeDeleted=true` adds deleted users. |
+| `POST {id}/roles` with `role` | `200`. A role outside `Roles` gives `400`, a missing or deleted user `404`. |
+| `DELETE {id}/roles/{role}` | `204`. Nobody takes their own admin role (`400`), and the last active admin keeps it (`409`). |
+| `POST invite` with `email`, `firstName`, `lastName`, `role` | `200`. Creates the account without a password, with a confirmed email, and emails a code that lasts `InviteLifetime` (seven days). The invitee sets a password with it on `reset-password`. An email with an account gives `409`. |
+
+Every route needs `Policy`. Mapping fails without `NewUser`.
+
+`SeedAppKitFirstAdminAsync<TUser>` creates the first admin from `Seed:AdminEmail` and
+`Seed:AdminPassword` while nobody holds the admin role, or gives an existing user with that email the
+role. It does nothing until both are set.
+
+```csharp
+await app.Services.SeedAppKitFirstAdminAsync<User>(app.Configuration, (email, first, last) => new User { FirstName = first, LastName = last });
+```
 
 ## Signing in
 
