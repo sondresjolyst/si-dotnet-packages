@@ -119,6 +119,9 @@ public static class IdentityAndBearerExtensions
         return builder;
     }
 
+    /// <summary>The cache key of the bearer check's answer for a user, removed when the user's roles or account change.</summary>
+    internal static string UserCheckKey(string userId) => $"SjolystInnovation.AppKit.Auth:user-check:{userId}";
+
     private static async Task CheckUserAsync<TUser>(TokenValidatedContext context, Func<TUser, bool>? isActive, TimeSpan cacheFor)
         where TUser : IdentityUser
     {
@@ -132,7 +135,7 @@ public static class IdentityAndBearerExtensions
 
         var services = context.HttpContext.RequestServices;
         var cache = services.GetRequiredService<IMemoryCache>();
-        var key = $"SjolystInnovation.AppKit.Auth:user-check:{userId}";
+        var key = UserCheckKey(userId);
         if (!cache.TryGetValue(key, out IReadOnlyList<string>? roles))
         {
             var users = services.GetRequiredService<UserManager<TUser>>();

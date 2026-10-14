@@ -87,7 +87,7 @@ internal sealed partial class AccountDeleter<TUser, TContext>(
         }
 
         // The bearer check forgets the user, so a token still in use stops at once on this instance.
-        cache.Remove($"SjolystInnovation.AppKit.Auth:user-check:{user.Id}");
+        cache.Remove(IdentityAndBearerExtensions.UserCheckKey(user.Id));
         Log.Deleted(logger, user.Id);
         foreach (var handler in handlers)
             await handler.OnDeletedAsync(user, cancellationToken);

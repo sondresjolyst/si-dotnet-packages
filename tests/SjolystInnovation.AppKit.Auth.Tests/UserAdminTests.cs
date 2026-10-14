@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -47,6 +48,22 @@ public sealed class UserAdminTests : IAsyncDisposable
             return Task.CompletedTask;
         }
     }
+
+    private sealed class RecordingHandler(UserAdminTests test) : IUserRolesChangedHandler<IdentityTestUser>
+    {
+        public async Task OnRolesChangedAsync(IdentityTestUser user, CancellationToken cancellationToken)
+        {
+            // The change is saved before the handler runs.
+            using var scope = test._host!.Services.CreateScope();
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityTestUser>>();
+            test.Changed.Add((user.Id, string.Join(",", (await users.GetRolesAsync((await users.FindByIdAsync(user.Id))!)).Order())));
+            if (test.HandlerThrows)
+                throw new InvalidOperationException("handler failed");
+        }
+    }
+
+    private List<(string UserId, string Roles)> Changed { get; } = [];
+    private bool HandlerThrows { get; set; }
 
     private static readonly string[] Roles = ["Admin", "Editor", "Default"];
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
@@ -87,6 +104,9 @@ public sealed class UserAdminTests : IAsyncDisposable
                     });
                     s.AddAuthorization(o => o.AddPolicy("Admin", p => p.RequireRole("Admin")));
                     s.AddSingleton<IAuthEmails<IdentityTestUser>>(_emails);
+                    s.AddScoped<IUserRolesChangedHandler<IdentityTestUser>>(_ => new RecordingHandler(this));
+                    s.AddScoped<IUserRolesChangedHandler<IdentityTestUser>>(_ => new RecordingHandler(this));
+                    s.AddMemoryCache();
                     s.AddRouting();
                 })
                 .Configure(app =>
@@ -149,6 +169,87 @@ public sealed class UserAdminTests : IAsyncDisposable
         JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
 
     private static async Task<string> MessageAsync(HttpResponseMessage response) => (await JsonAsync(response)).GetProperty("message").GetString()!;
+
+    private void Cache(string id) => _host!.Services.GetRequiredService<IMemoryCache>().Set(IdentityAndBearerExtensions.UserCheckKey(id), (IReadOnlyList<string>)["Admin"]);
+
+    private bool Cached(string id) => _host!.Services.GetRequiredService<IMemoryCache>().TryGetValue(IdentityAndBearerExtensions.UserCheckKey(id), out _);
+
+    // Role change handlers
+
+    [Fact]
+    public async Task Giving_a_role_runs_every_handler_after_saving_and_forgets_the_cached_roles()
+    {
+        await StartAsync();
+        await UserAsync("u1", false, "Default");
+        Cache("u1");
+        Cache("u2");
+
+        var response = await SendAsync(HttpMethod.Post, "/api/users/u1/roles", new { role = "Editor" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal([("u1", "Default,Editor"), ("u1", "Default,Editor")], Changed);
+        Assert.False(Cached("u1"));
+        Assert.True(Cached("u2"));
+    }
+
+    [Fact]
+    public async Task Taking_a_role_runs_every_handler_after_saving_and_forgets_the_cached_roles()
+    {
+        await StartAsync();
+        await UserAsync("u1", false, "Default", "Editor");
+        Cache("u1");
+
+        var response = await SendAsync(HttpMethod.Delete, "/api/users/u1/roles/Editor");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal([("u1", "Default"), ("u1", "Default")], Changed);
+        Assert.False(Cached("u1"));
+    }
+
+    [Fact]
+    public async Task An_invite_runs_the_handlers_for_the_new_user()
+    {
+        await StartAsync();
+
+        var response = await SendAsync(HttpMethod.Post, "/api/users/invite", new { email = "new@example.invalid", firstName = "N", lastName = "U", role = "Editor" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var (userId, roles) = Assert.Single(Changed.Distinct());
+        Assert.Equal("Editor", roles);
+        Assert.Equal(_emails.Invites.Single().UserId, userId);
+    }
+
+    [Fact]
+    public async Task A_change_that_does_not_happen_runs_no_handler_and_keeps_the_cache()
+    {
+        await StartAsync();
+        await UserAsync("boss", false, "Admin");
+        await UserAsync("u1", false, "Editor");
+        Cache("u1");
+        Cache("boss");
+
+        await SendAsync(HttpMethod.Post, "/api/users/u1/roles", new { role = "Editor" });
+        await SendAsync(HttpMethod.Post, "/api/users/u1/roles", new { role = "Nope" });
+        await SendAsync(HttpMethod.Delete, "/api/users/u1/roles/Default");
+        await SendAsync(HttpMethod.Delete, "/api/users/boss/roles/Admin", caller: "other");
+        await SendAsync(HttpMethod.Post, "/api/users/invite", new { email = "u1@example.invalid", firstName = "N", lastName = "U", role = "Editor" });
+
+        Assert.Empty(Changed);
+        Assert.True(Cached("u1"));
+        Assert.True(Cached("boss"));
+    }
+
+    [Fact]
+    public async Task A_failing_handler_fails_the_request_but_the_role_change_stays()
+    {
+        await StartAsync();
+        await UserAsync("u1", false, "Default");
+        HandlerThrows = true;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => SendAsync(HttpMethod.Post, "/api/users/u1/roles", new { role = "Editor" }));
+
+        Assert.Equal(["Default", "Editor"], await RolesOfAsync("u1"));
+    }
 
     // Access
 
