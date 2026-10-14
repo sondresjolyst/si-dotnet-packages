@@ -154,7 +154,9 @@ username become placeholders, the phone, password, codes and confirmed email are
 is locked for good, `IsDeleted` and `DeletedAt` are set and the security stamp is rotated. Every
 refresh token is deleted. A failing step rolls all of it back. Once committed, every
 `IAccountDeletedHandler<TUser>` runs, such as one that closes the user's live connections, and the
-bearer check forgets the user so a token in use stops at once.
+bearer check forgets the user so a token in use stops at once on that instance. Other instances keep
+their cached answer until it expires, within `UserCheckCacheDuration`, and no instance can issue a new
+token since the refresh tokens are gone.
 
 ```csharp
 builder.Services.AddAppKitAccounts<User, ApplicationDbContext>(o => o.AdminRole = RoleNames.Admin);
