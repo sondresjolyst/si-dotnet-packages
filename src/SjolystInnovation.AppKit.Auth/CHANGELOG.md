@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v0.5.0...SjolystInnovation.AppKit.Auth-v0.6.0) (2026-10-14)
+
+
+### Features
+
+* **auth:** add IAccountDeleter and MapAppKitAccount for profile, password, export and account deletion ([#25](https://github.com/sondresjolyst/si-dotnet-packages/issues/25)) ([9e5118e](https://github.com/sondresjolyst/si-dotnet-packages/commit/9e5118e24c58f435879154e11e946d573f2bf4c6))
+
 ## [0.5.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v0.4.0...SjolystInnovation.AppKit.Auth-v0.5.0) (2026-10-14)
 
 
