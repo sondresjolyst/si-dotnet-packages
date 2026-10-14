@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -20,6 +21,15 @@ public interface IAppKitAccount
     DateTime CreatedAt { get; }
     bool IsDeleted { get; set; }
     DateTime? DeletedAt { get; set; }
+}
+
+/// <summary>
+/// Runs after an admin endpoint gives a user a role or takes one away, such as to update what the role
+/// grants. The role change is saved first, so an exception here fails the request but keeps the change.
+/// </summary>
+public interface IUserRolesChangedHandler<in TUser>
+{
+    Task OnRolesChangedAsync(TUser user, CancellationToken cancellationToken);
 }
 
 /// <summary>Settings for <see cref="UserAdminExtensions.MapAppKitUserAdmin{TUser, TContext}"/>.</summary>
@@ -182,9 +192,10 @@ internal sealed class UserAdminHandlers<TUser, TContext>(AppKitUserAdminOptions<
             return TypedResults.Ok(new MessageResponse("User already has this role."));
 
         var result = await users.AddToRoleAsync(user, request.Role);
-        return result.Succeeded
-            ? TypedResults.Ok(new MessageResponse("Role assigned."))
-            : Message("Failed to assign role.", StatusCodes.Status400BadRequest);
+        if (!result.Succeeded)
+            return Message("Failed to assign role.", StatusCodes.Status400BadRequest);
+        await RolesChangedAsync(user, http);
+        return TypedResults.Ok(new MessageResponse("Role assigned."));
     }
 
     public async Task<IResult> RemoveRoleAsync(string id, string role, HttpContext http)
@@ -206,7 +217,10 @@ internal sealed class UserAdminHandlers<TUser, TContext>(AppKitUserAdminOptions<
             return Message("The last admin keeps the admin role. Give someone else the role first.", StatusCodes.Status409Conflict);
 
         var result = await users.RemoveFromRoleAsync(user, role);
-        return result.Succeeded ? TypedResults.NoContent() : Message("Failed to remove role.", StatusCodes.Status400BadRequest);
+        if (!result.Succeeded)
+            return Message("Failed to remove role.", StatusCodes.Status400BadRequest);
+        await RolesChangedAsync(user, http);
+        return TypedResults.NoContent();
     }
 
     public async Task<IResult> InviteAsync(InviteRequest request, HttpContext http)
@@ -243,9 +257,18 @@ internal sealed class UserAdminHandlers<TUser, TContext>(AppKitUserAdminOptions<
         }
         var code = PasswordResetCodes.Issue(user, lifetime: options.InviteLifetime);
         await users.UpdateAsync(user);
+        await RolesChangedAsync(user, http);
         await Get<IAuthEmails<TUser>>(http).SendInviteAsync(user, code, http.RequestAborted);
         UserAdminExtensions.Log.Invited(logger, user.Id, request.Role!);
         return TypedResults.Ok(new MessageResponse("Invitation sent."));
+    }
+
+    // The bearer check forgets the user's cached roles, so the change applies at once on this instance.
+    private static async Task RolesChangedAsync(TUser user, HttpContext http)
+    {
+        http.RequestServices.GetService<IMemoryCache>()?.Remove(IdentityAndBearerExtensions.UserCheckKey(user.Id));
+        foreach (var handler in http.RequestServices.GetServices<IUserRolesChangedHandler<TUser>>())
+            await handler.OnRolesChangedAsync(user, http.RequestAborted);
     }
 
     // Identity throws instead of failing when the role is missing from the database.

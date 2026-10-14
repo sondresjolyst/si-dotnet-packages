@@ -189,6 +189,15 @@ app.MapAppKitUserAdmin<User, ApplicationDbContext>("/api/users", o =>
 
 Every route needs `Policy`. Mapping fails without `NewUser`.
 
+After a role is given or taken away, the bearer check forgets the user's cached roles, so the change
+applies at once on that instance, and every `IUserRolesChangedHandler<TUser>` the app registers runs,
+such as one that updates what the role grants. A handler that throws fails the request, but the role
+change is already saved.
+
+```csharp
+builder.Services.AddScoped<IUserRolesChangedHandler<User>, SecurityRoleSync>();
+```
+
 `SeedAppKitFirstAdminAsync<TUser>` creates the first admin from `Seed:AdminEmail` and
 `Seed:AdminPassword` while nobody holds the admin role, or gives an existing user with that email the
 role. It does nothing until both are set.
