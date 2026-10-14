@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v0.6.0...SjolystInnovation.AppKit.Auth-v0.7.0) (2026-10-14)
+
+
+### Features
+
+* **auth:** add shared reset, invite and verification emails with AddAppKitAuthEmails ([#27](https://github.com/sondresjolyst/si-dotnet-packages/issues/27)) ([ec740b2](https://github.com/sondresjolyst/si-dotnet-packages/commit/ec740b2592cd2924470baf252bb862ee87f14fc4))
+
 ## [0.6.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v0.5.0...SjolystInnovation.AppKit.Auth-v0.6.0) (2026-10-14)
 
 
