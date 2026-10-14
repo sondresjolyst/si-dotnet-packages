@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v0.4.0...SjolystInnovation.AppKit.Auth-v0.5.0) (2026-10-14)
+
+
+### Features
+
+* **auth:** add MapAppKitUserAdmin for users, roles and invites, and first-admin seeding ([#23](https://github.com/sondresjolyst/si-dotnet-packages/issues/23)) ([8d14943](https://github.com/sondresjolyst/si-dotnet-packages/commit/8d149436a828521cfcbc14f18aae32872f36bed6))
+
 ## [0.4.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v0.3.0...SjolystInnovation.AppKit.Auth-v0.4.0) (2026-10-14)
 
 
