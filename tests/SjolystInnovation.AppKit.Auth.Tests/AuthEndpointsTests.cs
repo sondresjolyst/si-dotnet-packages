@@ -26,6 +26,8 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
             Sent.Add((user.Id, code));
             return Task.CompletedTask;
         }
+
+        public Task SendInviteAsync(IdentityTestUser user, string code, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     private const string Password = "Password1";

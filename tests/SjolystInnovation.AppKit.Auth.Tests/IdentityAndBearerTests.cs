@@ -18,8 +18,11 @@ using Xunit;
 
 namespace SjolystInnovation.AppKit.Auth.Tests;
 
-public class IdentityTestUser : IdentityUser, IPasswordResetUser
+public class IdentityTestUser : IdentityUser, IPasswordResetUser, IAppKitAccount
 {
+    public string FirstName { get; set; } = "";
+    public string LastName { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public bool IsDeleted { get; set; }
     public string? PasswordResetCodeHash { get; set; }
     public DateTime? PasswordResetCodeExpiration { get; set; }
