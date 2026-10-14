@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v0.3.0...SjolystInnovation.AppKit.Auth-v0.4.0) (2026-10-14)
+
+
+### Features
+
+* **auth:** add MapAppKitAuthEndpoints for login, refresh, logout and password reset ([#21](https://github.com/sondresjolyst/si-dotnet-packages/issues/21)) ([d6a0149](https://github.com/sondresjolyst/si-dotnet-packages/commit/d6a0149b9692d4e8f149215ab2e76be91354c6f5))
+
 ## [0.3.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v0.2.0...SjolystInnovation.AppKit.Auth-v0.3.0) (2026-10-13)
 
 
