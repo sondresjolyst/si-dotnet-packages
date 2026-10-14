@@ -41,10 +41,16 @@ public sealed partial class AppKitAuthEmailOptions
 {
     public EmailLanguage Language { get; set; } = EmailLanguage.English;
 
-    /// <summary>The header band's background and the code's colour, as <c>#rrggbb</c>.</summary>
+    /// <summary>
+    /// The header band's background and the code's colour, as <c>#rrggbb</c>. Text on it is white, or near
+    /// black when the colour is too light for white text, and the code is near black then too.
+    /// </summary>
     public string HeaderColor { get; set; } = "#182232";
 
-    /// <summary>The button's and the code label's colour, as <c>#rrggbb</c>.</summary>
+    /// <summary>
+    /// The button's and the code label's colour, as <c>#rrggbb</c>. The button text and a too light label
+    /// follow the same rule as <see cref="HeaderColor"/>.
+    /// </summary>
     public string AccentColor { get; set; } = "#0284c7";
 
     /// <summary>
@@ -205,6 +211,24 @@ internal static class AuthEmailRenderer
 
     private static string H(string? value) => WebUtility.HtmlEncode(value ?? string.Empty);
 
+    /// <summary>The near black used for text where a brand colour is too light to read on.</summary>
+    internal const string Ink = "#1a1a1a";
+
+    /// <summary>
+    /// Whether white text reads on the colour, and the colour reads on white, at a WCAG contrast of at
+    /// least 3 to 1, the level for large and bold text.
+    /// </summary>
+    internal static bool ReadsOnWhite(string hex)
+    {
+        static double Channel(string hex, int at)
+        {
+            var c = int.Parse(hex.AsSpan(at, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture) / 255.0;
+            return c <= 0.03928 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4);
+        }
+        var luminance = 0.2126 * Channel(hex, 1) + 0.7152 * Channel(hex, 3) + 0.0722 * Channel(hex, 5);
+        return 1.05 / (luminance + 0.05) >= 3;
+    }
+
     private static string F(string format, string value) => string.Format(CultureInfo.InvariantCulture, format, value);
 
     /// <summary>The page address with the email and code added to its query string.</summary>
@@ -232,6 +256,11 @@ internal static class AuthEmailRenderer
             .Where(l => !string.IsNullOrWhiteSpace(l)).Select(H));
         var header = options.HeaderColor;
         var accent = options.AccentColor;
+        var headerText = ReadsOnWhite(header) ? "#fff" : Ink;
+        var accentText = ReadsOnWhite(accent) ? "#fff" : Ink;
+        var codeColor = ReadsOnWhite(header) ? header : Ink;
+        var labelColor = ReadsOnWhite(accent) ? accent : Ink;
+        var badge = ReadsOnWhite(header) ? "background:rgba(255,255,255,.25);border:1px solid rgba(255,255,255,.5)" : "background:rgba(0,0,0,.08);border:1px solid rgba(0,0,0,.4)";
         const string Paragraph = "line-height:1.6;color:#333;font-size:13px";
 
         var html = $$"""
@@ -239,14 +268,14 @@ internal static class AuthEmailRenderer
             <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
             <body style="margin:0;background:#fff;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;max-width:600px;margin:0 auto">
-              <tr><td style="background:{{header}};color:#fff;padding:28px 32px 20px">
+              <tr><td style="background:{{header}};color:{{headerText}};padding:28px 32px 20px">
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
                   <td style="vertical-align:top">
                     <div style="font-size:22px;font-weight:700;letter-spacing:.04em;margin-bottom:4px">{{H(brand.Name)}}</div>
                     <div style="font-size:11px;opacity:.85;line-height:1.5">{{brandLines}}</div>
                   </td>
                   <td style="vertical-align:top;text-align:right">
-                    <span style="display:inline-block;background:rgba(255,255,255,.25);border:1px solid rgba(255,255,255,.5);padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">{{H(text.Badge)}}</span>
+                    <span style="display:inline-block;{{badge}};padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">{{H(text.Badge)}}</span>
                   </td>
                 </tr></table>
               </td></tr>
@@ -254,10 +283,10 @@ internal static class AuthEmailRenderer
                 <h1 style="font-size:18px;margin:0 0 12px">{{H(text.Heading)}}</h1>
                 <p style="margin:0 0 10px;{{Paragraph}}">{{hello}}</p>
                 <p style="margin:0;{{Paragraph}}">{{H(F(text.Intro, brand.Name))}}</p>
-                <div style="text-align:center;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:{{accent}};margin:22px 0 6px">{{H(words.CodeLabel)}}</div>
-                <div style="text-align:center;font-family:'Courier New',Courier,monospace;font-size:32px;font-weight:700;letter-spacing:.3em;color:{{header}};background:#f1f5f9;border:1px solid #cbd5e1;border-radius:8px;padding:18px 12px;margin:0 0 20px">{{H(code)}}</div>
+                <div style="text-align:center;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:{{labelColor}};margin:22px 0 6px">{{H(words.CodeLabel)}}</div>
+                <div style="text-align:center;font-family:'Courier New',Courier,monospace;font-size:32px;font-weight:700;letter-spacing:.3em;color:{{codeColor}};background:#f1f5f9;border:1px solid #cbd5e1;border-radius:8px;padding:18px 12px;margin:0 0 20px">{{H(code)}}</div>
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:4px 0 20px">
-                  <a href="{{H(link)}}" style="display:inline-block;padding:12px 22px;border-radius:8px;background:{{accent}};color:#fff;font-weight:700;font-size:14px;text-decoration:none">{{H(text.Button)}}</a>
+                  <a href="{{H(link)}}" style="display:inline-block;padding:12px 22px;border-radius:8px;background:{{accent}};color:{{accentText}};font-weight:700;font-size:14px;text-decoration:none">{{H(text.Button)}}</a>
                 </td></tr></table>
                 <p style="margin:0 0 8px;{{Paragraph}}">{{H(F(words.Expiry, Duration(lifetime, words)))}}</p>
                 <p style="margin:0;{{Paragraph}}">{{H(text.Ignore)}}</p>

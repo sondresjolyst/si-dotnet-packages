@@ -155,6 +155,10 @@ public sealed class EmailBrandFromSettings(ApplicationDbContext db) : IEmailBran
 | `SetPasswordUrl` | | Required. The page that takes a reset or invite code. |
 | `VerifyEmailUrl` | | Required with verification emails. The page that takes a verification code. |
 
+Text on the header and the button is white. When a colour is too light for white text, below a
+WCAG contrast of 3 to 1, that text turns near black, and so do the code and its label, so a yellow
+brand stays readable.
+
 The links add `email` and `code` to the page's query string, so the page can fill them in. The
 expiry in the text is read from the code itself, so an invite says 7 days and a reset 30 minutes.
 The options are checked at startup. A user without an issued code is refused with

@@ -126,6 +126,54 @@ public class AuthEmailTests
     }
 
     [Fact]
+    public async Task Dark_colours_get_white_text_and_keep_their_own_colour_for_the_label_and_code()
+    {
+        var email = await Reset(o => { o.HeaderColor = "#182232"; o.AccentColor = "#0284c7"; });
+        Assert.Contains("background:#182232;color:#fff;padding", email.HtmlBody);
+        Assert.Contains("background:rgba(255,255,255,.25);border:1px solid rgba(255,255,255,.5)", email.HtmlBody);
+        Assert.Contains("background:#0284c7;color:#fff;font-weight:700", email.HtmlBody);
+        Assert.DoesNotContain("#1a1a1a;padding", email.HtmlBody);
+    }
+
+    [Fact]
+    public async Task A_light_brand_colour_gets_near_black_text_label_and_code()
+    {
+        var email = await Reset(o => { o.HeaderColor = "#ffd400"; o.AccentColor = "#ffd400"; });
+        Assert.Contains("background:#ffd400;color:#1a1a1a;padding", email.HtmlBody);
+        Assert.Contains("background:rgba(0,0,0,.08);border:1px solid rgba(0,0,0,.4)", email.HtmlBody);
+        Assert.Contains("background:#ffd400;color:#1a1a1a;font-weight:700", email.HtmlBody);
+        Assert.Contains("color:#1a1a1a;margin:22px", email.HtmlBody);
+        Assert.Contains("color:#1a1a1a;background:#f1f5f9", email.HtmlBody);
+        Assert.DoesNotContain("color:#ffd400", email.HtmlBody);
+    }
+
+    [Fact]
+    public async Task The_header_and_the_accent_are_judged_separately()
+    {
+        var email = await Reset(o => { o.HeaderColor = "#182232"; o.AccentColor = "#ffd400"; });
+        Assert.Contains("background:#182232;color:#fff;padding", email.HtmlBody);
+        Assert.Contains("color:#182232;background:#f1f5f9", email.HtmlBody);
+        Assert.Contains("background:#ffd400;color:#1a1a1a;font-weight:700", email.HtmlBody);
+        Assert.Contains("color:#1a1a1a;margin:22px", email.HtmlBody);
+    }
+
+    [Theory]
+    [InlineData("#182232", true)]
+    [InlineData("#0f3d3a", true)]
+    [InlineData("#00887a", true)]
+    [InlineData("#0284c7", true)]
+    [InlineData("#000000", true)]
+    [InlineData("#949494", true)]
+    [InlineData("#959595", false)]
+    [InlineData("#ffd400", false)]
+    [InlineData("#ffffff", false)]
+    [InlineData("#FFD400", false)]
+    [InlineData("#0000ff", true)]
+    [InlineData("#00c000", false)]
+    public void White_text_is_used_down_to_a_contrast_of_3_to_1(string colour, bool white) =>
+        Assert.Equal(white, AuthEmailRenderer.ReadsOnWhite(colour));
+
+    [Fact]
     public async Task A_user_without_a_first_name_gets_a_plain_greeting()
     {
         var user = User();
