@@ -116,7 +116,7 @@ The endpoints log user ids, never addresses.
 
 `MapAppKitUserAdmin<TUser, TContext>` maps the admin endpoints for users and roles. The user implements
 `IAppKitAccount` (`FirstName`, `LastName`, `CreatedAt`, `IsDeleted`), and the invite email goes out
-through `IAuthEmails<TUser>.SendInviteAsync`, which throws unless the app implements it.
+through `IAuthEmails<TUser>.SendInviteAsync`.
 
 ```csharp
 app.MapAppKitUserAdmin<User, ApplicationDbContext>("/api/users", o =>
