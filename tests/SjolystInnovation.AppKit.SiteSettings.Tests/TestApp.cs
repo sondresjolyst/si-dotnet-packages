@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 
 namespace SjolystInnovation.AppKit.SiteSettings.Tests;
 
@@ -38,6 +39,9 @@ public class TestSettings : ICompanySettings, IBrandingSettings
 public class TestDbContext(DbContextOptions<TestDbContext> options) : DbContext(options)
 {
     public DbSet<TestSettings> AppSettings => Set<TestSettings>();
+    public DbSet<LegalPage> LegalPages => Set<LegalPage>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.AddAppKitLegalPages();
 }
 
 /// <summary>Signs a request in with the roles in <c>X-Test-Roles</c>.</summary>
@@ -58,10 +62,13 @@ internal sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOption
 public sealed class TestApp : IAsyncDisposable
 {
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
+    public FakeTimeProvider Time { get; } = new(new DateTimeOffset(2026, 10, 15, 12, 0, 0, TimeSpan.Zero));
     private IHost _host = default!;
     public HttpClient Client { get; private set; } = default!;
 
-    public static async Task<TestApp> StartAsync(Action<AppKitSiteSettingsOptions>? configure = null)
+    public IServiceProvider Services => _host.Services;
+
+    public static async Task<TestApp> StartAsync(Action<AppKitSiteSettingsOptions>? configure = null, Action<AppKitLegalPagesOptions>? legal = null)
     {
         var app = new TestApp();
         await app._connection.OpenAsync();
@@ -77,6 +84,7 @@ public sealed class TestApp : IAsyncDisposable
                         o.AddPolicy("Admin", p => p.RequireRole("Admin"));
                         o.AddPolicy("Owner", p => p.RequireRole("Owner"));
                     });
+                    s.AddSingleton<TimeProvider>(app.Time);
                     s.AddRouting();
                 })
                 .Configure(web =>
@@ -84,7 +92,11 @@ public sealed class TestApp : IAsyncDisposable
                     web.UseRouting();
                     web.UseAuthentication();
                     web.UseAuthorization();
-                    web.UseEndpoints(e => e.MapAppKitSiteSettings<TestDbContext, TestSettings>(configure: configure));
+                    web.UseEndpoints(e =>
+                    {
+                        e.MapAppKitSiteSettings<TestDbContext, TestSettings>(configure: configure);
+                        e.MapAppKitLegalPages<TestDbContext>(configure: legal);
+                    });
                 }))
             .Build();
         using (var scope = app._host.Services.CreateScope())

@@ -1,8 +1,9 @@
 # SjolystInnovation.AppKit.SiteSettings
 
-Admin-managed company details and site branding for ASP.NET Core apps. The app keeps one settings row
-of its own, and this package maps the endpoints that read and change the shared part of it: the public
-company info, the admin settings, and the logo and icon.
+Admin-managed company details, site branding and legal pages for ASP.NET Core apps. The app keeps one
+settings row of its own, and this package maps the endpoints that read and change the shared part of it:
+the public company info, the admin settings, and the logo and icon. The terms, privacy and cookie pages
+are markdown an admin edits per language.
 
 ```sh
 dotnet add package SjolystInnovation.AppKit.SiteSettings
@@ -49,3 +50,34 @@ app.MapAppKitSiteSettings<ApplicationDbContext, AppSettings>("/api", o => o.Poli
 
 `OrgNumber.IsValid`, `PostalAddress.IsPostalCode` and `PostalAddress.Format` are public for the app's own
 use, such as invoices and structured data.
+
+## Legal pages
+
+The app's `DbContext` maps the `LegalPages` table with `AddAppKitLegalPages`, and seeds each page's
+starting text on start. Seeding writes only the pages and languages that have no text yet, so an
+admin's edits stay.
+
+```csharp
+protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.AddAppKitLegalPages();
+
+app.MapAppKitLegalPages<ApplicationDbContext>("/api/content/legal", o => o.Locales = ["no", "en"]);
+await app.Services.SeedAppKitLegalPagesAsync<ApplicationDbContext>(
+[
+    new LegalPageSeed("terms", "no", "Vilkår", termsMarkdown),
+]);
+```
+
+| Route | Who | Answer |
+| --- | --- | --- |
+| `GET {key}?locale=` | Everyone | The page in the asked language, or in the first of `Locales` when it has none there. `404` for a page that is not in `Keys` or has no text. |
+| `GET` | `Policy` | Every page in every language, by key and then language. |
+| `PUT {key}/{locale}` with `title`, `bodyMarkdown` | `Policy` | Saves the page, creating it the first time. An unknown key or language answers `400` with the reason as `detail`. A missing title or body, or a title over 200 characters, is a validation problem. |
+
+| Option | Default | |
+| --- | --- | --- |
+| `Keys` | `terms`, `privacy`, `cookies` | The pages there are. |
+| `Locales` | `no` | The languages a page can be written in. The first is the fallback. |
+| `Policy` | `Admin` | What listing and saving require. |
+
+The asked language matches a supported one exactly, then by its primary language, so `en-GB` reads
+`en`. `nb` and `nn` read as `no`. Keys and languages are stored in lower case.
