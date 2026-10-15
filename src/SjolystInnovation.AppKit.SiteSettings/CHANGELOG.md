@@ -1,0 +1,8 @@
+# Changelog
+
+## 0.1.0 (2026-10-15)
+
+
+### Features
+
+* **site-settings:** add SjolystInnovation.AppKit.SiteSettings for company settings, public company info and branding ([#31](https://github.com/sondresjolyst/si-dotnet-packages/issues/31)) ([7a50006](https://github.com/sondresjolyst/si-dotnet-packages/commit/7a50006324d19de72011d7839f81dbf5fe5da49a))
