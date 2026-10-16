@@ -100,5 +100,19 @@ public class VippsWebhookSignatureTests
     }
 
     [Fact]
+    public void RawBytes_AreHashedAsReceived_SoAByteOrderMarkCounts()
+    {
+        byte[] withBom = [0xEF, 0xBB, 0xBF, .. Encoding.UTF8.GetBytes(Body)];
+        var hash = Convert.ToBase64String(SHA256.HashData(withBom));
+        var signed = Signed();
+        var canonical = $"{signed.Method}\n{signed.PathAndQuery}\n{signed.Date};{signed.Host};{hash}";
+        var signature = Convert.ToBase64String(HMACSHA256.HashData(Encoding.UTF8.GetBytes(Secret), Encoding.UTF8.GetBytes(canonical)));
+        var request = signed with { ContentSha256 = hash, Authorization = $"HMAC-SHA256 SignedHeaders=x-ms-date;host;x-ms-content-sha256&Signature={signature}" };
+
+        Assert.Equal(VippsWebhookResult.Valid, Check(request with { RawBody = withBom }));
+        Assert.Equal(VippsWebhookResult.BadContentHash, Check(request));
+    }
+
+    [Fact]
     public void TheRetryWindow_CoversVippsSevenDaysOfRetries() => Assert.True(VippsWebhookSignature.MaxAge >= TimeSpan.FromDays(7));
 }
