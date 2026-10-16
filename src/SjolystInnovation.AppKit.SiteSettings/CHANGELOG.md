@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.SiteSettings-v0.2.0...SjolystInnovation.AppKit.SiteSettings-v0.3.0) (2026-10-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* **site-settings:** align SiteSettings, Hosting and Email for 1.0 ([#44](https://github.com/sondresjolyst/si-dotnet-packages/issues/44))
+
+### Features
+
+* **site-settings:** add OnSaving and OnSaved hooks ([#41](https://github.com/sondresjolyst/si-dotnet-packages/issues/41)) ([aad7a03](https://github.com/sondresjolyst/si-dotnet-packages/commit/aad7a039d1061192c5e802b6a48768248e607d1d))
+
+
+### Code Refactoring
+
+* **site-settings:** align SiteSettings, Hosting and Email for 1.0 ([#44](https://github.com/sondresjolyst/si-dotnet-packages/issues/44)) ([b201d6c](https://github.com/sondresjolyst/si-dotnet-packages/commit/b201d6c054c38ad24f80f9a5ec0f965b5a030735))
+
 ## [0.2.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.SiteSettings-v0.1.0...SjolystInnovation.AppKit.SiteSettings-v0.2.0) (2026-10-15)
 
 

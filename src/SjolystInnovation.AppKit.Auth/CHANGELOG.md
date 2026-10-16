@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.9.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v0.8.0...SjolystInnovation.AppKit.Auth-v0.9.0) (2026-10-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* **auth:** one admin role setting and aligned names for 1.0 ([#45](https://github.com/sondresjolyst/si-dotnet-packages/issues/45))
+
+### Features
+
+* **auth:** add claims helpers and SeedAppKitRolesAsync ([#36](https://github.com/sondresjolyst/si-dotnet-packages/issues/36)) ([f943397](https://github.com/sondresjolyst/si-dotnet-packages/commit/f9433970d82f3576444bcd6967cc046a8e0048d1))
+
+
+### Code Refactoring
+
+* **auth:** one admin role setting and aligned names for 1.0 ([#45](https://github.com/sondresjolyst/si-dotnet-packages/issues/45)) ([47115d8](https://github.com/sondresjolyst/si-dotnet-packages/commit/47115d850d9237fd68d0616eabdd2221be2d6933))
+
 ## [0.8.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v0.7.0...SjolystInnovation.AppKit.Auth-v0.8.0) (2026-10-14)
 
 
