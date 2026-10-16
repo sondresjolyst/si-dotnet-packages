@@ -39,8 +39,16 @@ public sealed record VippsWebhookRequest
     public string? Date { get; init; }
     /// <summary>The <c>x-ms-content-sha256</c> header.</summary>
     public string? ContentSha256 { get; init; }
-    /// <summary>The raw body, exactly as received.</summary>
-    public required string Body { get; init; }
+    /// <summary>
+    /// The body as text. The check hashes its UTF-8 bytes unless <see cref="RawBody"/> is set. Defaults to
+    /// an empty string.
+    /// </summary>
+    public string Body { get; init; } = string.Empty;
+    /// <summary>
+    /// The body bytes exactly as received. When set, the check hashes these instead of <see cref="Body"/>,
+    /// so a byte order mark or an encoding quirk cannot change the hash.
+    /// </summary>
+    public ReadOnlyMemory<byte>? RawBody { get; init; }
 }
 
 /// <summary>The outcome of a check, and how long ago the request was signed.</summary>
@@ -71,19 +79,15 @@ public static partial class VippsWebhookSignature
     {
         if (string.IsNullOrEmpty(secret)) return new(VippsWebhookResult.MissingSecret, TimeSpan.Zero);
 
-        var auth = request.Authorization ?? string.Empty;
-        if (!auth.StartsWith("HMAC-SHA256 ", StringComparison.Ordinal)) return new(VippsWebhookResult.MissingHeader, TimeSpan.Zero);
-        var match = SignaturePattern().Match(auth);
-        if (!match.Success) return new(VippsWebhookResult.MissingHeader, TimeSpan.Zero);
-        if (string.IsNullOrEmpty(request.Date) || string.IsNullOrEmpty(request.ContentSha256)) return new(VippsWebhookResult.MissingHeader, TimeSpan.Zero);
+        var headers = CheckHeaders(request, now);
+        if (!headers.IsValid) return headers;
+        var age = headers.Age;
+        var match = SignaturePattern().Match(request.Authorization!);
 
-        if (!DateTimeOffset.TryParse(request.Date, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var signedAt))
-            return new(VippsWebhookResult.BadDate, TimeSpan.Zero);
-        var age = now - signedAt;
-        if (age > MaxAge || -age > MaxClockAhead) return new(VippsWebhookResult.Stale, age);
-
-        var bodyHash = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(request.Body)));
-        if (!CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(bodyHash), Encoding.ASCII.GetBytes(request.ContentSha256)))
+        var bodyHash = Convert.ToBase64String(request.RawBody is { } raw
+            ? SHA256.HashData(raw.Span)
+            : SHA256.HashData(Encoding.UTF8.GetBytes(request.Body)));
+        if (!CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(bodyHash), Encoding.ASCII.GetBytes(request.ContentSha256!)))
             return new(VippsWebhookResult.BadContentHash, age);
 
         // METHOD\n<path and query>\n<x-ms-date>;<host>;<x-ms-content-sha256>
@@ -91,5 +95,23 @@ public static partial class VippsWebhookSignature
         var computed = Convert.ToBase64String(HMACSHA256.HashData(Encoding.UTF8.GetBytes(secret), Encoding.UTF8.GetBytes(canonical)));
         var valid = CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(computed), Encoding.ASCII.GetBytes(match.Groups[1].Value));
         return new(valid ? VippsWebhookResult.Valid : VippsWebhookResult.BadSignature, age);
+    }
+
+    /// <summary>
+    /// Checks the headers and the signed date without a secret or the body, so a receiver can turn away an
+    /// unsigned or stale request before it reads the body. Valid means the headers allow a full check.
+    /// </summary>
+    internal static VippsWebhookVerification CheckHeaders(VippsWebhookRequest request, DateTimeOffset now)
+    {
+        var auth = request.Authorization ?? string.Empty;
+        if (!auth.StartsWith("HMAC-SHA256 ", StringComparison.Ordinal) || !SignaturePattern().IsMatch(auth))
+            return new(VippsWebhookResult.MissingHeader, TimeSpan.Zero);
+        if (string.IsNullOrEmpty(request.Date) || string.IsNullOrEmpty(request.ContentSha256)) return new(VippsWebhookResult.MissingHeader, TimeSpan.Zero);
+
+        if (!DateTimeOffset.TryParse(request.Date, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var signedAt))
+            return new(VippsWebhookResult.BadDate, TimeSpan.Zero);
+        var age = now - signedAt;
+        if (age > MaxAge || -age > MaxClockAhead) return new(VippsWebhookResult.Stale, age);
+        return new(VippsWebhookResult.Valid, age);
     }
 }
