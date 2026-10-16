@@ -14,6 +14,8 @@ on:
           - src/SjolystInnovation.AppKit.Email
           - src/SjolystInnovation.AppKit.Hosting
           - src/SjolystInnovation.AppKit.SiteSettings
+          - src/SjolystInnovation.AppKit.Storage
+          - src/SjolystInnovation.AppKit.Storage.Images
           - src/SjolystInnovation.AppKit.Vipps
         required: true
 
