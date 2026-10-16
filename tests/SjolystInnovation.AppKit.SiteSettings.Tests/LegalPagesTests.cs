@@ -188,6 +188,17 @@ public class LegalPagesTests
     }
 
     [Fact]
+    public async Task The_fallback_is_found_when_the_first_locale_is_configured_in_upper_case()
+    {
+        await using var app = await StartAsync(o => o.Locales = ["NO", "en"]);
+        await PutAsync(app, "/api/content/legal/privacy/no", "Personvern");
+
+        var page = await JsonAsync(await app.SendAsync(HttpMethod.Get, "/api/content/legal/privacy?locale=en", roles: null));
+
+        Assert.Equal("Personvern", page.GetProperty("title").GetString());
+    }
+
+    [Fact]
     public async Task A_page_missing_in_the_asked_language_falls_back_to_the_first()
     {
         await using var app = await StartAsync();
@@ -256,6 +267,25 @@ public class LegalPagesTests
         var pages = await PagesAsync(app);
         Assert.Equal(["privacy/en/Privacy", "privacy/no/Personvern", "terms/no/Mine vilkår"], pages.Select(p => $"{p.Key}/{p.Locale}/{p.Title}"));
         Assert.All(pages, p => Assert.Equal(new DateTime(2026, 10, 15, 12, 0, 0), p.UpdatedAt));
+    }
+
+    [Fact]
+    public async Task Seeding_stores_keys_and_locales_in_lower_case_so_the_pages_are_served()
+    {
+        await using var app = await StartAsync();
+        await PutAsync(app, "/api/content/legal/terms/no", "Mine vilkår", "## Mine");
+
+        await app.Services.SeedAppKitLegalPagesAsync<TestDbContext>(
+        [
+            new("Terms", "NO", "Vilkår", "## Start"),
+            new("PRIVACY", "En", "Privacy", "## Start"),
+            new("privacy", "en", "Privacy again", "## Again"),
+        ]);
+
+        var pages = await PagesAsync(app);
+        Assert.Equal(["privacy/en/Privacy", "terms/no/Mine vilkår"], pages.Select(p => $"{p.Key}/{p.Locale}/{p.Title}"));
+        var served = await JsonAsync(await app.SendAsync(HttpMethod.Get, "/api/content/legal/privacy?locale=en", roles: null));
+        Assert.Equal("Privacy", served.GetProperty("title").GetString());
     }
 
     // Locale rules

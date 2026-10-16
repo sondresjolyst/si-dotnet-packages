@@ -26,7 +26,10 @@ public class LegalPage
 /// <summary>The starting text of a legal page, written while the page has none.</summary>
 public sealed record LegalPageSeed(string Key, string Locale, string Title, string BodyMarkdown);
 
-/// <summary>The options for <see cref="LegalPagesExtensions.MapAppKitLegalPages{TContext}"/> and the seeding.</summary>
+/// <summary>
+/// The options for <see cref="LegalPagesExtensions.MapAppKitLegalPages{TContext}"/>. Seeding does not read them.
+/// It writes the pages it is given.
+/// </summary>
 public sealed class AppKitLegalPagesOptions
 {
     /// <summary>The page keys. Defaults to <c>terms</c>, <c>privacy</c>, and <c>cookies</c>.</summary>
@@ -111,7 +114,8 @@ public static class LegalPagesExtensions
 
     /// <summary>
     /// Writes the starting text for every page and language in <paramref name="pages"/> that has none.
-    /// Pages that an admin has written stay as they are.
+    /// Pages that an admin has written stay as they are. Keys and locales are stored in lower case, the
+    /// form the endpoints look pages up by.
     /// </summary>
     public static async Task SeedAppKitLegalPagesAsync<TContext>(this IServiceProvider services, IEnumerable<LegalPageSeed> pages, CancellationToken cancellationToken = default)
         where TContext : DbContext
@@ -122,9 +126,15 @@ public static class LegalPagesExtensions
         var db = scope.ServiceProvider.GetRequiredService<TContext>();
         var now = (scope.ServiceProvider.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow().UtcDateTime;
         var existing = (await db.Set<LegalPage>().Select(p => new { p.Key, p.Locale }).ToListAsync(cancellationToken))
-            .Select(p => (p.Key, p.Locale)).ToHashSet();
-        foreach (var page in pages.Where(p => !existing.Contains((p.Key, p.Locale))))
-            db.Set<LegalPage>().Add(new LegalPage { Key = page.Key, Locale = page.Locale, Title = page.Title, BodyMarkdown = page.BodyMarkdown, UpdatedAt = now });
+            .Select(p => (p.Key.ToLowerInvariant(), p.Locale.ToLowerInvariant())).ToHashSet();
+        foreach (var page in pages)
+        {
+            var key = page.Key.ToLowerInvariant();
+            var locale = page.Locale.ToLowerInvariant();
+            // Add returns false for a page that exists or that appears twice in the seed.
+            if (existing.Add((key, locale)))
+                db.Set<LegalPage>().Add(new LegalPage { Key = key, Locale = locale, Title = page.Title, BodyMarkdown = page.BodyMarkdown, UpdatedAt = now });
+        }
         await db.SaveChangesAsync(cancellationToken);
     }
 }
@@ -141,8 +151,9 @@ internal sealed class LegalPageHandlers<TContext>(AppKitLegalPagesOptions option
         key = key.ToLowerInvariant();
         var pages = http.RequestServices.GetRequiredService<TContext>().Set<LegalPage>().AsNoTracking();
         var wanted = options.Normalize(locale);
+        var fallback = options.Locales[0].ToLowerInvariant();
         var page = await pages.FirstOrDefaultAsync(p => p.Key == key && p.Locale == wanted, http.RequestAborted)
-            ?? await pages.FirstOrDefaultAsync(p => p.Key == key && p.Locale == options.Locales[0], http.RequestAborted);
+            ?? await pages.FirstOrDefaultAsync(p => p.Key == key && p.Locale == fallback, http.RequestAborted);
         return page is null ? TypedResults.NotFound() : TypedResults.Ok(Info(page));
     }
 

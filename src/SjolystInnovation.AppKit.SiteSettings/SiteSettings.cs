@@ -79,7 +79,17 @@ public sealed class AppKitSiteSettingsOptions
     /// <summary>
     /// A function that runs after the settings or the branding are saved. Use it to clear a cache of the row.
     /// </summary>
-    public Func<HttpContext, Task>? OnSaved { get; set; }
+    public Func<SiteSettingsSaved, Task>? OnSaved { get; set; }
+}
+
+/// <summary>The part of the settings row that a save changed.</summary>
+public enum SiteSettingsPart
+{
+    /// <summary>The company details, saved through <c>PUT settings</c>.</summary>
+    Settings,
+
+    /// <summary>The logo and icon, saved through <c>PUT branding</c>.</summary>
+    Branding,
 }
 
 /// <summary>A settings change about to be saved.</summary>
@@ -87,6 +97,12 @@ public sealed class AppKitSiteSettingsOptions
 /// <param name="Previous">The values the row held before the change. The defaults when the row did not exist yet.</param>
 /// <param name="Http">The request that made the change.</param>
 public sealed record SiteSettingsSaving(ICompanySettings Settings, SiteSettingsBody Previous, HttpContext Http);
+
+/// <summary>A settings or branding change that is saved.</summary>
+/// <param name="Settings">The saved settings row. Cast it to the app's own entity to read its other columns.</param>
+/// <param name="Part">The part of the row that the save changed.</param>
+/// <param name="Http">The request that made the change.</param>
+public sealed record SiteSettingsSaved(ICompanySettings Settings, SiteSettingsPart Part, HttpContext Http);
 
 /// <summary>The settings an admin reads and writes.</summary>
 public sealed record SiteSettingsBody(
@@ -210,7 +226,7 @@ internal static class SiteSettingsHandlers<TContext, TSettings>
             await onSaving(new SiteSettingsSaving(s, previous, http));
         await db.SaveChangesAsync(http.RequestAborted);
         if (options.OnSaved is { } onSaved)
-            await onSaved(http);
+            await onSaved(new SiteSettingsSaved(s, SiteSettingsPart.Settings, http));
         return TypedResults.Ok(ToBody(s));
     }
 
@@ -238,7 +254,7 @@ internal static class SiteSettingsValidation
         Check("CompanyName", Fits(body.CompanyName, 100), "At most 100 characters.");
         Check("CompanyLegalName", Fits(body.CompanyLegalName, 200), "At most 200 characters.");
         Check("OrgNumber", !body.VatRegistered || !Blank(body.OrgNumber), "An organisation number is required when the business is VAT registered.");
-        Check("OrgNumber", Blank(body.OrgNumber) || OrgNumber.IsValid(body.OrgNumber!), "Not a valid organisation number. It has nine digits and ends in a check digit.");
+        Check("OrgNumber", Blank(body.OrgNumber) || NorwegianOrgNumber.IsValid(body.OrgNumber!), "Not a valid organisation number. It has nine digits and ends in a check digit.");
         Check("StreetAddress", !Blank(body.StreetAddress), "Required.");
         Check("StreetAddress", Fits(body.StreetAddress, 200), "At most 200 characters.");
         Check("PostalCode", Blank(body.PostalCode) || PostalAddress.IsPostalCode(body.PostalCode!), "A Norwegian postal code is four digits.");
@@ -257,7 +273,7 @@ internal static class SiteSettingsValidation
 }
 
 /// <summary>Validates the Norwegian organization number: nine digits, the last of which is a modulus 11 check digit.</summary>
-public static class OrgNumber
+public static class NorwegianOrgNumber
 {
     private static readonly int[] Weights = [3, 2, 7, 6, 5, 4, 3, 2];
 

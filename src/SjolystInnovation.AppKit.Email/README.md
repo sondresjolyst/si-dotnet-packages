@@ -22,7 +22,8 @@ builder.Services.AddAppKitBrevo(builder.Configuration.GetSection("BrevoSettings"
 | `BaseUrl` | `https://api.brevo.com/v3/` | Point it at a fake Brevo in tests. |
 
 If the key, the sender address, or the sender name is missing, or the API root is not an absolute
-URL, the app fails to start.
+URL, the app fails to start. The error names the setting by its full path, such as
+`BrevoSettings:ApiKey is required.`
 
 ## Sending
 
