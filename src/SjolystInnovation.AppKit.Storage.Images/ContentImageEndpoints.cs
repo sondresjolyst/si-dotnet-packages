@@ -88,7 +88,7 @@ internal static class ContentImageHandlers<TContext>
         var db = http.RequestServices.GetRequiredService<TContext>();
         var store = Store(http);
         var image = await db.Set<ContentImage>().AsNoTracking().Include(i => i.Variants).FirstOrDefaultAsync(i => i.Id == id, http.RequestAborted);
-        if (image is null || !store.Exists(image.StoredPath))
+        if (image is null || !await store.ExistsAsync(image.StoredPath, http.RequestAborted))
             return TypedResults.NotFound();
 
         http.Response.Headers.Vary = "Accept";
@@ -105,18 +105,18 @@ internal static class ContentImageHandlers<TContext>
                     store, image.Id, image.StoredPath, http.RequestAborted);
 
             var chosen = PickVariant(variants, w);
-            if (chosen is not null && store.Exists(chosen.StoredPath))
+            if (chosen is not null && await store.ExistsAsync(chosen.StoredPath, http.RequestAborted))
             {
                 http.Response.Headers.CacheControl = ImmutableCache;
-                return TypedResults.File(store.OpenRead(chosen.StoredPath), "image/webp");
+                return TypedResults.File(await store.OpenReadAsync(chosen.StoredPath, http.RequestAborted), "image/webp");
             }
 
             http.Response.Headers.CacheControl = ShortCache;
-            return TypedResults.File(store.OpenRead(image.StoredPath), image.ContentType);
+            return TypedResults.File(await store.OpenReadAsync(image.StoredPath, http.RequestAborted), image.ContentType);
         }
 
         http.Response.Headers.CacheControl = ImmutableCache;
-        return TypedResults.File(store.OpenRead(image.StoredPath), image.ContentType);
+        return TypedResults.File(await store.OpenReadAsync(image.StoredPath, http.RequestAborted), image.ContentType);
     }
 
     /// <summary>
@@ -145,17 +145,17 @@ internal static class ContentImageHandlers<TContext>
             var measured = 0;
             foreach (var image in unmeasured)
             {
-                if (!store.Exists(image.StoredPath))
+                if (!await store.ExistsAsync(image.StoredPath, http.RequestAborted))
                     continue;
-                var measurement = processor.Probe(image.StoredPath, out var undecodable);
-                if (measurement is null)
+                var probe = await processor.ProbeAsync(image.StoredPath, http.RequestAborted);
+                if (probe.Dimensions is not { } measurement)
                 {
                     // Like a failed decode, a file no codec can read is not read again.
-                    if (undecodable)
+                    if (probe.Undecodable)
                         backfill.RememberFailure(image.Id);
                     continue;
                 }
-                (image.Width, image.Height) = measurement.Value;
+                (image.Width, image.Height) = measurement;
                 measured++;
             }
             if (measured > 0)

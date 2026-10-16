@@ -18,14 +18,17 @@ public static class AppKitFiles
     /// <param name="downloadName">The file name the browser shows and saves the file as.</param>
     /// <param name="contentType">The content type to send.</param>
     /// <param name="inline">Whether the browser shows the file instead of downloading it. Defaults to <c>true</c>.</param>
+    /// <param name="cancellationToken">A token that cancels the lookup, usually the request's <c>RequestAborted</c>.</param>
     /// <returns>The file, or <c>404</c> when the store has no such file.</returns>
-    public static IResult Serve(IAppKitFileStore store, string storedPath, string downloadName, string contentType, bool inline = true)
+    public static async Task<IResult> ServeAsync(IAppKitFileStore store, string storedPath, string downloadName, string contentType,
+        bool inline = true, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(contentType);
-        if (string.IsNullOrEmpty(storedPath) || !store.Exists(storedPath))
+        if (string.IsNullOrEmpty(storedPath) || !await store.ExistsAsync(storedPath, cancellationToken))
             return TypedResults.NotFound();
-        return new ServedFile(store.OpenRead(storedPath), ContentDisposition(downloadName, inline), contentType);
+        var content = await store.OpenReadAsync(storedPath, cancellationToken);
+        return new ServedFile(content, ContentDisposition(downloadName, inline), contentType);
     }
 
     /// <summary>Builds the <c>Content-Disposition</c> value for a file name.</summary>

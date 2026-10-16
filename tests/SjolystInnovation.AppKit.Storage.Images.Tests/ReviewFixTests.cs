@@ -46,9 +46,9 @@ public sealed class ReviewFixTests : IDisposable
             return await inner.SaveAsync(content, fileName, cancellationToken);
         }
 
-        public Stream OpenRead(string storedPath) => inner.OpenRead(storedPath);
-        public bool Exists(string storedPath) => inner.Exists(storedPath);
-        public void Delete(string storedPath) => inner.Delete(storedPath);
+        public Task<Stream> OpenReadAsync(string storedPath, CancellationToken cancellationToken = default) => inner.OpenReadAsync(storedPath, cancellationToken);
+        public Task<bool> ExistsAsync(string storedPath, CancellationToken cancellationToken = default) => inner.ExistsAsync(storedPath, cancellationToken);
+        public Task DeleteAsync(string storedPath, CancellationToken cancellationToken = default) => inner.DeleteAsync(storedPath, cancellationToken);
     }
 
     private static ImageProcessor Processor(IAppKitFileStore store, AppKitContentImagesOptions? options = null) =>
@@ -115,7 +115,7 @@ public sealed class ReviewFixTests : IDisposable
         var variants = (await processor.GenerateWebpVariantsAsync(original, CancellationToken.None)).Variants;
 
         Assert.Equal(2000, variants[^1].Width);
-        using var stream = Real.OpenRead(variants[^1].StoredPath);
+        await using var stream = await Real.OpenReadAsync(variants[^1].StoredPath);
         using var copy = new MemoryStream();
         await stream.CopyToAsync(copy);
         Assert.Equal((2000, 2667), TestImages.SizeOf(copy.ToArray()));

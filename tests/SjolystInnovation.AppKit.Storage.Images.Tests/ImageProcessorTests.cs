@@ -9,11 +9,11 @@ public class ImageProcessorTests
     private static async Task<string> SaveAsync(TestApp app, byte[] bytes, string name = "photo") =>
         (await app.Store.SaveAsync(new MemoryStream(bytes), name)).StoredPath;
 
-    private static byte[] Read(TestApp app, string storedPath)
+    private static async Task<byte[]> ReadAsync(TestApp app, string storedPath)
     {
-        using var stream = app.Store.OpenRead(storedPath);
+        await using var stream = await app.Store.OpenReadAsync(storedPath);
         using var copy = new MemoryStream();
-        stream.CopyTo(copy);
+        await stream.CopyToAsync(copy);
         return copy.ToArray();
     }
 
@@ -22,9 +22,9 @@ public class ImageProcessorTests
     {
         await using var app = await TestApp.StartAsync();
 
-        Assert.Equal((1600, 900), app.Processor.Probe(await SaveAsync(app, TestImages.Png(1600, 900))));
-        Assert.Equal((900, 1600), app.Processor.Probe(await SaveAsync(app, TestImages.Png(900, 1600))));
-        Assert.Equal((640, 480), app.Processor.Probe(await SaveAsync(app, TestImages.Jpeg(640, 480))));
+        Assert.Equal((1600, 900), (await app.Processor.ProbeAsync(await SaveAsync(app, TestImages.Png(1600, 900)))).Dimensions);
+        Assert.Equal((900, 1600), (await app.Processor.ProbeAsync(await SaveAsync(app, TestImages.Png(900, 1600)))).Dimensions);
+        Assert.Equal((640, 480), (await app.Processor.ProbeAsync(await SaveAsync(app, TestImages.Jpeg(640, 480)))).Dimensions);
     }
 
     [Fact]
@@ -32,8 +32,8 @@ public class ImageProcessorTests
     {
         await using var app = await TestApp.StartAsync();
 
-        Assert.Null(app.Processor.Probe(await SaveAsync(app, TestImages.BrokenPng())));
-        Assert.Null(app.Processor.Probe("does-not-exist.png"));
+        Assert.Null((await app.Processor.ProbeAsync(await SaveAsync(app, TestImages.BrokenPng()))).Dimensions);
+        Assert.Null((await app.Processor.ProbeAsync("does-not-exist.png")).Dimensions);
     }
 
     [Theory]
@@ -83,12 +83,12 @@ public class ImageProcessorTests
         await using var app = await TestApp.StartAsync();
         var stored = await SaveAsync(app, TestImages.Jpeg(800, 400, origin));
 
-        var probed = app.Processor.Probe(stored);
+        var probed = (await app.Processor.ProbeAsync(stored)).Dimensions;
         var variants = (await app.Processor.GenerateWebpVariantsAsync(stored, CancellationToken.None)).Variants;
 
         var quarterTurn = (int)origin >= (int)SKEncodedOrigin.LeftTop;
         Assert.Equal(quarterTurn ? (400, 800) : (800, 400), probed);
-        var largest = Read(app, variants[^1].StoredPath);
+        var largest = await ReadAsync(app, variants[^1].StoredPath);
         Assert.Equal(probed, TestImages.SizeOf(largest));
         var quarters = TestImages.Quarters(largest);
         Assert.True(TestImages.Near(TestImages.TopLeft, Pick(quarters, redCorner)), $"red is not at {redCorner}");
@@ -114,7 +114,7 @@ public class ImageProcessorTests
         Assert.Equal([384, 640, 768, 1024, 1366, 1600], variants.Select(v => v.Width));
         foreach (var variant in variants)
         {
-            var bytes = Read(app, variant.StoredPath);
+            var bytes = await ReadAsync(app, variant.StoredPath);
             Assert.Equal("RIFF"u8.ToArray(), bytes[..4]);
             Assert.Equal(variant.SizeBytes, bytes.Length);
             Assert.EndsWith(".webp", variant.StoredPath, StringComparison.Ordinal);
@@ -131,7 +131,7 @@ public class ImageProcessorTests
         var variants = (await app.Processor.GenerateWebpVariantsAsync(stored, CancellationToken.None)).Variants;
 
         Assert.Equal([384, 640, 768, 1024, 1366, 1600, 2000], variants.Select(v => v.Width));
-        Assert.Equal((2000, 1463), TestImages.SizeOf(Read(app, variants[^1].StoredPath)));
+        Assert.Equal((2000, 1463), TestImages.SizeOf(await ReadAsync(app, variants[^1].StoredPath)));
     }
 
     [Fact]
@@ -143,7 +143,7 @@ public class ImageProcessorTests
         var variants = (await app.Processor.GenerateWebpVariantsAsync(stored, CancellationToken.None)).Variants;
 
         Assert.Equal(2000, variants[^1].Width);
-        Assert.Equal((2000, 1500), TestImages.SizeOf(Read(app, variants[^1].StoredPath)));
+        Assert.Equal((2000, 1500), TestImages.SizeOf(await ReadAsync(app, variants[^1].StoredPath)));
     }
 
     [Fact]

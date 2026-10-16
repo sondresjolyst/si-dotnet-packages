@@ -78,7 +78,7 @@ public sealed class AppKitFilesTests : IDisposable
     {
         var stored = await _store.SaveAsync(new MemoryStream([.. "%PDF-1.4 data"u8]), "dyno.pdf");
 
-        var http = await ExecuteAsync(AppKitFiles.Serve(_store, stored.StoredPath, "Dyno ø.pdf", "application/pdf"));
+        var http = await ExecuteAsync(await AppKitFiles.ServeAsync(_store, stored.StoredPath, "Dyno ø.pdf", "application/pdf"));
 
         Assert.Equal(200, http.Response.StatusCode);
         Assert.Equal("application/pdf", http.Response.ContentType);
@@ -100,16 +100,16 @@ public sealed class AppKitFilesTests : IDisposable
     {
         var stored = await _store.SaveAsync(new MemoryStream([.. "%PDF-1.4 data"u8]), "dyno.pdf");
 
-        var http = await ExecuteAsync(AppKitFiles.Serve(_store, stored.StoredPath, "dyno.pdf", contentType, inline));
+        var http = await ExecuteAsync(await AppKitFiles.ServeAsync(_store, stored.StoredPath, "dyno.pdf", contentType, inline));
 
         Assert.Equal(sandboxed ? "sandbox" : "", http.Response.Headers.ContentSecurityPolicy.ToString());
         Assert.StartsWith(inline ? "inline" : "attachment", http.Response.Headers.ContentDisposition.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Serve_answers_not_found_for_a_missing_file()
+    public async Task Serve_answers_not_found_for_a_missing_file()
     {
-        Assert.IsType<NotFound>(AppKitFiles.Serve(_store, "0123.pdf", "x.pdf", "application/pdf"));
-        Assert.IsType<NotFound>(AppKitFiles.Serve(_store, "", "x.pdf", "application/pdf"));
+        Assert.IsType<NotFound>(await AppKitFiles.ServeAsync(_store, "0123.pdf", "x.pdf", "application/pdf"));
+        Assert.IsType<NotFound>(await AppKitFiles.ServeAsync(_store, "", "x.pdf", "application/pdf"));
     }
 }

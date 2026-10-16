@@ -16,6 +16,11 @@ internal sealed record GeneratedVariant(int Width, string StoredPath, long SizeB
 /// </param>
 internal sealed record VariantResult(IReadOnlyList<GeneratedVariant> Variants, bool Undecodable);
 
+/// <summary>The outcome of <see cref="ImageProcessor.ProbeAsync"/>.</summary>
+/// <param name="Dimensions">The dimensions as displayed, or <c>null</c> when the file cannot be read.</param>
+/// <param name="Undecodable">True when no codec can read the file. False after an error such as a failed read.</param>
+internal sealed record ProbeResult((int Width, int Height)? Dimensions, bool Undecodable);
+
 /// <summary>Reads image dimensions and writes resized WebP renditions with SkiaSharp.</summary>
 internal sealed partial class ImageProcessor(
     IOptions<AppKitContentImagesOptions> options,
@@ -31,44 +36,36 @@ internal sealed partial class ImageProcessor(
     /// <summary>The number of times <see cref="GenerateWebpVariantsAsync"/> opened a file to decode it.</summary>
     internal int DecodeAttempts => Volatile.Read(ref _decodeAttempts);
 
-    /// <summary>The number of times <see cref="Probe(string, out bool)"/> opened a file.</summary>
+    /// <summary>The number of times <see cref="ProbeAsync"/> opened a file.</summary>
     internal int ProbeAttempts => Volatile.Read(ref _probeAttempts);
 
     public void Dispose() => _decodes.Dispose();
 
     /// <summary>
-    /// Reads a stored image's dimensions as displayed. A quarter-turn EXIF orientation swaps the axes, the
-    /// same way <see cref="Orient"/> does.
+    /// Reads a stored image's dimensions as displayed, and tells an undecodable file from a passing error. A
+    /// quarter-turn EXIF orientation swaps the axes, the same way <see cref="Orient"/> does.
     /// </summary>
-    /// <returns>The dimensions, or <c>null</c> when the file cannot be read.</returns>
-    public (int Width, int Height)? Probe(string storedPath) => Probe(storedPath, out _);
-
-    /// <summary>Reads a stored image's dimensions as displayed, and tells an undecodable file from a passing error.</summary>
     /// <param name="storedPath">The stored path of the original.</param>
-    /// <param name="undecodable">True when no codec can read the file. False after an error such as a failed read.</param>
-    /// <returns>The dimensions, or <c>null</c> when the file cannot be read.</returns>
-    public (int Width, int Height)? Probe(string storedPath, out bool undecodable)
+    /// <param name="cancellationToken">A token that cancels the read.</param>
+    /// <returns>The dimensions, or none with the reason.</returns>
+    public async Task<ProbeResult> ProbeAsync(string storedPath, CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _probeAttempts);
-        undecodable = false;
         try
         {
-            using var input = store.OpenRead(storedPath);
+            await using var input = await store.OpenReadAsync(storedPath, cancellationToken);
             using var codec = SKCodec.Create(input);
             if (codec is null || codec.Info.Width == 0 || codec.Info.Height == 0)
-            {
-                undecodable = true;
-                return null;
-            }
+                return new ProbeResult(null, Undecodable: true);
             var info = codec.Info;
-            return IsQuarterTurn(codec.EncodedOrigin) ? (info.Height, info.Width) : (info.Width, info.Height);
+            return new ProbeResult(IsQuarterTurn(codec.EncodedOrigin) ? (info.Height, info.Width) : (info.Width, info.Height), Undecodable: false);
         }
 #pragma warning disable CA1031 // A file that cannot be read has no dimensions. The upload goes on without them.
         catch (Exception ex)
 #pragma warning restore CA1031
         {
             LogProbeFailed(ex, storedPath);
-            return null;
+            return new ProbeResult(null, Undecodable: false);
         }
     }
 
@@ -85,7 +82,7 @@ internal sealed partial class ImageProcessor(
         try
         {
             Interlocked.Increment(ref _decodeAttempts);
-            using var original = Decode(storedPath);
+            using var original = await DecodeAsync(storedPath, cancellationToken);
             if (original is null)
                 return new VariantResult([], Undecodable: true);
             return new VariantResult(await EncodeWidthsAsync(original, cancellationToken), Undecodable: false);
@@ -110,9 +107,9 @@ internal sealed partial class ImageProcessor(
     /// full size.
     /// </summary>
     /// <returns>The bitmap, or <c>null</c> when the file cannot be decoded or is over a size cap.</returns>
-    private SKBitmap? Decode(string storedPath)
+    private async Task<SKBitmap?> DecodeAsync(string storedPath, CancellationToken cancellationToken)
     {
-        using var input = store.OpenRead(storedPath);
+        await using var input = await store.OpenReadAsync(storedPath, cancellationToken);
         using var codec = SKCodec.Create(input);
         if (codec is null)
         {
@@ -206,9 +203,9 @@ internal sealed partial class ImageProcessor(
         }
         catch
         {
-            // Nothing records the renditions written so far, so they go too.
+            // Nothing records the renditions written so far, so they go too, even after a cancel.
             foreach (var variant in results)
-                store.Delete(variant.StoredPath);
+                await store.DeleteAsync(variant.StoredPath, CancellationToken.None);
             throw;
         }
 

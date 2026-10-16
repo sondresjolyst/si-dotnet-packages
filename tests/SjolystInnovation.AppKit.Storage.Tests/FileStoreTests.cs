@@ -101,7 +101,7 @@ public sealed class FileStoreTests : IDisposable
         var stored = await store.SaveAsync(Bytes(Pdf), "file.pdf");
 
         Assert.Equal("Only PDF files are accepted.", ex.Message);
-        using var reader = new StreamReader(store.OpenRead(stored.StoredPath));
+        using var reader = new StreamReader(await store.OpenReadAsync(stored.StoredPath));
         Assert.StartsWith("%PDF", await reader.ReadToEndAsync(), StringComparison.Ordinal);
     }
 
@@ -176,28 +176,42 @@ public sealed class FileStoreTests : IDisposable
         var store = Store();
         var stored = await store.SaveAsync(Bytes(Png), "a.png");
 
-        store.Delete(stored.StoredPath);
-        store.Delete(stored.StoredPath);
+        await store.DeleteAsync(stored.StoredPath);
+        await store.DeleteAsync(stored.StoredPath);
 
-        Assert.False(store.Exists(stored.StoredPath));
+        Assert.False(await store.ExistsAsync(stored.StoredPath));
     }
 
     [Fact]
-    public void A_stored_path_cannot_leave_the_root()
+    public async Task A_canceled_token_stops_open_exists_and_delete()
+    {
+        var store = Store();
+        var stored = await store.SaveAsync(Bytes(Png), "a.png");
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.OpenReadAsync(stored.StoredPath, cts.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.ExistsAsync(stored.StoredPath, cts.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.DeleteAsync(stored.StoredPath, cts.Token));
+        Assert.True(await store.ExistsAsync(stored.StoredPath));
+    }
+
+    [Fact]
+    public async Task A_stored_path_cannot_leave_the_root()
     {
         var store = Store(path: Path.Combine(_root, "store"));
         Directory.CreateDirectory(Path.Combine(_root, "store2"));
         File.WriteAllBytes(Path.Combine(_root, "secret.png"), Png);
         File.WriteAllBytes(Path.Combine(_root, "store2", "sibling.png"), Png);
 
-        Assert.Throws<FileNotFoundException>(() => store.OpenRead("../../etc/passwd"));
-        Assert.Throws<FileNotFoundException>(() => store.OpenRead("..\\secret.png"));
-        Assert.False(store.Exists("../secret.png"));
-        Assert.False(store.Exists("../store2/sibling.png"));
+        await Assert.ThrowsAsync<FileNotFoundException>(() => store.OpenReadAsync("../../etc/passwd"));
+        await Assert.ThrowsAsync<FileNotFoundException>(() => store.OpenReadAsync("..\\secret.png"));
+        Assert.False(await store.ExistsAsync("../secret.png"));
+        Assert.False(await store.ExistsAsync("../store2/sibling.png"));
         Assert.Throws<InvalidOperationException>(() => store.ResolvePath(".."));
         Assert.Throws<InvalidOperationException>(() => store.ResolvePath(""));
-        Assert.Throws<InvalidOperationException>(() => store.Exists("."));
-        store.Delete("../secret.png");
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.ExistsAsync("."));
+        await store.DeleteAsync("../secret.png");
         Assert.True(File.Exists(Path.Combine(_root, "secret.png")));
     }
 

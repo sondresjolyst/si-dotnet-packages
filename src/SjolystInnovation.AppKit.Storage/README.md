@@ -60,16 +60,18 @@ client, for example `Only PDF files are accepted.` A refused or canceled save le
 
 ## Reading and deleting
 
-`OpenRead`, `Exists`, and `Delete` take the stored path. Only its last segment counts, and the result must
+`OpenReadAsync`, `ExistsAsync`, and `DeleteAsync` take the stored path. They are async so that a store
+on something other than local disk can implement them. Only its last segment counts, and the result must
 lie inside the store's directory, so a stored path such as `../../etc/passwd` cannot reach another
-directory. `Delete` on a file that is gone does nothing.
+directory. `DeleteAsync` on a file that is gone does nothing.
 
 ## Serving
 
-`AppKitFiles.Serve` answers with the file, or with `404` when the store does not have it.
+`AppKitFiles.ServeAsync` answers with the file, or with `404` when the store does not have it.
 
 ```csharp
-return AppKitFiles.Serve(reports, report.StoredPath, report.FileName, report.ContentType, inline: true);
+return await AppKitFiles.ServeAsync(reports, report.StoredPath, report.FileName, report.ContentType,
+    inline: true, cancellationToken: http.RequestAborted);
 ```
 
 The answer has `X-Content-Type-Options: nosniff` and a `Content-Disposition` of `inline` or
