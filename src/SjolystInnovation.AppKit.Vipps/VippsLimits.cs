@@ -1,6 +1,6 @@
 namespace SjolystInnovation.AppKit.Vipps;
 
-/// <summary>Limits the Vipps APIs set on request fields.</summary>
+/// <summary>The limits that the Vipps APIs set on request fields.</summary>
 public static class VippsLimits
 {
     /// <summary>The largest recurring agreement amount, NOK 20 000, in øre.</summary>
@@ -18,7 +18,7 @@ public static class VippsLimits
     /// <summary>The earliest a recurring charge may fall due, counted in days from today.</summary>
     public const int MinChargeDueDays = 2;
 
-    /// <summary>The value cut to at most <paramref name="max"/> characters, never between the halves of a surrogate pair.</summary>
+    /// <summary>Cuts the value to at most <paramref name="max"/> characters, never between the halves of a surrogate pair.</summary>
     public static string Truncate(string value, int max)
     {
         if (value.Length <= max) return value;
@@ -26,7 +26,7 @@ public static class VippsLimits
         return value[..cut];
     }
 
-    /// <summary>A system header value: build metadata after a <c>+</c>, such as a commit hash, left out, and at most 30 characters.</summary>
+    /// <summary>Builds a system header value. Leaves out build metadata after a <c>+</c>, such as a commit hash, and keeps at most 30 characters.</summary>
     public static string SystemHeader(string value)
     {
         var plus = value.IndexOf('+');

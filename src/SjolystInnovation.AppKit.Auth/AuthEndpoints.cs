@@ -9,7 +9,10 @@ using Microsoft.Extensions.Logging;
 
 namespace SjolystInnovation.AppKit.Auth;
 
-/// <summary>Sends the emails the auth endpoints need. The app implements it with its own templates.</summary>
+/// <summary>
+/// Sends the emails the auth endpoints need. Implement it with your own templates, or register
+/// <see cref="AuthEmailServiceCollectionExtensions.AddAppKitAuthEmails{TUser}"/> for the shared layout.
+/// </summary>
 public interface IAuthEmails<in TUser>
 {
     /// <summary>Sends the password reset code to the user's email address.</summary>
@@ -27,42 +30,56 @@ internal sealed record ResetPasswordRequest(string? Email, string? Code, string?
 internal sealed record TokenResponse(string Token, string RefreshToken);
 internal sealed record MessageResponse(string Message);
 
-/// <summary>The messages the auth endpoints answer with. English by default.</summary>
+/// <summary>The messages the auth endpoints return. Defaults to English.</summary>
 public sealed class AuthMessages
 {
+    /// <summary>The message for a wrong email or password.</summary>
     public string InvalidCredentials { get; set; } = "Invalid email or password.";
+    /// <summary>The message for a sign-in that is locked after too many failed attempts.</summary>
     public string LockedOut { get; set; } = "Too many failed attempts. This login is temporarily locked, try again later.";
+    /// <summary>The message for an access token that cannot be read on refresh.</summary>
     public string InvalidToken { get; set; } = "Invalid token";
+    /// <summary>The message for a refresh whose user is gone or not active.</summary>
     public string UserNotFound { get; set; } = "User not found";
+    /// <summary>The message for a refresh token that is unknown, used, or expired.</summary>
     public string InvalidRefreshToken { get; set; } = "Invalid or expired refresh token";
+    /// <summary>The message after a reset request, whether or not the address has an account.</summary>
     public string ResetRequested { get; set; } = "If this email is registered, a reset code has been sent.";
+    /// <summary>The message for a wrong or expired reset code.</summary>
     public string InvalidResetCode { get; set; } = "Invalid or expired reset code.";
+    /// <summary>The message when a reset code has had too many wrong attempts.</summary>
     public string TooManyResetAttempts { get; set; } = "Too many attempts. Request a new reset code.";
+    /// <summary>The message after a successful password reset.</summary>
     public string PasswordReset { get; set; } = "Password reset successfully.";
+    /// <summary>The validation message for a missing field.</summary>
     public string Required { get; set; } = "Required.";
+    /// <summary>The validation message for a malformed email address.</summary>
     public string InvalidEmail { get; set; } = "Not a valid email address.";
 }
 
-/// <summary>Settings for <see cref="AuthEndpointsExtensions.MapAppKitAuthEndpoints{TUser, TContext}"/>.</summary>
+/// <summary>The options for <see cref="AuthEndpointsExtensions.MapAppKitAuthEndpoints{TUser, TContext}"/>.</summary>
 public sealed class AppKitAuthEndpointOptions<TUser>
 {
     /// <summary>
-    /// Whether a user may sign in, refresh and reset a password, such as <c>u =&gt; !u.IsDeleted</c>. A user
-    /// it refuses is treated like an unknown one. Everyone is active when it is not set.
+    /// A check for whether a user may sign in, refresh tokens, and reset their password, for example
+    /// <c>u =&gt; !u.IsDeleted</c>. The endpoints treat a user it refuses like an unknown one. If it is not
+    /// set, every user is active.
     /// </summary>
     public Func<TUser, bool>? IsActive { get; set; }
 
+    /// <summary>The messages the endpoints return.</summary>
     public AuthMessages Messages { get; } = new();
 }
 
+/// <summary>Maps the auth endpoints.</summary>
 public static partial class AuthEndpointsExtensions
 {
     /// <summary>
-    /// Maps <c>login</c>, <c>refresh-token</c>, <c>logout</c>, <c>request-password-reset</c> and
-    /// <c>reset-password</c> under <paramref name="prefix"/>, all anonymous and all POST. They need
-    /// Identity with a <see cref="SignInManager{TUser}"/>, <see cref="ServiceCollectionExtensions.AddAppKitAuth{TContext}"/>
-    /// and an <see cref="IAuthEmails{TUser}"/>. Errors answer with a <c>message</c>, and a missing or
-    /// malformed field with a validation problem.
+    /// Maps <c>login</c>, <c>refresh-token</c>, <c>logout</c>, <c>request-password-reset</c>, and
+    /// <c>reset-password</c> under <paramref name="prefix"/>. All are anonymous POST endpoints. They need
+    /// Identity with a <see cref="SignInManager{TUser}"/>, <see cref="ServiceCollectionExtensions.AddAppKitAuth{TContext}"/>,
+    /// and an <see cref="IAuthEmails{TUser}"/>. Errors return a <c>message</c>. A missing or malformed
+    /// field returns a validation problem.
     /// </summary>
     public static RouteGroupBuilder MapAppKitAuthEndpoints<TUser, TContext>(this IEndpointRouteBuilder endpoints,
         string prefix = "/api/auth", Action<AppKitAuthEndpointOptions<TUser>>? configure = null)
@@ -128,7 +145,7 @@ internal sealed class AuthHandlers<TUser, TContext>(AppKitAuthEndpointOptions<TU
         return errors.Count == 0 ? null : TypedResults.ValidationProblem(errors);
     }
 
-    // The same rule FluentValidation's EmailAddress applies: one @ with something on both sides.
+    // The same rule as FluentValidation's EmailAddress: one @ with something on both sides.
     private static bool LooksLikeEmail(string value)
     {
         var at = value.IndexOf('@', StringComparison.Ordinal);
@@ -194,7 +211,7 @@ internal sealed class AuthHandlers<TUser, TContext>(AppKitAuthEndpointOptions<TU
         if (Validate(("RefreshToken", request.RefreshToken, false)) is { } invalid)
             return invalid;
 
-        // The answer is the same whether or not the token was live, so it reveals nothing.
+        // The response is the same whether or not the token was live, so it reveals nothing.
         await refreshTokens.RevokeAsync(request.RefreshToken!, http.RequestAborted);
         return TypedResults.NoContent();
     }
@@ -214,7 +231,7 @@ internal sealed class AuthHandlers<TUser, TContext>(AppKitAuthEndpointOptions<TU
             AuthEndpointsExtensions.Log.ResetRequested(logger, user!.Id);
         }
 
-        // The same answer for an unknown address, so the endpoint does not reveal who has an account.
+        // An unknown address gets the same response, so the endpoint does not reveal who has an account.
         return TypedResults.Ok(new MessageResponse(M.ResetRequested));
     }
 
@@ -244,7 +261,7 @@ internal sealed class AuthHandlers<TUser, TContext>(AppKitAuthEndpointOptions<TU
 
         PasswordResetCodes.Complete(user!);
         await users.UpdateAsync(user!);
-        // A new password ends every session, so one that was taken over cannot carry on.
+        // A new password ends every session, so a session that someone took over cannot continue.
         var sessions = await refreshTokens.RevokeAllForUserAsync(user!.Id, http.RequestAborted);
         AuthEndpointsExtensions.Log.PasswordReset(logger, user.Id, sessions);
         return TypedResults.Ok(new MessageResponse(M.PasswordReset));

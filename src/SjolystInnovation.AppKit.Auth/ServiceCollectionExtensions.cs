@@ -6,13 +6,14 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace SjolystInnovation.AppKit.Auth;
 
+/// <summary>Registers the token services.</summary>
 public static class ServiceCollectionExtensions
 {
     /// <summary>
     /// Registers <see cref="IJwtTokenService"/> and <see cref="IRefreshTokenService"/>, with
     /// <see cref="AuthOptions"/> bound from <paramref name="jwtSection"/>, and a hosted service that
     /// deletes expired refresh tokens at startup and daily. The app fails to start when the key is
-    /// shorter than 32 bytes or a lifetime or the token cap is not positive.
+    /// shorter than 32 bytes, or when a lifetime or the token cap is not positive.
     /// </summary>
     public static IServiceCollection AddAppKitAuth<TContext>(this IServiceCollection services, IConfigurationSection jwtSection)
         where TContext : DbContext, IAuthDbContext

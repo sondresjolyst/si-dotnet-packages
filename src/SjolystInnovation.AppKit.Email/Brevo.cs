@@ -9,28 +9,29 @@ using Microsoft.Extensions.Options;
 
 namespace SjolystInnovation.AppKit.Email;
 
-/// <summary>Brevo settings, bound from the app's configuration section.</summary>
+/// <summary>The Brevo options, bound from the app's configuration section.</summary>
 public sealed class BrevoOptions
 {
     /// <summary>The API key, sent as the <c>api-key</c> header.</summary>
     public string ApiKey { get; set; } = string.Empty;
 
-    /// <summary>The From address. Brevo must know it as a sender.</summary>
+    /// <summary>The From address. It must be a known sender in Brevo.</summary>
     public string SenderEmail { get; set; } = string.Empty;
 
     /// <summary>The From name.</summary>
     public string SenderName { get; set; } = string.Empty;
 
-    /// <summary>The API root. Brevo's own by default.</summary>
+    /// <summary>The API root URL. Defaults to Brevo's own, <c>https://api.brevo.com/v3/</c>.</summary>
     public string BaseUrl { get; set; } = "https://api.brevo.com/v3/";
 }
 
+/// <summary>Registers the Brevo email services.</summary>
 public static class BrevoServiceCollectionExtensions
 {
     /// <summary>
     /// Registers <see cref="IEmailSender"/> and <see cref="IEmailStats"/> on Brevo's API with their own
     /// <see cref="HttpClient"/>, and <see cref="BrevoOptions"/> bound from <paramref name="section"/>. The
-    /// app fails to start without an API key, a sender address, a sender name and an absolute API root.
+    /// app fails to start without an API key, a sender address, a sender name, and an absolute API root.
     /// </summary>
     public static IHttpClientBuilder AddAppKitBrevo(this IServiceCollection services, IConfigurationSection section)
     {
@@ -87,8 +88,8 @@ internal sealed partial class BrevoClient(HttpClient http, IOptions<BrevoOptions
             Log.Refused(logger, (int)response.StatusCode, error);
             return new EmailResult(false, Error: error);
         }
-        // A connection that fails or times out is reported like a refusal, so an email never breaks the
-        // request that sends it. Only the caller's own cancellation is passed on.
+        // Report a connection that fails or times out like a refusal, so an email never breaks the
+        // request that sends it. Only the caller's own cancellation passes through.
         catch (Exception ex) when (ex is HttpRequestException || (ex is TaskCanceledException && !cancellationToken.IsCancellationRequested))
         {
             Log.Failed(logger, ex);
@@ -124,7 +125,7 @@ internal sealed partial class BrevoClient(HttpClient http, IOptions<BrevoOptions
             if (!string.IsNullOrEmpty(error?.Message))
                 return string.IsNullOrEmpty(error.Code) ? error.Message : $"{error.Code}: {error.Message}";
         }
-        // A body that is not Brevo's error JSON leaves the status code as the reason.
+        // If the body is not Brevo's error JSON, the status code is the reason.
         catch (JsonException)
         {
         }

@@ -9,41 +9,54 @@ using Microsoft.Extensions.Options;
 
 namespace SjolystInnovation.AppKit.Vipps;
 
-/// <summary>The Vipps Recurring, ePayment, Userinfo and Webhooks APIs.</summary>
+/// <summary>A client for the Vipps Recurring, ePayment, Userinfo, and Webhooks APIs.</summary>
 public interface IVippsClient
 {
-    /// <summary>Whether calls that create something new go to the test environment now.</summary>
+    /// <summary>Checks whether calls that create something new currently go to the test environment.</summary>
     Task<bool> IsTestAsync(CancellationToken ct = default);
 
+    /// <summary>Creates a recurring agreement in the current environment.</summary>
     Task<VippsCreateAgreementResponse> CreateAgreementAsync(VippsCreateAgreementRequest request, string idempotencyKey, CancellationToken ct = default);
+    /// <summary>Gets a recurring agreement.</summary>
     Task<VippsAgreement> GetAgreementAsync(string agreementId, bool? isTest = null, CancellationToken ct = default);
+    /// <summary>Stops a recurring agreement.</summary>
     Task StopAgreementAsync(string agreementId, string idempotencyKey, bool? isTest = null, CancellationToken ct = default);
+    /// <summary>Changes the ceiling the user approved for a recurring agreement.</summary>
     Task UpdateAgreementMaxAmountAsync(string agreementId, int maxAmountInOre, string idempotencyKey, bool? isTest = null, CancellationToken ct = default);
+    /// <summary>Creates a charge on a recurring agreement.</summary>
     Task<VippsCreateChargeResponse> CreateChargeAsync(string agreementId, VippsCreateChargeRequest request, string idempotencyKey, bool? isTest = null, CancellationToken ct = default);
     /// <summary>
-    /// Refunds part or all of a captured recurring charge. Vipps answers without a body, and sends no
-    /// webhook, so the caller records the refund when this returns.
+    /// Refunds part or all of a captured recurring charge. Vipps returns no body and sends no webhook,
+    /// so the caller records the refund when this call returns.
     /// </summary>
     Task RefundChargeAsync(string agreementId, string chargeId, int amountInOre, string description, string idempotencyKey, bool? isTest = null, CancellationToken ct = default);
 
+    /// <summary>Creates an ePayment in the current environment.</summary>
     Task<VippsCreatePaymentResponse> CreatePaymentAsync(VippsCreatePaymentRequest request, string idempotencyKey, CancellationToken ct = default);
+    /// <summary>Gets an ePayment.</summary>
     Task<VippsPayment> GetPaymentAsync(string reference, bool? isTest = null, CancellationToken ct = default);
+    /// <summary>Captures part or all of a reserved ePayment.</summary>
     Task<VippsPayment> CapturePaymentAsync(string reference, int amountInOre, string idempotencyKey, bool? isTest = null, CancellationToken ct = default);
+    /// <summary>Cancels an ePayment.</summary>
     Task CancelPaymentAsync(string reference, string idempotencyKey, bool? isTest = null, CancellationToken ct = default);
+    /// <summary>Refunds part or all of a captured ePayment.</summary>
     Task<VippsPayment> RefundPaymentAsync(string reference, int amountInOre, string idempotencyKey, bool? isTest = null, CancellationToken ct = default);
 
-    /// <summary>The profile a user shared, or null for an empty <paramref name="profileSub"/>.</summary>
+    /// <summary>Gets the profile a user shared. Returns null for an empty <paramref name="profileSub"/>.</summary>
     Task<VippsUserInfo?> GetUserInfoAsync(string profileSub, bool? isTest = null, CancellationToken ct = default);
 
+    /// <summary>Registers a webhook for the events and returns its id and signing secret.</summary>
     Task<VippsRegisteredWebhook> RegisterWebhookAsync(string url, IReadOnlyCollection<string> events, bool isTest, CancellationToken ct = default);
+    /// <summary>Lists the registered webhooks.</summary>
     Task<IReadOnlyList<VippsWebhook>> ListWebhooksAsync(bool isTest, CancellationToken ct = default);
+    /// <summary>Deletes a webhook.</summary>
     Task DeleteWebhookAsync(string webhookId, bool isTest, CancellationToken ct = default);
 }
 
 /// <summary>
 /// Sends each call to the environment it belongs to, with a cached access token and the headers
-/// Vipps asks for. A call on an existing payment or agreement takes the environment it was created
-/// in, and a call that creates something new asks <see cref="IVippsEnvironment"/>.
+/// Vipps asks for. A call on an existing payment or agreement uses the environment it was created
+/// in. A call that creates something new asks <see cref="IVippsEnvironment"/>.
 /// </summary>
 public sealed partial class VippsClient : IVippsClient
 {
@@ -58,6 +71,7 @@ public sealed partial class VippsClient : IVippsClient
 
     private readonly record struct Target(VippsCredentials Credentials, string Token, bool IsTest);
 
+    /// <summary>Creates the client. The DI container calls this.</summary>
     public VippsClient(HttpClient http, IOptions<VippsOptions> options, IVippsEnvironment environment, ILogger<VippsClient> logger, TimeProvider? time = null)
     {
         _http = http;
@@ -262,7 +276,7 @@ public sealed partial class VippsClient : IVippsClient
         await SendAsync(target, HttpMethod.Delete, $"/webhooks/v1/webhooks/{Escape(webhookId)}", null, null, "delete-webhook", ct);
     }
 
-    /// <summary>The VAT-free part of a VAT-included total, rounded half away from zero, as an invoice splits it.</summary>
+    /// <summary>Computes the part of a total that excludes VAT, rounded half away from zero, as an invoice splits it.</summary>
     internal static int ExcludingTax(int totalInOre, int taxRateBasisPoints) =>
         taxRateBasisPoints == 0
             ? totalInOre
@@ -320,7 +334,7 @@ public sealed partial class VippsClient : IVippsClient
             if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out expiresIn)) expiresIn = 3600;
         }
 
-        // Renewed a minute early, so a token never runs out during a call.
+        // Renew a minute early, so a token never runs out during a call.
         _tokens[isTest] = (token, _time.GetUtcNow().AddSeconds(Math.Max(60, expiresIn - 60)));
         LogTokenRefreshed(_logger, isTest ? "test" : "live", expiresIn);
         return token;
@@ -346,8 +360,8 @@ public sealed partial class VippsClient : IVippsClient
         var body = await response.Content.ReadAsStringAsync(ct);
         if (response.IsSuccessStatusCode) return body;
 
-        // A failed body may echo a phone number, a name or an agreement id, so Vipps's own error ids
-        // are logged in its place. The body only when the app turns that on, and none came.
+        // A failed body may echo a phone number, a name, or an agreement id, so log Vipps's own error ids
+        // instead. Log the body only when the app turns that on and the response has no error ids.
         var (errorCode, errorRef, traceId) = ErrorIds(body);
         if (errorCode == null && errorRef == null && traceId == null && _options.LogFailedResponseBodies)
             LogFailedWithBody(_logger, operation, (int)response.StatusCode, body);

@@ -9,23 +9,27 @@ using SjolystInnovation.AppKit.Email;
 
 namespace SjolystInnovation.AppKit.Auth;
 
-/// <summary>The company an email comes from, as shown in its header and footer. Blank lines are left out.</summary>
+/// <summary>The company details shown in the header and footer of an email. Blank details are left out.</summary>
 /// <param name="Name">The brand name, used in the header, subjects and text.</param>
 public sealed record EmailBrand(string Name)
 {
+    /// <summary>The legal company name, shown in the header. The footer uses it instead of the brand name when set.</summary>
     public string? LegalName { get; init; }
 
-    /// <summary>The organisation number line exactly as shown, such as <c>Org.nr. 912 345 678 MVA</c>.</summary>
+    /// <summary>The organization number line, shown exactly as given, for example <c>Org.nr. 912 345 678 MVA</c>.</summary>
     public string? OrgNumber { get; init; }
 
+    /// <summary>The postal address, shown in the header.</summary>
     public string? Address { get; init; }
 
+    /// <summary>The contact email address, shown in the header.</summary>
     public string? Email { get; init; }
 }
 
-/// <summary>Gives the auth emails the app's current company details, such as from its admin settings.</summary>
+/// <summary>Provides the app's current company details to the auth emails, for example from its admin settings.</summary>
 public interface IEmailBrand
 {
+    /// <summary>Gets the current company details.</summary>
     Task<EmailBrand> GetBrandAsync(CancellationToken cancellationToken);
 }
 
@@ -36,20 +40,22 @@ public enum EmailLanguage
     Norwegian,
 }
 
-/// <summary>Settings for <see cref="AuthEmailServiceCollectionExtensions.AddAppKitAuthEmails{TUser}"/>.</summary>
+/// <summary>The options for <see cref="AuthEmailServiceCollectionExtensions.AddAppKitAuthEmails{TUser}"/>.</summary>
 public sealed partial class AppKitAuthEmailOptions
 {
+    /// <summary>The language of the emails. Defaults to English.</summary>
     public EmailLanguage Language { get; set; } = EmailLanguage.English;
 
     /// <summary>
-    /// The header band's background and the code's colour, as <c>#rrggbb</c>. Text on it is white, or near
-    /// black when the colour is too light for white text, and the code is near black then too.
+    /// The background color of the header band and the color of the code, as <c>#rrggbb</c>. Text on the
+    /// band is white, or near black when the color is too light for white text. The code is then near
+    /// black too. Defaults to <c>#182232</c>.
     /// </summary>
     public string HeaderColor { get; set; } = "#182232";
 
     /// <summary>
-    /// The button's and the code label's colour, as <c>#rrggbb</c>. The button text and a too light label
-    /// follow the same rule as <see cref="HeaderColor"/>.
+    /// The color of the button and the code label, as <c>#rrggbb</c>. The button text and a label that is
+    /// too light follow the same rule as <see cref="HeaderColor"/>. Defaults to <c>#0284c7</c>.
     /// </summary>
     public string AccentColor { get; set; } = "#0284c7";
 
@@ -60,8 +66,8 @@ public sealed partial class AppKitAuthEmailOptions
     public string SetPasswordUrl { get; set; } = string.Empty;
 
     /// <summary>
-    /// The absolute address of the app's page that takes an email verification code. Required by
-    /// <see cref="AuthEmailServiceCollectionExtensions.AddAppKitVerificationEmails{TUser}"/> only.
+    /// The absolute address of the app's page that takes an email verification code. Only
+    /// <see cref="AuthEmailServiceCollectionExtensions.AddAppKitVerificationEmails{TUser}"/> requires it.
     /// </summary>
     public string VerifyEmailUrl { get; set; } = string.Empty;
 
@@ -75,15 +81,17 @@ public sealed partial class AppKitAuthEmailOptions
 /// <summary>Sends the email verification code with the same layout as the other auth emails.</summary>
 public interface IVerificationEmails<in TUser>
 {
+    /// <summary>Sends the verification code to the user.</summary>
     Task SendEmailVerificationAsync(TUser user, string code, CancellationToken cancellationToken);
 }
 
+/// <summary>Registers the auth email services.</summary>
 public static class AuthEmailServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers an <see cref="IAuthEmails{TUser}"/> that sends the reset and invite codes through
-    /// <see cref="IEmailSender"/> with a shared layout. The app registers an <see cref="IEmailBrand"/> and
-    /// an <see cref="IEmailSender"/>. The options are checked at startup.
+    /// Registers an <see cref="IAuthEmails{TUser}"/> that sends reset and invite codes through
+    /// <see cref="IEmailSender"/> with a shared layout. You register an <see cref="IEmailBrand"/> and an
+    /// <see cref="IEmailSender"/> yourself. The options are validated at startup.
     /// </summary>
     public static IServiceCollection AddAppKitAuthEmails<TUser>(this IServiceCollection services, Action<AppKitAuthEmailOptions> configure)
         where TUser : IdentityUser, IAppKitAccount, IPasswordResetUser
@@ -103,8 +111,8 @@ public static class AuthEmailServiceCollectionExtensions
 
     /// <summary>
     /// Registers an <see cref="IVerificationEmails{TUser}"/> for apps that verify email addresses. It uses
-    /// the options from <see cref="AddAppKitAuthEmails{TUser}"/>, which must also be registered, and needs
-    /// <see cref="AppKitAuthEmailOptions.VerifyEmailUrl"/>.
+    /// the options from <see cref="AddAppKitAuthEmails{TUser}"/>, which you must also register, and
+    /// requires <see cref="AppKitAuthEmailOptions.VerifyEmailUrl"/>.
     /// </summary>
     public static IServiceCollection AddAppKitVerificationEmails<TUser>(this IServiceCollection services)
         where TUser : IdentityUser, IAppKitAccount, IEmailVerificationUser
@@ -173,8 +181,8 @@ internal sealed record AuthEmailWords(
 
 internal static class AuthEmailRenderer
 {
-    // {0} is the brand name in subjects, intros and the footer, and the first name in HelloName. {0} is the
-    // lifetime in Expiry.
+    // In subjects and intros, {0} is the brand name. In the footer it is the legal name, or the brand name
+    // when no legal name is set. In HelloName it is the first name, and in Expiry it is the lifetime.
     private static readonly AuthEmailWords English = new(
         "Hi,", "Hi {0},", "Your code", "The code expires in {0}.", "Button not working? Copy this link:",
         "You got this email because of your account at {0}.",
@@ -211,12 +219,12 @@ internal static class AuthEmailRenderer
 
     private static string H(string? value) => WebUtility.HtmlEncode(value ?? string.Empty);
 
-    /// <summary>The near black used for text where a brand colour is too light to read on.</summary>
+    /// <summary>The near black used for text where a brand color is too light to read on.</summary>
     internal const string Ink = "#1a1a1a";
 
     /// <summary>
-    /// Whether white text reads on the colour, and the colour reads on white, at a WCAG contrast of at
-    /// least 3 to 1, the level for large and bold text.
+    /// Checks whether white text is readable on the color, and the color on white, at a WCAG contrast
+    /// ratio of at least 3 to 1. That is the WCAG level for large text.
     /// </summary>
     internal static bool ReadsOnWhite(string hex)
     {
@@ -231,11 +239,14 @@ internal static class AuthEmailRenderer
 
     private static string F(string format, string value) => string.Format(CultureInfo.InvariantCulture, format, value);
 
-    /// <summary>The page address with the email and code added to its query string.</summary>
+    /// <summary>Builds the page address with the email and code added to its query string.</summary>
     internal static string Link(string page, string email, string code) =>
         $"{page}{(page.Contains('?', StringComparison.Ordinal) ? '&' : '?')}email={Uri.EscapeDataString(email)}&code={Uri.EscapeDataString(code)}";
 
-    /// <summary>The lifetime in whole days, hours or minutes, whichever unit it is closest to being a count of.</summary>
+    /// <summary>
+    /// Formats the lifetime as a rounded count of days, hours, or minutes. It uses days from 23.5 hours
+    /// and hours from 60 minutes.
+    /// </summary>
     internal static string Duration(TimeSpan lifetime, AuthEmailWords words)
     {
         var minutes = Math.Max(1, (int)Math.Round(lifetime.TotalMinutes, MidpointRounding.AwayFromZero));

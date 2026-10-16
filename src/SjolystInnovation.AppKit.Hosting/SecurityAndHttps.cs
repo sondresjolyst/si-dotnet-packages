@@ -5,11 +5,12 @@ using Microsoft.Extensions.Hosting;
 
 namespace SjolystInnovation.AppKit.Hosting;
 
+/// <summary>Adds security headers and HTTPS enforcement.</summary>
 public static class SecurityAndHttpsExtensions
 {
     /// <summary>
     /// Adds <c>X-Content-Type-Options: nosniff</c> and <c>X-Frame-Options: DENY</c> to every response,
-    /// error responses included.
+    /// including error responses.
     /// </summary>
     public static IApplicationBuilder UseAppKitSecurityHeaders(this IApplicationBuilder app)
     {
@@ -27,9 +28,9 @@ public static class SecurityAndHttpsExtensions
     }
 
     /// <summary>
-    /// Outside Development, sends HSTS and redirects plain HTTP to HTTPS. Requests under <c>/health</c>
+    /// Sends HSTS and redirects plain HTTP to HTTPS outside Development. Requests under <c>/health</c>
     /// are never redirected, because probes reach the pod over plain HTTP without
-    /// <c>X-Forwarded-Proto</c>. Call it after <see cref="ForwardedHeadersExtensions.UseAppKitForwardedHeaders"/>
+    /// <c>X-Forwarded-Proto</c>. Call it after <see cref="ForwardedHeadersExtensions.UseAppKitForwardedHeaders"/>,
     /// so the scheme the ingress saw counts.
     /// </summary>
     public static IApplicationBuilder UseAppKitHttps(this IApplicationBuilder app)

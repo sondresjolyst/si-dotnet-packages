@@ -1,7 +1,8 @@
 # SjolystInnovation.AppKit.Email
 
-Transactional email through Brevo's API. A send returns a result instead of throwing, so an email
-that Brevo refuses never breaks the request that sends it. The app keeps its own templates.
+This package sends transactional email through Brevo's API. A send returns a result instead of
+throwing, so an email that Brevo refuses never breaks the request that sends it. Your app keeps its
+own templates.
 
 ```sh
 dotnet add package SjolystInnovation.AppKit.Email
@@ -20,7 +21,8 @@ builder.Services.AddAppKitBrevo(builder.Configuration.GetSection("BrevoSettings"
 | `SenderName` | none | The From name. |
 | `BaseUrl` | `https://api.brevo.com/v3/` | Point it at a fake Brevo in tests. |
 
-The app fails to start without the key, the sender address, the sender name or an absolute API root.
+If the key, the sender address, or the sender name is missing, or the API root is not an absolute
+URL, the app fails to start.
 
 ## Sending
 
@@ -33,14 +35,15 @@ var result = await email.SendAsync(new EmailMessage("kari@example.no", "Your cod
 ```
 
 `IEmailSender.SendAsync` posts to `smtp/email`. Brevo takes each attachment's type from its file
-name. An empty recipient throws `ArgumentException`, and a blank reply-to is left out.
+name. If the recipient is empty, `SendAsync` throws `ArgumentException`. If the reply-to is blank, it
+is left out.
 
 | Outcome | Result |
 | --- | --- |
-| Brevo accepts it | `Sent` is true and `MessageId` is Brevo's id. |
-| Brevo refuses it | `Sent` is false and `Error` holds Brevo's code and message. Logged as an error. |
-| The connection fails or times out | `Sent` is false and `Error` holds the exception message. Logged as an error. |
-| The caller cancels | `OperationCanceledException`. |
+| Brevo accepts it | `Sent` is true and `MessageId` is Brevo's ID. |
+| Brevo refuses it | `Sent` is false and `Error` holds Brevo's code and message. The client logs it as an error. |
+| The connection fails or times out | `Sent` is false and `Error` holds the exception message. The client logs it as an error. |
+| The caller cancels | `SendAsync` throws `OperationCanceledException`. |
 
 The log names the status and Brevo's reason, never the recipient.
 
@@ -50,6 +53,6 @@ The log names the status and Brevo's reason, never the recipient.
 var stats = await emailStats.GetAsync(days: 30);
 ```
 
-`IEmailStats.GetAsync` reads Brevo's aggregated report for the last days, today included: requests,
-delivered, hard and soft bounces, spam reports, blocked and invalid. It throws when Brevo cannot be
-read.
+`IEmailStats.GetAsync` reads Brevo's aggregated report for the last `days` days, today included. The
+report counts requests, delivered, hard and soft bounces, spam reports, blocked, and invalid. If
+Brevo cannot be read, `GetAsync` throws.

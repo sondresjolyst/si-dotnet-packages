@@ -6,11 +6,13 @@ namespace SjolystInnovation.AppKit.Vipps;
 /// </summary>
 public interface IVippsEnvironment
 {
+    /// <summary>Checks whether new payments and agreements go to the test environment.</summary>
     Task<bool> IsTestAsync(CancellationToken cancellationToken = default);
 }
 
-/// <summary>An environment that never changes, such as from configuration.</summary>
+/// <summary>An environment choice that never changes, for example one read from configuration.</summary>
 public sealed class FixedVippsEnvironment(bool isTest) : IVippsEnvironment
 {
+    /// <summary>Returns the fixed environment choice.</summary>
     public Task<bool> IsTestAsync(CancellationToken cancellationToken = default) => Task.FromResult(isTest);
 }

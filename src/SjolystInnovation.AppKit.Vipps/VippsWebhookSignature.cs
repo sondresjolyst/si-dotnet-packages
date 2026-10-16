@@ -5,26 +5,35 @@ using System.Text.RegularExpressions;
 
 namespace SjolystInnovation.AppKit.Vipps;
 
+/// <summary>The result of a webhook signature check.</summary>
 public enum VippsWebhookResult
 {
+    /// <summary>The request passed every check.</summary>
     Valid,
+    /// <summary>No secret was given to check against.</summary>
     MissingSecret,
+    /// <summary>The <c>Authorization</c>, <c>x-ms-date</c>, or <c>x-ms-content-sha256</c> header is missing or malformed.</summary>
     MissingHeader,
+    /// <summary>The signed date cannot be parsed.</summary>
     BadDate,
+    /// <summary>The signed date is older than <see cref="VippsWebhookSignature.MaxAge"/> or too far in the future.</summary>
     Stale,
+    /// <summary>The body does not match its content hash.</summary>
     BadContentHash,
+    /// <summary>The signature does not match.</summary>
     BadSignature,
 }
 
 /// <summary>The parts of a webhook request the signature covers.</summary>
 public sealed record VippsWebhookRequest
 {
-    /// <summary>The HTTP method, such as <c>POST</c>.</summary>
+    /// <summary>The HTTP method, for example <c>POST</c>.</summary>
     public required string Method { get; init; }
-    /// <summary>The path and query string, such as <c>/api/webhooks/vipps?x=1</c>.</summary>
+    /// <summary>The path and query string, for example <c>/api/webhooks/vipps?x=1</c>.</summary>
     public required string PathAndQuery { get; init; }
     /// <summary>The <c>Host</c> header as received.</summary>
     public required string Host { get; init; }
+    /// <summary>The <c>Authorization</c> header.</summary>
     public string? Authorization { get; init; }
     /// <summary>The <c>x-ms-date</c> header.</summary>
     public string? Date { get; init; }
@@ -37,6 +46,7 @@ public sealed record VippsWebhookRequest
 /// <summary>The outcome of a check, and how long ago the request was signed.</summary>
 public readonly record struct VippsWebhookVerification(VippsWebhookResult Result, TimeSpan Age)
 {
+    /// <summary>Whether the request passed every check.</summary>
     public bool IsValid => Result == VippsWebhookResult.Valid;
 }
 
@@ -44,9 +54,9 @@ public readonly record struct VippsWebhookVerification(VippsWebhookResult Result
 public static partial class VippsWebhookSignature
 {
     /// <summary>
-    /// The oldest signed date accepted. Vipps retries a failed webhook for up to seven days and does
-    /// not document whether a retry is signed again, so a signed date may be that old. A replay is
-    /// for the receiver to stop, by keeping the event ids it processed for longer than this.
+    /// The maximum age of an accepted signed date. Vipps retries a failed webhook for up to seven days
+    /// and does not document whether a retry is signed again, so a signed date may be that old. The
+    /// receiver must stop replays itself, by keeping the event ids it processed for longer than this.
     /// </summary>
     public static readonly TimeSpan MaxAge = TimeSpan.FromDays(8);
 
@@ -56,7 +66,7 @@ public static partial class VippsWebhookSignature
     [GeneratedRegex(@"Signature=([^,&\s]+)")]
     private static partial Regex SignaturePattern();
 
-    /// <summary>Checks the content hash, the signed date and the signature of a request.</summary>
+    /// <summary>Checks the content hash, the signed date, and the signature of a request.</summary>
     public static VippsWebhookVerification Verify(VippsWebhookRequest request, string secret, DateTimeOffset now)
     {
         if (string.IsNullOrEmpty(secret)) return new(VippsWebhookResult.MissingSecret, TimeSpan.Zero);

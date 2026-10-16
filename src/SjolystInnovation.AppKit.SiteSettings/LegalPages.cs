@@ -9,27 +9,33 @@ namespace SjolystInnovation.AppKit.SiteSettings;
 /// <summary>The text of one legal page in one language, edited by an admin and rendered as markdown.</summary>
 public class LegalPage
 {
+    /// <summary>The row id.</summary>
     public int Id { get; set; }
+    /// <summary>The page key, for example <c>terms</c>.</summary>
     public required string Key { get; set; }
+    /// <summary>The language the page is written in, for example <c>no</c>.</summary>
     public required string Locale { get; set; }
+    /// <summary>The page title.</summary>
     public required string Title { get; set; }
+    /// <summary>The page body as markdown.</summary>
     public string BodyMarkdown { get; set; } = string.Empty;
+    /// <summary>When the page was last saved, in UTC.</summary>
     public DateTime UpdatedAt { get; set; }
 }
 
-/// <summary>A legal page's starting text, written while the page has none.</summary>
+/// <summary>The starting text of a legal page, written while the page has none.</summary>
 public sealed record LegalPageSeed(string Key, string Locale, string Title, string BodyMarkdown);
 
-/// <summary>Settings for <see cref="LegalPagesExtensions.MapAppKitLegalPages{TContext}"/> and the seeding.</summary>
+/// <summary>The options for <see cref="LegalPagesExtensions.MapAppKitLegalPages{TContext}"/> and the seeding.</summary>
 public sealed class AppKitLegalPagesOptions
 {
-    /// <summary>The pages there are. <c>terms</c>, <c>privacy</c> and <c>cookies</c> by default.</summary>
+    /// <summary>The page keys. Defaults to <c>terms</c>, <c>privacy</c>, and <c>cookies</c>.</summary>
     public IReadOnlyCollection<string> Keys { get; set; } = ["terms", "privacy", "cookies"];
 
-    /// <summary>The languages a page can be written in. The first is the fallback. <c>no</c> by default.</summary>
+    /// <summary>The languages a page can be written in. The first is the fallback. Defaults to <c>no</c>.</summary>
     public IReadOnlyList<string> Locales { get; set; } = ["no"];
 
-    /// <summary>The authorization policy that listing and editing require. <c>Admin</c> by default.</summary>
+    /// <summary>The authorization policy that listing and editing require. Defaults to <c>Admin</c>.</summary>
     public string Policy { get; set; } = "Admin";
 
     internal bool KnownKey(string? key) => key is not null && Keys.Contains(key, StringComparer.OrdinalIgnoreCase);
@@ -37,8 +43,8 @@ public sealed class AppKitLegalPagesOptions
     internal bool KnownLocale(string? locale) => locale is not null && Locales.Contains(locale, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// The supported locale a tag asks for: an exact match, then the tag's primary language, with <c>nb</c>
-    /// and <c>nn</c> read as <c>no</c>. Anything else, or no tag, is the fallback.
+    /// Finds the supported locale a tag asks for. It tries an exact match first, then the tag's primary
+    /// language, with <c>nb</c> and <c>nn</c> read as <c>no</c>. Anything else, or no tag, gets the fallback.
     /// </summary>
     internal string Normalize(string? locale)
     {
@@ -52,12 +58,13 @@ public sealed class AppKitLegalPagesOptions
     }
 }
 
-/// <summary>A legal page as the endpoints answer it.</summary>
+/// <summary>A legal page as the endpoints return it.</summary>
 public sealed record LegalPageInfo(string Key, string Locale, string Title, string BodyMarkdown, DateTime UpdatedAt);
 
 /// <summary>The text an admin saves for a legal page.</summary>
 public sealed record LegalPageBody(string? Title, string? BodyMarkdown);
 
+/// <summary>Maps, seeds, and configures the legal pages.</summary>
 public static class LegalPagesExtensions
 {
     /// <summary>
@@ -80,9 +87,10 @@ public static class LegalPagesExtensions
     }
 
     /// <summary>
-    /// Maps, under <paramref name="prefix"/>: <c>GET {key}</c> for everyone, which answers the page in the
-    /// asked <c>?locale=</c> or else in the fallback language, and <c>GET</c> to list every page and
-    /// <c>PUT {key}/{locale}</c> to save one, behind <see cref="AppKitLegalPagesOptions.Policy"/>.
+    /// Maps the legal page endpoints under <paramref name="prefix"/>. <c>GET {key}</c> is open to everyone
+    /// and returns the page in the requested <c>?locale=</c>, or else in the fallback language. <c>GET</c>
+    /// lists every page and <c>PUT {key}/{locale}</c> saves one, both behind
+    /// <see cref="AppKitLegalPagesOptions.Policy"/>.
     /// </summary>
     public static RouteGroupBuilder MapAppKitLegalPages<TContext>(this IEndpointRouteBuilder endpoints,
         string prefix = "/api/content/legal", Action<AppKitLegalPagesOptions>? configure = null)
@@ -103,7 +111,7 @@ public static class LegalPagesExtensions
 
     /// <summary>
     /// Writes the starting text for every page and language in <paramref name="pages"/> that has none.
-    /// Pages an admin has written are left alone.
+    /// Pages that an admin has written stay as they are.
     /// </summary>
     public static async Task SeedAppKitLegalPagesAsync<TContext>(this IServiceProvider services, IEnumerable<LegalPageSeed> pages, CancellationToken cancellationToken = default)
         where TContext : DbContext
