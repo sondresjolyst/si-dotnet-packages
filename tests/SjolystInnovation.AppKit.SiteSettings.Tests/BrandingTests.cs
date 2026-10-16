@@ -194,13 +194,16 @@ public class BrandingTests
     [Fact]
     public async Task OnSaved_runs_after_branding_is_saved_and_not_after_a_refused_image()
     {
-        var saved = 0;
-        await using var app = await TestApp.StartAsync(o => o.OnSaved = _ => { saved++; return Task.CompletedTask; });
+        var saved = new List<(SiteSettingsSaved Saved, string Path)>();
+        await using var app = await TestApp.StartAsync(o => o.OnSaved = s => { saved.Add((s, s.Http.Request.Path)); return Task.CompletedTask; });
 
         await app.SendAsync(HttpMethod.Put, "/api/branding", Form(("logo", [1, 2, 3], null)));
-        Assert.Equal(0, saved);
+        Assert.Empty(saved);
 
         await app.SendAsync(HttpMethod.Put, "/api/branding", Form(("logo", Png, null)));
-        Assert.Equal(1, saved);
+        var one = Assert.Single(saved);
+        Assert.Equal(SiteSettingsPart.Branding, one.Saved.Part);
+        Assert.Equal("image/png", ((TestSettings)one.Saved.Settings).LogoContentType);
+        Assert.Equal("/api/branding", one.Path);
     }
 }

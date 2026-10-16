@@ -37,12 +37,13 @@ public static class BrevoServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(section);
+        var path = section.Path;
         services.AddOptions<BrevoOptions>()
             .Bind(section)
-            .Validate(o => !string.IsNullOrWhiteSpace(o.ApiKey), "BrevoSettings:ApiKey is required.")
-            .Validate(o => !string.IsNullOrWhiteSpace(o.SenderEmail), "BrevoSettings:SenderEmail is required.")
-            .Validate(o => !string.IsNullOrWhiteSpace(o.SenderName), "BrevoSettings:SenderName is required.")
-            .Validate(o => Uri.TryCreate(o.BaseUrl, UriKind.Absolute, out _), "BrevoSettings:BaseUrl must be an absolute URL.")
+            .Validate(o => !string.IsNullOrWhiteSpace(o.ApiKey), $"{path}:ApiKey is required.")
+            .Validate(o => !string.IsNullOrWhiteSpace(o.SenderEmail), $"{path}:SenderEmail is required.")
+            .Validate(o => !string.IsNullOrWhiteSpace(o.SenderName), $"{path}:SenderName is required.")
+            .Validate(o => Uri.TryCreate(o.BaseUrl, UriKind.Absolute, out _), $"{path}:BaseUrl must be an absolute URL.")
             .ValidateOnStart();
         services.TryAddTransient<IEmailSender>(sp => sp.GetRequiredService<BrevoClient>());
         services.TryAddTransient<IEmailStats>(sp => sp.GetRequiredService<BrevoClient>());

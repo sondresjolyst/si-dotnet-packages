@@ -283,7 +283,7 @@ public class SiteSettingsTests
     [InlineData("", false)]
     [InlineData("923-202-374", false)]
     public void Organisation_numbers_are_checked_with_modulus_11(string value, bool valid) =>
-        Assert.Equal(valid, OrgNumber.IsValid(value));
+        Assert.Equal(valid, NorwegianOrgNumber.IsValid(value));
 
     [Fact]
     public void A_number_whose_check_digit_would_be_10_is_never_valid()
@@ -292,7 +292,7 @@ public class SiteSettingsTests
         // eighth place sums 3 + 4 = 7, giving 4. 30000000x sums 9, giving 2. 00000001x sums 2, giving 9.
         // 00000040x sums 12, whose remainder 1 asks for the impossible check digit 10.
         foreach (var last in "0123456789")
-            Assert.False(OrgNumber.IsValid($"00000040{last}"));
+            Assert.False(NorwegianOrgNumber.IsValid($"00000040{last}"));
     }
 
     [Theory]
@@ -375,13 +375,16 @@ public class SiteSettingsTests
     [Fact]
     public async Task OnSaved_runs_after_a_save_and_not_after_a_refused_change()
     {
-        var saved = 0;
-        await using var app = await TestApp.StartAsync(o => o.OnSaved = _ => { saved++; return Task.CompletedTask; });
+        var saved = new List<(SiteSettingsSaved Saved, string Path)>();
+        await using var app = await TestApp.StartAsync(o => o.OnSaved = s => { saved.Add((s, s.Http.Request.Path)); return Task.CompletedTask; });
 
         await app.SendAsync(HttpMethod.Put, "/api/settings", JsonContent.Create(Body(b => b["orgNumber"] = "123")));
-        Assert.Equal(0, saved);
+        Assert.Empty(saved);
 
         await app.SendAsync(HttpMethod.Put, "/api/settings", JsonContent.Create(Body()));
-        Assert.Equal(1, saved);
+        var one = Assert.Single(saved);
+        Assert.Equal(SiteSettingsPart.Settings, one.Saved.Part);
+        Assert.Equal((await app.RowAsync())!.CompanyName, one.Saved.Settings.CompanyName);
+        Assert.Equal("/api/settings", one.Path);
     }
 }

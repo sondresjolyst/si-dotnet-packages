@@ -54,7 +54,7 @@ internal static class BrandingHandlers<TContext, TSettings>
             (s.IconData, s.IconContentType) = i;
         await db.SaveChangesAsync(http.RequestAborted);
         if (options.OnSaved is { } onSaved)
-            await onSaved(http);
+            await onSaved(new SiteSettingsSaved(s, SiteSettingsPart.Branding, http));
         return TypedResults.Ok(new BrandingInfo(s.LogoData, s.LogoContentType, s.IconData, s.IconContentType));
     }
 

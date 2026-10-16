@@ -42,12 +42,12 @@ public static partial class DatabaseMigrationExtensions
     /// <param name="services">The app's root service provider, such as <c>app.Services</c>.</param>
     /// <param name="configuration">The configuration that holds <c>Database:AutoMigrate</c>. It defaults to <c>true</c>.</param>
     /// <param name="configure">A callback that sets the command timeout and the retries.</param>
-    /// <param name="ct">The token that cancels the migration and the waits between retries.</param>
+    /// <param name="cancellationToken">The token that cancels the migration and the waits between retries.</param>
     public static async Task MigrateAppKitDatabaseAsync<TContext>(
         this IServiceProvider services,
         IConfiguration configuration,
         Action<AppKitMigrationOptions>? configure = null,
-        CancellationToken ct = default)
+        CancellationToken cancellationToken = default)
         where TContext : DbContext
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -66,7 +66,7 @@ public static partial class DatabaseMigrationExtensions
         await using var scope = services.CreateAsyncScope();
         var database = scope.ServiceProvider.GetRequiredService<TContext>().Database;
 
-        var pending = (await GetPendingWithRetriesAsync(database, options, logger, ct)).ToList();
+        var pending = (await GetPendingWithRetriesAsync(database, options, logger, cancellationToken)).ToList();
         if (pending.Count == 0)
         {
             Log.NonePending(logger);
@@ -80,7 +80,7 @@ public static partial class DatabaseMigrationExtensions
         {
             if (options.CommandTimeout is { } timeout)
                 database.SetCommandTimeout(timeout);
-            await database.MigrateAsync(ct);
+            await database.MigrateAsync(cancellationToken);
         }
         finally
         {
@@ -92,19 +92,19 @@ public static partial class DatabaseMigrationExtensions
         DatabaseFacade database,
         AppKitMigrationOptions options,
         ILogger logger,
-        CancellationToken ct)
+        CancellationToken cancellationToken)
     {
         for (var attempt = 0; ; attempt++)
         {
             try
             {
-                return await database.GetPendingMigrationsAsync(ct);
+                return await database.GetPendingMigrationsAsync(cancellationToken);
             }
             catch (Exception ex) when (attempt < options.Retries && IsTransient(ex))
             {
                 var delay = options.RetryDelay * Math.Pow(2, attempt);
                 Log.Retrying(logger, ex, attempt + 1, options.Retries, delay);
-                await Task.Delay(delay, ct);
+                await Task.Delay(delay, cancellationToken);
             }
         }
     }

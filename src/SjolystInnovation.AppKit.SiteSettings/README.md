@@ -44,7 +44,9 @@ Two options let your app act on a save:
 - `OnSaving` runs after a settings change is applied to the row and before it is saved. It gets the row,
   the values the row held before, and the request. Use it to keep your own columns in step with the
   company fields, such as the date VAT registration started. If it throws, nothing is saved.
-- `OnSaved` runs after the settings or the branding are saved. Use it to clear a cache of the row.
+- `OnSaved` runs after the settings or the branding are saved. It gets the saved row, the part that
+  changed as `SiteSettingsPart.Settings` or `SiteSettingsPart.Branding`, and the request. Use it to clear
+  a cache of the row.
 
 ```csharp
 app.MapAppKitSiteSettings<ApplicationDbContext, AppSettings>("/api", o =>
@@ -55,7 +57,11 @@ app.MapAppKitSiteSettings<ApplicationDbContext, AppSettings>("/api", o =>
             ((AppSettings)saving.Settings).VatRegisteredFrom = DateOnly.FromDateTime(DateTime.UtcNow);
         return Task.CompletedTask;
     };
-    o.OnSaved = http => { http.RequestServices.GetRequiredService<IAppSettingsCache>().Invalidate(); return Task.CompletedTask; };
+    o.OnSaved = saved =>
+    {
+        saved.Http.RequestServices.GetRequiredService<IAppSettingsCache>().Invalidate();
+        return Task.CompletedTask;
+    };
 });
 ```
 
@@ -70,14 +76,16 @@ app.MapAppKitSiteSettings<ApplicationDbContext, AppSettings>("/api", o =>
   bytes, never from what the browser claims. SVG is refused, because it can carry script. A refused
   image answers a validation problem keyed by `Logo` or `Icon` with the reason, and nothing is saved.
 
-`OrgNumber.IsValid`, `PostalAddress.IsPostalCode`, and `PostalAddress.Format` are public for your
+`NorwegianOrgNumber.IsValid`, `PostalAddress.IsPostalCode`, and `PostalAddress.Format` are public for your
 app's own use, such as invoices and structured data.
 
 ## Legal pages
 
 Your app's `DbContext` maps the `LegalPages` table with `AddAppKitLegalPages`. At startup,
 `SeedAppKitLegalPagesAsync` seeds each page's starting text. Seeding writes only the pages and
-languages that have no text yet, so an admin's edits stay.
+languages that have no text yet, so an admin's edits stay. It stores keys and locales in lower case,
+the form the endpoints look pages up by. It does not read the endpoint options, so seed only keys and
+locales that are in `Keys` and `Locales`.
 
 ```csharp
 protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.AddAppKitLegalPages();

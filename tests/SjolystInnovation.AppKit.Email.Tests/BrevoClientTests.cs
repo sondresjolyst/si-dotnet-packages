@@ -269,4 +269,20 @@ public sealed class BrevoClientTests : IDisposable
 
         await Assert.ThrowsAsync<OptionsValidationException>(() => host.StartAsync());
     }
+
+    [Fact]
+    public async Task A_missing_setting_names_the_section_it_was_read_from()
+    {
+        using var host = new HostBuilder()
+            .ConfigureAppConfiguration(c => c.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Email:Brevo:SenderEmail"] = "post@example.invalid",
+                ["Email:Brevo:SenderName"] = "Garge",
+            }))
+            .ConfigureServices((context, s) => s.AddAppKitBrevo(context.Configuration.GetSection("Email:Brevo")))
+            .Build();
+
+        var ex = await Assert.ThrowsAsync<OptionsValidationException>(() => host.StartAsync());
+        Assert.Equal(["Email:Brevo:ApiKey is required."], ex.Failures);
+    }
 }
