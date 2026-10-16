@@ -25,7 +25,7 @@ public sealed class RefreshTokenServiceTests : IDisposable
     public void Dispose() => _db.Dispose();
 
     private RefreshTokenService<TestDbContext> Service(TestDbContext db) =>
-        new(db, Options.Create(new AuthOptions { Key = "unused" }), _time, _logger);
+        new(db, Options.Create(new AppKitAuthOptions { Key = "unused" }), _time, _logger);
 
     /// <summary>Adds a token row directly, as an earlier sign-in would have.</summary>
     private void Seed(string userId, string raw, DateTime created, DateTime? expires = null, DateTime? revoked = null)
@@ -137,7 +137,7 @@ public sealed class RefreshTokenServiceTests : IDisposable
         for (var i = 0; i < 3; i++) Seed("ada", $"t{i}", Start.AddMinutes(-10 + i));
         await using var db = _db.NewContext();
         var service = new RefreshTokenService<TestDbContext>(
-            db, Options.Create(new AuthOptions { Key = "unused", MaxLiveRefreshTokens = 2, RefreshTokenLifetimeMonths = 1 }), _time, _logger);
+            db, Options.Create(new AppKitAuthOptions { Key = "unused", MaxLiveRefreshTokens = 2, RefreshTokenLifetimeMonths = 1 }), _time, _logger);
 
         await service.IssueAsync("ada");
         await db.SaveChangesAsync();

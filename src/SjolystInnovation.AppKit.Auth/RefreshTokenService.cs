@@ -10,7 +10,7 @@ public interface IRefreshTokenService
 {
     /// <summary>
     /// Adds a new refresh token for the user and returns the raw token. Deletes live tokens over
-    /// <see cref="AuthOptions.MaxLiveRefreshTokens"/>, oldest first. The caller saves.
+    /// <see cref="AppKitAuthOptions.MaxLiveRefreshTokens"/>, oldest first. The caller saves.
     /// </summary>
     Task<string> IssueAsync(string userId, CancellationToken cancellationToken = default);
 
@@ -59,12 +59,12 @@ internal static partial class Log
 
 internal sealed class RefreshTokenService<TContext>(
     TContext db,
-    IOptions<AuthOptions> options,
+    IOptions<AppKitAuthOptions> options,
     TimeProvider time,
     ILogger<RefreshTokenService<TContext>> logger) : IRefreshTokenService
     where TContext : DbContext, IAuthDbContext
 {
-    private readonly AuthOptions _options = options.Value;
+    private readonly AppKitAuthOptions _options = options.Value;
 
     public async Task<string> IssueAsync(string userId, CancellationToken cancellationToken = default)
     {

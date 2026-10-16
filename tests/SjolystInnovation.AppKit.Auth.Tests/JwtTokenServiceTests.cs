@@ -17,7 +17,7 @@ public class JwtTokenServiceTests
     private readonly IdentityUser _user = new() { Id = "user-1", UserName = "ada", Email = "ada@example.com" };
 
     private JwtTokenService Service(string key = Key) =>
-        new(Options.Create(new AuthOptions { Key = key, Issuer = "test-issuer" }), _time);
+        new(Options.Create(new AppKitAuthOptions { Key = key, Issuer = "test-issuer" }), _time);
 
     [Fact]
     public void Build_WritesTheUserRolesAndTimes()
@@ -103,7 +103,7 @@ public class JwtTokenServiceTests
                 new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Key + Key)), SecurityAlgorithms.HmacSha512Signature),
         }));
 
-        Assert.Null(new JwtTokenService(Options.Create(new AuthOptions { Key = Key + Key }), _time).ReadUserIdFromExpired(token));
+        Assert.Null(new JwtTokenService(Options.Create(new AppKitAuthOptions { Key = Key + Key }), _time).ReadUserIdFromExpired(token));
     }
 
     [Fact]

@@ -69,7 +69,7 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
                 .Configure(app =>
                 {
                     app.UseRouting();
-                    app.UseEndpoints(e => e.MapAppKitAuthEndpoints<IdentityTestUser, IdentityTestDbContext>(prefix, configure));
+                    app.UseEndpoints(e => e.MapAppKitAuth<IdentityTestUser, IdentityTestDbContext>(prefix, configure));
                 }))
             .Build();
         using (var scope = _host.Services.CreateScope())

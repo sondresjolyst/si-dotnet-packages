@@ -83,9 +83,9 @@ public sealed class UserAdminTests : IAsyncDisposable
         await _connection.DisposeAsync();
     }
 
-    private static IdentityTestUser NewUser(string email, string first, string last) => new() { FirstName = first, LastName = last };
+    private static IdentityTestUser NewUser(AppKitNewUser user) => new() { FirstName = user.FirstName, LastName = user.LastName };
 
-    private async Task StartAsync(Action<AppKitUserAdminOptions<IdentityTestUser>>? configure = null)
+    private async Task StartAsync(Action<AppKitUserAdminOptions<IdentityTestUser>>? configure = null, string adminRole = "Admin")
     {
         _host = new HostBuilder()
             .ConfigureWebHost(web => web
@@ -94,6 +94,7 @@ public sealed class UserAdminTests : IAsyncDisposable
                 {
                     s.AddDbContext<IdentityTestDbContext>(o => o.UseSqlite(_connection));
                     s.AddAppKitIdentity<IdentityTestUser, IdentityTestDbContext>();
+                    s.AddAppKitAccounts<IdentityTestUser, IdentityTestDbContext>(o => o.AdminRole = adminRole);
                     s.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthHandler>("Test", _ => { });
                     s.PostConfigure<AuthenticationOptions>(o =>
                     {
@@ -281,6 +282,18 @@ public sealed class UserAdminTests : IAsyncDisposable
         var app = builder.Build();
 
         Assert.Throws<InvalidOperationException>(() => app.MapAppKitUserAdmin<IdentityTestUser, IdentityTestDbContext>());
+    }
+
+    [Fact]
+    public void Mapping_without_the_account_options_fails_and_names_the_missing_call()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddRouting();
+        var app = builder.Build();
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            app.MapAppKitUserAdmin<IdentityTestUser, IdentityTestDbContext>(configure: o => o.NewUser = NewUser));
+        Assert.Contains("AddAppKitAccounts", error.Message, StringComparison.Ordinal);
     }
 
     // List
@@ -475,7 +488,7 @@ public sealed class UserAdminTests : IAsyncDisposable
     [Fact]
     public async Task The_admin_role_name_can_be_changed()
     {
-        await StartAsync(o => o.AdminRole = "Editor");
+        await StartAsync(adminRole: "Editor");
         await UserAsync("only", false, "Editor");
 
         Assert.Equal(HttpStatusCode.Conflict, (await SendAsync(HttpMethod.Delete, "/api/users/only/roles/Editor")).StatusCode);
@@ -593,16 +606,18 @@ public sealed class UserAdminTests : IAsyncDisposable
 
     // Seeding
 
-    private async Task<(IServiceProvider Services, FakeLogCollector Logs)> SeedHostAsync()
+    private async Task<(IServiceProvider Services, FakeLogCollector Logs)> SeedHostAsync(string? adminRole = "Admin")
     {
         var logs = new FakeLogCollector();
         var services = new ServiceCollection().AddLogging(b => b.AddProvider(new FakeLoggerProvider(logs)));
         services.AddDbContext<IdentityTestDbContext>(o => o.UseSqlite(_connection));
         services.AddAppKitIdentity<IdentityTestUser, IdentityTestDbContext>();
+        if (adminRole is not null)
+            services.AddAppKitAccounts<IdentityTestUser, IdentityTestDbContext>(o => o.AdminRole = adminRole);
         var provider = services.BuildServiceProvider();
         using var scope = provider.CreateScope();
         scope.ServiceProvider.GetRequiredService<IdentityTestDbContext>().Database.EnsureCreated();
-        await scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>().CreateAsync(new IdentityRole("Admin"));
+        await scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>().CreateAsync(new IdentityRole(adminRole ?? "Admin"));
         return (provider, logs);
     }
 
@@ -684,6 +699,28 @@ public sealed class UserAdminTests : IAsyncDisposable
 
         Assert.Equal((0, 0), await CountsAsync(services));
         Assert.DoesNotContain(logs.GetSnapshot(), r => r.Category == "SjolystInnovation.AppKit.Auth.Seed");
+    }
+
+    [Fact]
+    public async Task Seeding_uses_the_admin_role_from_the_account_options()
+    {
+        var (services, _) = await SeedHostAsync("Owner");
+
+        await services.SeedAppKitFirstAdminAsync(Seed(), NewUser);
+
+        using var scope = services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityTestUser>>();
+        Assert.Equal("first@example.invalid", (await users.GetUsersInRoleAsync("Owner")).Single().Email);
+    }
+
+    [Fact]
+    public async Task Seeding_without_the_account_options_fails_and_names_the_missing_call()
+    {
+        var (services, _) = await SeedHostAsync(adminRole: null);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => services.SeedAppKitFirstAdminAsync(Seed(), NewUser));
+        Assert.Contains("AddAppKitAccounts", error.Message, StringComparison.Ordinal);
+        Assert.Equal((0, 0), await CountsAsync(services));
     }
 
     [Fact]

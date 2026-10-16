@@ -7,20 +7,22 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 namespace SjolystInnovation.AppKit.Auth;
 
 /// <summary>Registers the token services.</summary>
-public static class ServiceCollectionExtensions
+public static class AuthServiceCollectionExtensions
 {
     /// <summary>
     /// Registers <see cref="IJwtTokenService"/> and <see cref="IRefreshTokenService"/>, with
-    /// <see cref="AuthOptions"/> bound from <paramref name="jwtSection"/>, and a hosted service that
+    /// <see cref="AppKitAuthOptions"/> bound from <paramref name="jwtSection"/>, and a hosted service that
     /// deletes expired refresh tokens at startup and daily. The app fails to start when the key is
     /// shorter than 32 bytes, or when a lifetime or the token cap is not positive.
     /// </summary>
     public static IServiceCollection AddAppKitAuth<TContext>(this IServiceCollection services, IConfigurationSection jwtSection)
         where TContext : DbContext, IAuthDbContext
     {
-        services.AddOptions<AuthOptions>()
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(jwtSection);
+        services.AddOptions<AppKitAuthOptions>()
             .Bind(jwtSection)
-            .Validate(o => Encoding.UTF8.GetByteCount(o.Key) >= 32, "Jwt:Key must be at least 32 bytes.")
+            .Validate(o => Encoding.UTF8.GetByteCount(o.Key) >= 32, $"{jwtSection.Path}:Key must be at least 32 bytes.")
             .Validate(o => o.AccessTokenLifetime > TimeSpan.Zero, "The access token lifetime must be positive.")
             .Validate(o => o.RefreshTokenLifetimeMonths > 0, "The refresh token lifetime must be positive.")
             .Validate(o => o.MaxLiveRefreshTokens > 0, "The refresh token cap must be positive.")

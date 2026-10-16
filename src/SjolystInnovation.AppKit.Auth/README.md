@@ -10,7 +10,8 @@ dotnet add package SjolystInnovation.AppKit.Auth
 
 ## Setup
 
-The settings come from the `Jwt` configuration section.
+The settings bind to `AppKitAuthOptions` from the configuration section you pass to `AddAppKitAuth`,
+usually `Jwt`. If a setting cannot work, the app fails to start and the error names the section.
 
 | Setting | Default | |
 | --- | --- | --- |
@@ -103,14 +104,14 @@ app.MapGet("/orders/{userId}", (string userId, ClaimsPrincipal user) =>
 
 ## Endpoints
 
-`MapAppKitAuthEndpoints<TUser, TContext>` maps the sign-in endpoints, so your app does not have to
+`MapAppKitAuth<TUser, TContext>` maps the sign-in endpoints, so your app does not have to
 write them. The reset email goes out through `IAuthEmails<TUser>`. For an implementation, see
 [Emails](#emails).
 
 ```csharp
 builder.Services.AddAppKitAuthEmails<User>(o => o.SetPasswordUrl = "https://example.com/reset-password");
 
-app.MapAppKitAuthEndpoints<User, ApplicationDbContext>("/api/auth", o => o.IsActive = u => !u.IsDeleted);
+app.MapAppKitAuth<User, ApplicationDbContext>("/api/auth", o => o.IsActive = u => !u.IsDeleted);
 ```
 
 All endpoints are anonymous `POST` requests under the prefix:
@@ -185,15 +186,17 @@ The app checks the options at startup. If the user has no issued code, sending t
 
 `MapAppKitUserAdmin<TUser, TContext>` maps the admin endpoints for users and roles. Your user class
 implements `IAppKitAccount` with `FirstName`, `LastName`, `CreatedAt`, `IsDeleted`, and `DeletedAt`.
-The invite email goes out through `IAuthEmails<TUser>.SendInviteAsync`.
+The invite email goes out through `IAuthEmails<TUser>.SendInviteAsync`. The admin role comes from
+`AppKitAccountOptions.AdminRole`, so call `AddAppKitAccounts` first. For details, see
+[Account deletion](#account-deletion). `NewUser` gets an `AppKitNewUser` with `Email`, `FirstName`, and
+`LastName`.
 
 ```csharp
 app.MapAppKitUserAdmin<User, ApplicationDbContext>("/api/users", o =>
 {
     o.Roles = RoleNames.AllRoles;
-    o.AdminRole = RoleNames.Admin;
     o.Policy = Policies.Admin;
-    o.NewUser = (email, first, last) => new User { FirstName = first, LastName = last };
+    o.NewUser = u => new User { FirstName = u.FirstName, LastName = u.LastName };
 });
 ```
 
@@ -204,7 +207,7 @@ app.MapAppKitUserAdmin<User, ApplicationDbContext>("/api/users", o =>
 | `DELETE {id}/roles/{role}` | `204`. Taking your own admin role gives `400`. Taking it from the last active admin gives `409`. |
 | `POST invite` with `email`, `firstName`, `lastName`, `role` | `200`. Creates the account without a password, with a confirmed email, and emails a code that lasts `InviteLifetime`, seven days by default. The invitee sets a password with it on `reset-password`. An email that already has an account gives `409`. |
 
-Every route requires `Policy`. If `NewUser` is not set, mapping throws.
+Every route requires `Policy`. If `NewUser` is not set, or if the app did not call `AddAppKitAccounts`, mapping throws.
 
 After an admin gives or takes away a role, the bearer check forgets the user's cached roles, so the change
 applies at once on that instance, and every `IUserRolesChangedHandler<TUser>` the app registers runs,
@@ -217,7 +220,8 @@ builder.Services.AddScoped<IUserRolesChangedHandler<User>, SecurityRoleSync>();
 
 `SeedAppKitFirstAdminAsync<TUser>` creates the first admin from `Seed:AdminEmail` and
 `Seed:AdminPassword` while nobody holds the admin role, or gives an existing user with that email the
-role. It does nothing until both are set.
+role. It does nothing until both are set. It reads the admin role from `AppKitAccountOptions.AdminRole`
+and throws if the app did not call `AddAppKitAccounts`.
 
 `SeedAppKitRolesAsync` creates each role that does not exist yet and logs the roles it creates. Roles
 that exist stay as they are, so you can call it on every startup. Call it before
@@ -225,12 +229,14 @@ that exist stay as they are, so you can call it on every startup. Call it before
 
 ```csharp
 await app.Services.SeedAppKitRolesAsync(RoleNames.AllRoles);
-await app.Services.SeedAppKitFirstAdminAsync<User>(app.Configuration, (email, first, last) => new User { FirstName = first, LastName = last });
+await app.Services.SeedAppKitFirstAdminAsync<User>(app.Configuration, u => new User { FirstName = u.FirstName, LastName = u.LastName });
 ```
 
 ## Account deletion
 
-`AddAppKitAccounts<TUser, TContext>` registers `IAccountDeleter<TUser>`. Deleting keeps the user row, so
+`AddAppKitAccounts<TUser, TContext>` registers `IAccountDeleter<TUser>` and `AppKitAccountOptions`.
+`AppKitAccountOptions.AdminRole` is the one place that names the admin role. The account endpoints, the
+user admin endpoints, the first admin seed, and the last admin check all read it. It defaults to `Admin`. Deleting keeps the user row, so
 records that point at it, such as invoices kept for bookkeeping, keep a valid user. In one transaction
 it runs every `IAccountDataEraser<TUser>` the app registers, then scrubs the user: names, email, and
 username become placeholders, the phone, password, codes, and confirmed email are cleared, the account
@@ -261,7 +267,7 @@ may act, except that only the user changes their own password.
 | `GET {id}/profile` | `{ id, userName, firstName, lastName, email, createdAt }` |
 | `PUT {id}/profile` with `firstName`, `lastName` | The updated profile. Names are required, at most 50 characters. |
 | `PUT {id}/password` with `currentPassword`, `newPassword` | `200`. A wrong current password or a weak new one is a validation problem on `NewPassword`. |
-| `GET {id}/export` | `{ account, roles, exportedAt }`, plus `data` from an `IAccountExport<TUser>` when the app registers one. |
+| `GET {id}/export` | `{ account, roles, exportedAt }`, plus `data` from an `IAccountDataExporter<TUser>` when the app registers one. |
 | `DELETE {id}/account` | `204` through `IAccountDeleter`. The last admin, or a change that collided with it, gives `409`. |
 
 A missing or deleted account gives `404`, and someone else's account gives `403`.

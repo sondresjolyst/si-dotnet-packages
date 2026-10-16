@@ -44,7 +44,7 @@ public sealed class AccountTests : IAsyncDisposable
         }
     }
 
-    private sealed class TestExport : IAccountExport<IdentityTestUser>
+    private sealed class TestExport : IAccountDataExporter<IdentityTestUser>
     {
         public Task<object?> ExportAsync(IdentityTestUser user, CancellationToken cancellationToken) =>
             Task.FromResult<object?>(new { garages = 2, owner = user.Id });
@@ -104,7 +104,7 @@ public sealed class AccountTests : IAsyncDisposable
                         s.AddScoped<IAccountDeletedHandler<IdentityTestUser>>(_ => new TestHandler(this));
                     }
                     if (withExport)
-                        s.AddScoped<IAccountExport<IdentityTestUser>, TestExport>();
+                        s.AddScoped<IAccountDataExporter<IdentityTestUser>, TestExport>();
                     s.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthHandler>("Test", _ => { });
                     s.PostConfigure<AuthenticationOptions>(o =>
                     {

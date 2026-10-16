@@ -11,7 +11,7 @@ using Microsoft.Extensions.Options;
 namespace SjolystInnovation.AppKit.Auth;
 
 /// <summary>Adds the app's own data to an account export.</summary>
-public interface IAccountExport<in TUser>
+public interface IAccountDataExporter<in TUser>
 {
     /// <summary>Gets the app's data for the user. The export writes it under <c>data</c>.</summary>
     Task<object?> ExportAsync(TUser user, CancellationToken cancellationToken);
@@ -121,7 +121,7 @@ internal static class AccountHandlers<TUser>
         if (refusal is not null)
             return refusal;
         var roles = await Get<UserManager<TUser>>(http).GetRolesAsync(user!);
-        var extra = http.RequestServices.GetService<IAccountExport<TUser>>();
+        var extra = http.RequestServices.GetService<IAccountDataExporter<TUser>>();
         var data = extra is null ? null : await extra.ExportAsync(user!, http.RequestAborted);
         return TypedResults.Ok(new AccountExport(Profile(user!), roles, Get<TimeProvider>(http).GetUtcNow().UtcDateTime, data));
     }

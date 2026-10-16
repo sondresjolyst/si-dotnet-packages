@@ -31,7 +31,7 @@ public sealed class RegistrationTests : IDisposable
         using var provider = Provider(new() { ["Key"] = new string('k', 32), ["Issuer"] = "garge", ["MaxLiveRefreshTokens"] = "3" });
         using var scope = provider.CreateScope();
 
-        var options = provider.GetRequiredService<IOptions<AuthOptions>>().Value;
+        var options = provider.GetRequiredService<IOptions<AppKitAuthOptions>>().Value;
         Assert.Equal("garge", options.Issuer);
         Assert.Equal(3, options.MaxLiveRefreshTokens);
         Assert.Equal(TimeSpan.FromHours(1), options.AccessTokenLifetime);
@@ -52,8 +52,24 @@ public sealed class RegistrationTests : IDisposable
         var jwt = new Dictionary<string, string?> { ["Key"] = new string('k', 32), [name] = value };
         using var provider = Provider(jwt);
 
-        var error = Assert.Throws<OptionsValidationException>(() => provider.GetRequiredService<IOptions<AuthOptions>>().Value);
+        var error = Assert.Throws<OptionsValidationException>(() => provider.GetRequiredService<IOptions<AppKitAuthOptions>>().Value);
         Assert.Contains(message, error.Failures);
+    }
+
+    [Fact]
+    public void NamesTheConfiguredSectionWhenTheKeyIsTooShort()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Auth:Token:Key"] = "short" })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddScoped(_ => _db.NewContext());
+        services.AddAppKitAuth<TestDbContext>(config.GetSection("Auth:Token"));
+        using var provider = services.BuildServiceProvider();
+
+        var error = Assert.Throws<OptionsValidationException>(() => provider.GetRequiredService<IOptions<AppKitAuthOptions>>().Value);
+        Assert.Contains("Auth:Token:Key must be at least 32 bytes.", error.Failures);
     }
 
     [Fact]
