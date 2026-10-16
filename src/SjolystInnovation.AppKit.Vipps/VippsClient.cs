@@ -13,44 +13,44 @@ namespace SjolystInnovation.AppKit.Vipps;
 public interface IVippsClient
 {
     /// <summary>Checks whether calls that create something new currently go to the test environment.</summary>
-    Task<bool> IsTestAsync(CancellationToken ct = default);
+    Task<bool> IsTestAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Creates a recurring agreement in the current environment.</summary>
-    Task<VippsCreateAgreementResponse> CreateAgreementAsync(VippsCreateAgreementRequest request, string idempotencyKey, CancellationToken ct = default);
+    Task<VippsCreateAgreementResponse> CreateAgreementAsync(VippsCreateAgreementRequest request, string idempotencyKey, CancellationToken cancellationToken = default);
     /// <summary>Gets a recurring agreement.</summary>
-    Task<VippsAgreement> GetAgreementAsync(string agreementId, bool? isTest = null, CancellationToken ct = default);
+    Task<VippsAgreement> GetAgreementAsync(string agreementId, bool? isTest = null, CancellationToken cancellationToken = default);
     /// <summary>Stops a recurring agreement.</summary>
-    Task StopAgreementAsync(string agreementId, string idempotencyKey, bool? isTest = null, CancellationToken ct = default);
+    Task StopAgreementAsync(string agreementId, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default);
     /// <summary>Changes the ceiling the user approved for a recurring agreement.</summary>
-    Task UpdateAgreementMaxAmountAsync(string agreementId, int maxAmountInOre, string idempotencyKey, bool? isTest = null, CancellationToken ct = default);
+    Task UpdateAgreementMaxAmountAsync(string agreementId, int maxAmountInOre, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default);
     /// <summary>Creates a charge on a recurring agreement.</summary>
-    Task<VippsCreateChargeResponse> CreateChargeAsync(string agreementId, VippsCreateChargeRequest request, string idempotencyKey, bool? isTest = null, CancellationToken ct = default);
+    Task<VippsCreateChargeResponse> CreateChargeAsync(string agreementId, VippsCreateChargeRequest request, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default);
     /// <summary>
     /// Refunds part or all of a captured recurring charge. Vipps returns no body and sends no webhook,
     /// so the caller records the refund when this call returns.
     /// </summary>
-    Task RefundChargeAsync(string agreementId, string chargeId, int amountInOre, string description, string idempotencyKey, bool? isTest = null, CancellationToken ct = default);
+    Task RefundChargeAsync(string agreementId, string chargeId, int amountInOre, string description, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default);
 
     /// <summary>Creates an ePayment in the current environment.</summary>
-    Task<VippsCreatePaymentResponse> CreatePaymentAsync(VippsCreatePaymentRequest request, string idempotencyKey, CancellationToken ct = default);
+    Task<VippsCreatePaymentResponse> CreatePaymentAsync(VippsCreatePaymentRequest request, string idempotencyKey, CancellationToken cancellationToken = default);
     /// <summary>Gets an ePayment.</summary>
-    Task<VippsPayment> GetPaymentAsync(string reference, bool? isTest = null, CancellationToken ct = default);
+    Task<VippsPayment> GetPaymentAsync(string reference, bool? isTest = null, CancellationToken cancellationToken = default);
     /// <summary>Captures part or all of a reserved ePayment.</summary>
-    Task<VippsPayment> CapturePaymentAsync(string reference, int amountInOre, string idempotencyKey, bool? isTest = null, CancellationToken ct = default);
+    Task<VippsPayment> CapturePaymentAsync(string reference, int amountInOre, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default);
     /// <summary>Cancels an ePayment.</summary>
-    Task CancelPaymentAsync(string reference, string idempotencyKey, bool? isTest = null, CancellationToken ct = default);
+    Task CancelPaymentAsync(string reference, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default);
     /// <summary>Refunds part or all of a captured ePayment.</summary>
-    Task<VippsPayment> RefundPaymentAsync(string reference, int amountInOre, string idempotencyKey, bool? isTest = null, CancellationToken ct = default);
+    Task<VippsPayment> RefundPaymentAsync(string reference, int amountInOre, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default);
 
     /// <summary>Gets the profile a user shared. Returns null for an empty <paramref name="profileSub"/>.</summary>
-    Task<VippsUserInfo?> GetUserInfoAsync(string profileSub, bool? isTest = null, CancellationToken ct = default);
+    Task<VippsUserInfo?> GetUserInfoAsync(string profileSub, bool? isTest = null, CancellationToken cancellationToken = default);
 
     /// <summary>Registers a webhook for the events and returns its id and signing secret.</summary>
-    Task<VippsRegisteredWebhook> RegisterWebhookAsync(string url, IReadOnlyCollection<string> events, bool isTest, CancellationToken ct = default);
+    Task<VippsRegisteredWebhook> RegisterWebhookAsync(string url, IReadOnlyCollection<string> events, bool isTest, CancellationToken cancellationToken = default);
     /// <summary>Lists the registered webhooks.</summary>
-    Task<IReadOnlyList<VippsWebhook>> ListWebhooksAsync(bool isTest, CancellationToken ct = default);
+    Task<IReadOnlyList<VippsWebhook>> ListWebhooksAsync(bool isTest, CancellationToken cancellationToken = default);
     /// <summary>Deletes a webhook.</summary>
-    Task DeleteWebhookAsync(string webhookId, bool isTest, CancellationToken ct = default);
+    Task DeleteWebhookAsync(string webhookId, bool isTest, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -58,7 +58,7 @@ public interface IVippsClient
 /// Vipps asks for. A call on an existing payment or agreement uses the environment it was created
 /// in. A call that creates something new asks <see cref="IVippsEnvironment"/>.
 /// </summary>
-public sealed partial class VippsClient : IVippsClient
+internal sealed partial class VippsClient : IVippsClient
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
@@ -81,13 +81,13 @@ public sealed partial class VippsClient : IVippsClient
         _time = time ?? TimeProvider.System;
     }
 
-    public Task<bool> IsTestAsync(CancellationToken ct = default) => _environment.IsTestAsync(ct);
+    public Task<bool> IsTestAsync(CancellationToken cancellationToken = default) => _environment.IsTestAsync(cancellationToken);
 
-    public async Task<VippsCreateAgreementResponse> CreateAgreementAsync(VippsCreateAgreementRequest request, string idempotencyKey, CancellationToken ct = default)
+    public async Task<VippsCreateAgreementResponse> CreateAgreementAsync(VippsCreateAgreementRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
     {
         var suggestedMaxAmount = CheckedAgreementAmount(request.SuggestedMaxAmountInOre);
         var initialAmount = CheckedAgreementAmount(request.InitialChargeInOre);
-        var target = await TargetAsync(null, ct);
+        var target = await TargetAsync(null, cancellationToken);
         var body = new
         {
             pricing = new { type = "VARIABLE", suggestedMaxAmount, currency = "NOK" },
@@ -100,36 +100,36 @@ public sealed partial class VippsClient : IVippsClient
             phoneNumber = request.PhoneNumber,
             scope = request.Scope,
         };
-        var json = await SendAsync(target, HttpMethod.Post, "/recurring/v3/agreements", body, idempotencyKey, "create-agreement", ct);
+        var json = await SendAsync(target, HttpMethod.Post, "/recurring/v3/agreements", body, idempotencyKey, "create-agreement", cancellationToken);
         return Deserialize<VippsCreateAgreementResponse>(json) with { IsTest = target.IsTest };
     }
 
-    public async Task<VippsAgreement> GetAgreementAsync(string agreementId, bool? isTest = null, CancellationToken ct = default)
+    public async Task<VippsAgreement> GetAgreementAsync(string agreementId, bool? isTest = null, CancellationToken cancellationToken = default)
     {
-        var target = await TargetAsync(isTest, ct);
-        var json = await SendAsync(target, HttpMethod.Get, $"/recurring/v3/agreements/{Escape(agreementId)}", null, null, "get-agreement", ct);
+        var target = await TargetAsync(isTest, cancellationToken);
+        var json = await SendAsync(target, HttpMethod.Get, $"/recurring/v3/agreements/{Escape(agreementId)}", null, null, "get-agreement", cancellationToken);
         return Deserialize<VippsAgreement>(json);
     }
 
-    public async Task StopAgreementAsync(string agreementId, string idempotencyKey, bool? isTest = null, CancellationToken ct = default)
+    public async Task StopAgreementAsync(string agreementId, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default)
     {
-        var target = await TargetAsync(isTest, ct);
-        await SendAsync(target, HttpMethod.Patch, $"/recurring/v3/agreements/{Escape(agreementId)}", new { status = "STOPPED" }, idempotencyKey, "stop-agreement", ct);
+        var target = await TargetAsync(isTest, cancellationToken);
+        await SendAsync(target, HttpMethod.Patch, $"/recurring/v3/agreements/{Escape(agreementId)}", new { status = "STOPPED" }, idempotencyKey, "stop-agreement", cancellationToken);
     }
 
-    public async Task UpdateAgreementMaxAmountAsync(string agreementId, int maxAmountInOre, string idempotencyKey, bool? isTest = null, CancellationToken ct = default)
+    public async Task UpdateAgreementMaxAmountAsync(string agreementId, int maxAmountInOre, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default)
     {
         var suggestedMaxAmount = CheckedAgreementAmount(maxAmountInOre);
-        var target = await TargetAsync(isTest, ct);
+        var target = await TargetAsync(isTest, cancellationToken);
         await SendAsync(target, HttpMethod.Patch, $"/recurring/v3/agreements/{Escape(agreementId)}",
-            new { pricing = new { suggestedMaxAmount } }, idempotencyKey, "update-agreement-max-amount", ct);
+            new { pricing = new { suggestedMaxAmount } }, idempotencyKey, "update-agreement-max-amount", cancellationToken);
     }
 
-    public async Task<VippsCreateChargeResponse> CreateChargeAsync(string agreementId, VippsCreateChargeRequest request, string idempotencyKey, bool? isTest = null, CancellationToken ct = default)
+    public async Task<VippsCreateChargeResponse> CreateChargeAsync(string agreementId, VippsCreateChargeRequest request, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default)
     {
-        var target = await TargetAsync(isTest, ct);
-        var earliest = _time.GetUtcNow().UtcDateTime.Date.AddDays(VippsLimits.MinChargeDueDays);
-        var due = request.Due.Date < earliest ? earliest : request.Due.Date;
+        var target = await TargetAsync(isTest, cancellationToken);
+        var earliest = DateOnly.FromDateTime(_time.GetUtcNow().UtcDateTime).AddDays(VippsLimits.MinChargeDueDays);
+        var due = request.Due < earliest ? earliest : request.Due;
         var body = new
         {
             amount = request.AmountInOre,
@@ -140,21 +140,21 @@ public sealed partial class VippsClient : IVippsClient
             retryDays = request.RetryDays,
             orderId = request.OrderId.Length <= VippsLimits.ChargeOrderIdLength ? request.OrderId : request.OrderId[..VippsLimits.ChargeOrderIdLength],
         };
-        var json = await SendAsync(target, HttpMethod.Post, $"/recurring/v3/agreements/{Escape(agreementId)}/charges", body, idempotencyKey, "create-charge", ct);
+        var json = await SendAsync(target, HttpMethod.Post, $"/recurring/v3/agreements/{Escape(agreementId)}/charges", body, idempotencyKey, "create-charge", cancellationToken);
         return Deserialize<VippsCreateChargeResponse>(json);
     }
 
-    public async Task RefundChargeAsync(string agreementId, string chargeId, int amountInOre, string description, string idempotencyKey, bool? isTest = null, CancellationToken ct = default)
+    public async Task RefundChargeAsync(string agreementId, string chargeId, int amountInOre, string description, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default)
     {
-        var target = await TargetAsync(isTest, ct);
+        var target = await TargetAsync(isTest, cancellationToken);
         var body = new { amount = amountInOre, description = VippsLimits.Truncate(description, VippsLimits.RefundDescriptionLength) };
         await SendAsync(target, HttpMethod.Post,
-            $"/recurring/v3/agreements/{Escape(agreementId)}/charges/{Escape(chargeId)}/refund", body, idempotencyKey, "refund-charge", ct);
+            $"/recurring/v3/agreements/{Escape(agreementId)}/charges/{Escape(chargeId)}/refund", body, idempotencyKey, "refund-charge", cancellationToken);
     }
 
-    public async Task<VippsCreatePaymentResponse> CreatePaymentAsync(VippsCreatePaymentRequest request, string idempotencyKey, CancellationToken ct = default)
+    public async Task<VippsCreatePaymentResponse> CreatePaymentAsync(VippsCreatePaymentRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
     {
-        var target = await TargetAsync(null, ct);
+        var target = await TargetAsync(null, cancellationToken);
         var body = new
         {
             amount = new { value = request.AmountInOre, currency = "NOK" },
@@ -189,41 +189,41 @@ public sealed partial class VippsClient : IVippsClient
             },
             profile = new { scope = request.Scope },
         };
-        var json = await SendAsync(target, HttpMethod.Post, "/epayment/v1/payments", body, idempotencyKey, "create-payment", ct);
+        var json = await SendAsync(target, HttpMethod.Post, "/epayment/v1/payments", body, idempotencyKey, "create-payment", cancellationToken);
         return Deserialize<VippsCreatePaymentResponse>(json) with { IsTest = target.IsTest };
     }
 
-    public async Task<VippsPayment> GetPaymentAsync(string reference, bool? isTest = null, CancellationToken ct = default)
+    public async Task<VippsPayment> GetPaymentAsync(string reference, bool? isTest = null, CancellationToken cancellationToken = default)
     {
-        var target = await TargetAsync(isTest, ct);
-        return ToPayment(await SendAsync(target, HttpMethod.Get, $"/epayment/v1/payments/{Escape(reference)}", null, null, "get-payment", ct));
+        var target = await TargetAsync(isTest, cancellationToken);
+        return ToPayment(await SendAsync(target, HttpMethod.Get, $"/epayment/v1/payments/{Escape(reference)}", null, null, "get-payment", cancellationToken));
     }
 
-    public async Task<VippsPayment> CapturePaymentAsync(string reference, int amountInOre, string idempotencyKey, bool? isTest = null, CancellationToken ct = default)
+    public async Task<VippsPayment> CapturePaymentAsync(string reference, int amountInOre, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default)
     {
-        var target = await TargetAsync(isTest, ct);
+        var target = await TargetAsync(isTest, cancellationToken);
         var body = new { modificationAmount = new { value = amountInOre, currency = "NOK" } };
-        return ToPayment(await SendAsync(target, HttpMethod.Post, $"/epayment/v1/payments/{Escape(reference)}/capture", body, idempotencyKey, "capture-payment", ct));
+        return ToPayment(await SendAsync(target, HttpMethod.Post, $"/epayment/v1/payments/{Escape(reference)}/capture", body, idempotencyKey, "capture-payment", cancellationToken));
     }
 
-    public async Task CancelPaymentAsync(string reference, string idempotencyKey, bool? isTest = null, CancellationToken ct = default)
+    public async Task CancelPaymentAsync(string reference, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default)
     {
-        var target = await TargetAsync(isTest, ct);
-        await SendAsync(target, HttpMethod.Post, $"/epayment/v1/payments/{Escape(reference)}/cancel", new { }, idempotencyKey, "cancel-payment", ct);
+        var target = await TargetAsync(isTest, cancellationToken);
+        await SendAsync(target, HttpMethod.Post, $"/epayment/v1/payments/{Escape(reference)}/cancel", new { }, idempotencyKey, "cancel-payment", cancellationToken);
     }
 
-    public async Task<VippsPayment> RefundPaymentAsync(string reference, int amountInOre, string idempotencyKey, bool? isTest = null, CancellationToken ct = default)
+    public async Task<VippsPayment> RefundPaymentAsync(string reference, int amountInOre, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default)
     {
-        var target = await TargetAsync(isTest, ct);
+        var target = await TargetAsync(isTest, cancellationToken);
         var body = new { modificationAmount = new { value = amountInOre, currency = "NOK" } };
-        return ToPayment(await SendAsync(target, HttpMethod.Post, $"/epayment/v1/payments/{Escape(reference)}/refund", body, idempotencyKey, "refund-payment", ct));
+        return ToPayment(await SendAsync(target, HttpMethod.Post, $"/epayment/v1/payments/{Escape(reference)}/refund", body, idempotencyKey, "refund-payment", cancellationToken));
     }
 
-    public async Task<VippsUserInfo?> GetUserInfoAsync(string profileSub, bool? isTest = null, CancellationToken ct = default)
+    public async Task<VippsUserInfo?> GetUserInfoAsync(string profileSub, bool? isTest = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(profileSub)) return null;
-        var target = await TargetAsync(isTest, ct);
-        var json = await SendAsync(target, HttpMethod.Get, $"/vipps-userinfo-api/userinfo/{Escape(profileSub)}", null, null, "get-userinfo", ct);
+        var target = await TargetAsync(isTest, cancellationToken);
+        var json = await SendAsync(target, HttpMethod.Get, $"/vipps-userinfo-api/userinfo/{Escape(profileSub)}", null, null, "get-userinfo", cancellationToken);
         var dto = JsonSerializer.Deserialize<UserInfoDto>(json, JsonOptions);
         if (dto == null) return null;
         return new VippsUserInfo
@@ -242,18 +242,18 @@ public sealed partial class VippsClient : IVippsClient
         };
     }
 
-    public async Task<VippsRegisteredWebhook> RegisterWebhookAsync(string url, IReadOnlyCollection<string> events, bool isTest, CancellationToken ct = default)
+    public async Task<VippsRegisteredWebhook> RegisterWebhookAsync(string url, IReadOnlyCollection<string> events, bool isTest, CancellationToken cancellationToken = default)
     {
-        var target = await TargetAsync(isTest, ct);
-        var json = await SendAsync(target, HttpMethod.Post, "/webhooks/v1/webhooks", new { url, events }, Guid.NewGuid().ToString(), "register-webhook", ct);
+        var target = await TargetAsync(isTest, cancellationToken);
+        var json = await SendAsync(target, HttpMethod.Post, "/webhooks/v1/webhooks", new { url, events }, Guid.NewGuid().ToString(), "register-webhook", cancellationToken);
         using var doc = JsonDocument.Parse(json);
         return new VippsRegisteredWebhook(doc.RootElement.GetProperty("id").GetString()!, doc.RootElement.GetProperty("secret").GetString()!);
     }
 
-    public async Task<IReadOnlyList<VippsWebhook>> ListWebhooksAsync(bool isTest, CancellationToken ct = default)
+    public async Task<IReadOnlyList<VippsWebhook>> ListWebhooksAsync(bool isTest, CancellationToken cancellationToken = default)
     {
-        var target = await TargetAsync(isTest, ct);
-        var json = await SendAsync(target, HttpMethod.Get, "/webhooks/v1/webhooks", null, null, "list-webhooks", ct);
+        var target = await TargetAsync(isTest, cancellationToken);
+        var json = await SendAsync(target, HttpMethod.Get, "/webhooks/v1/webhooks", null, null, "list-webhooks", cancellationToken);
         using var doc = JsonDocument.Parse(json);
         var list = new List<VippsWebhook>();
         if (doc.RootElement.TryGetProperty("webhooks", out var hooks) && hooks.ValueKind == JsonValueKind.Array)
@@ -270,10 +270,10 @@ public sealed partial class VippsClient : IVippsClient
         return list;
     }
 
-    public async Task DeleteWebhookAsync(string webhookId, bool isTest, CancellationToken ct = default)
+    public async Task DeleteWebhookAsync(string webhookId, bool isTest, CancellationToken cancellationToken = default)
     {
-        var target = await TargetAsync(isTest, ct);
-        await SendAsync(target, HttpMethod.Delete, $"/webhooks/v1/webhooks/{Escape(webhookId)}", null, null, "delete-webhook", ct);
+        var target = await TargetAsync(isTest, cancellationToken);
+        await SendAsync(target, HttpMethod.Delete, $"/webhooks/v1/webhooks/{Escape(webhookId)}", null, null, "delete-webhook", cancellationToken);
     }
 
     /// <summary>Computes the part of a total that excludes VAT, rounded half away from zero, as an invoice splits it.</summary>
@@ -306,14 +306,14 @@ public sealed partial class VippsClient : IVippsClient
         };
     }
 
-    private async Task<Target> TargetAsync(bool? isTest, CancellationToken ct)
+    private async Task<Target> TargetAsync(bool? isTest, CancellationToken cancellationToken)
     {
-        var test = isTest ?? await _environment.IsTestAsync(ct);
+        var test = isTest ?? await _environment.IsTestAsync(cancellationToken);
         var credentials = _options.For(test);
-        return new Target(credentials, await TokenAsync(test, credentials, ct), test);
+        return new Target(credentials, await TokenAsync(test, credentials, cancellationToken), test);
     }
 
-    private async Task<string> TokenAsync(bool isTest, VippsCredentials credentials, CancellationToken ct)
+    private async Task<string> TokenAsync(bool isTest, VippsCredentials credentials, CancellationToken cancellationToken)
     {
         if (_tokens.TryGetValue(isTest, out var cached) && cached.Expires > _time.GetUtcNow()) return cached.Token;
 
@@ -323,8 +323,8 @@ public sealed partial class VippsClient : IVippsClient
         request.Headers.Add("Ocp-Apim-Subscription-Key", credentials.SubscriptionKey);
         request.Content = new StringContent(string.Empty, Encoding.UTF8, "application/json");
 
-        using var response = await _http.SendAsync(request, ct);
-        var json = await ReadAsync(response, "accesstoken/get", ct);
+        using var response = await _http.SendAsync(request, cancellationToken);
+        var json = await ReadAsync(response, "accesstoken/get", cancellationToken);
         using var doc = JsonDocument.Parse(json);
         var token = doc.RootElement.GetProperty("access_token").GetString()!;
         var expiresIn = 3600;
@@ -340,7 +340,7 @@ public sealed partial class VippsClient : IVippsClient
         return token;
     }
 
-    private async Task<string> SendAsync(Target target, HttpMethod method, string path, object? body, string? idempotencyKey, string operation, CancellationToken ct)
+    private async Task<string> SendAsync(Target target, HttpMethod method, string path, object? body, string? idempotencyKey, string operation, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(method, target.Credentials.BaseUrl + path);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", target.Token);
@@ -351,13 +351,13 @@ public sealed partial class VippsClient : IVippsClient
         if (!string.IsNullOrEmpty(idempotencyKey)) request.Headers.Add("Idempotency-Key", idempotencyKey);
         if (body != null) request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
 
-        using var response = await _http.SendAsync(request, ct);
-        return await ReadAsync(response, operation, ct);
+        using var response = await _http.SendAsync(request, cancellationToken);
+        return await ReadAsync(response, operation, cancellationToken);
     }
 
-    private async Task<string> ReadAsync(HttpResponseMessage response, string operation, CancellationToken ct)
+    private async Task<string> ReadAsync(HttpResponseMessage response, string operation, CancellationToken cancellationToken)
     {
-        var body = await response.Content.ReadAsStringAsync(ct);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
         if (response.IsSuccessStatusCode) return body;
 
         // A failed body may echo a phone number, a name, or an agreement id, so log Vipps's own error ids

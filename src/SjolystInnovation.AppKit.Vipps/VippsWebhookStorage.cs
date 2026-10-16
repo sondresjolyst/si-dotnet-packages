@@ -81,7 +81,7 @@ public static class VippsWebhookModelBuilderExtensions
     /// <param name="modelBuilder">The model builder.</param>
     /// <param name="tableName">The table name. Defaults to <c>ProcessedWebhookEvents</c>.</param>
     /// <returns>The same model builder.</returns>
-    public static ModelBuilder AddAppKitVippsWebhooks(this ModelBuilder modelBuilder, string tableName = "ProcessedWebhookEvents")
+    public static ModelBuilder AddAppKitVippsProcessedWebhookEvents(this ModelBuilder modelBuilder, string tableName = "ProcessedWebhookEvents")
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
         modelBuilder.Entity<VippsProcessedWebhookEvent>(e =>

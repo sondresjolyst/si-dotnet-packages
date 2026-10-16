@@ -7,13 +7,13 @@ using Microsoft.Extensions.Options;
 namespace SjolystInnovation.AppKit.Vipps;
 
 /// <summary>Registers the Vipps client.</summary>
-public static class ServiceCollectionExtensions
+public static class VippsServiceCollectionExtensions
 {
     /// <summary>
     /// Registers <see cref="IVippsClient"/> with its own <see cref="HttpClient"/>. Calls go to the live
     /// environment unless you register your own <see cref="IVippsEnvironment"/>, before or after this call.
     /// </summary>
-    public static IHttpClientBuilder AddVipps(this IServiceCollection services, Action<VippsOptions> configure)
+    public static IHttpClientBuilder AddAppKitVipps(this IServiceCollection services, Action<VippsOptions> configure)
     {
         services.Configure(configure);
         services.TryAddSingleton<IVippsEnvironment>(new FixedVippsEnvironment(false));
@@ -32,23 +32,23 @@ public static class ServiceCollectionExtensions
     /// <param name="section">The configuration section, for example <c>Vipps</c>.</param>
     /// <param name="configure">An optional callback for the other options, such as <see cref="VippsOptions.SystemName"/>.</param>
     /// <returns>The builder of the client's <see cref="HttpClient"/>.</returns>
-    public static IHttpClientBuilder AddVipps(this IServiceCollection services, IConfiguration section, Action<VippsOptions>? configure = null)
+    public static IHttpClientBuilder AddAppKitVipps(this IServiceCollection services, IConfigurationSection section, Action<VippsOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(section);
-        return services.AddVipps(o =>
+        return services.AddAppKitVipps(o =>
         {
             ReadFlat(section, o);
             configure?.Invoke(o);
         });
     }
 
-    internal static void ReadFlat(IConfiguration section, VippsOptions options)
+    internal static void ReadFlat(IConfigurationSection section, VippsOptions options)
     {
         Read(section, "", options.Live);
         Read(section, "Test", options.Test);
     }
 
-    private static void Read(IConfiguration section, string prefix, VippsCredentials credentials)
+    private static void Read(IConfigurationSection section, string prefix, VippsCredentials credentials)
     {
         var baseUrl = section[prefix + "BaseUrl"];
         if (!string.IsNullOrEmpty(baseUrl)) credentials.BaseUrl = baseUrl;
@@ -68,7 +68,7 @@ public static class VippsWebhookServiceCollectionExtensions
     /// over the table of <see cref="VippsWebhookRegistrationEntry"/>. A store you register before or after
     /// this call replaces it. It also adds a hosted service that deletes old processed events and, unless
     /// <see cref="VippsWebhookOptions.RegisterOnStart"/> is off, one that registers the webhooks after the
-    /// app starts. Call <see cref="ServiceCollectionExtensions.AddVipps(IServiceCollection, Action{VippsOptions})"/>
+    /// app starts. Call <see cref="VippsServiceCollectionExtensions.AddAppKitVipps(IServiceCollection, Action{VippsOptions})"/>
     /// as well. The app fails to start when the retention does not exceed
     /// <see cref="VippsWebhookSignature.MaxAge"/> or a slot is invalid.
     /// </summary>

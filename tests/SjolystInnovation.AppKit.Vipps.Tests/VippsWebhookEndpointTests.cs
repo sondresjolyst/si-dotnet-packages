@@ -485,18 +485,27 @@ public class VippsWebhookEndpointTests
         Assert.Equal("agr:::", VippsWebhookEndpoint<WebhookDbContext>.RecurringKey(new VippsRecurringEvent { AgreementId = "agr" }));
     }
 
-    [Fact]
-    public void The_recurring_key_uses_utc_ticks_whatever_the_server_time_zone()
+    [Theory]
+    [InlineData("2026-10-15T11:00:00Z")]
+    [InlineData("2026-10-15T13:00:00+02:00")]
+    [InlineData("2026-10-15T11:00:00")]
+    public void The_recurring_key_uses_utc_ticks_whatever_the_server_time_zone(string occurred)
     {
+        // The same ticks DateTime gave before Occurred became a DateTimeOffset, so stored keys still match.
         var utc = new DateTime(2026, 10, 15, 11, 0, 0, DateTimeKind.Utc);
+        var e = JsonSerializer.Deserialize<VippsRecurringEvent>($$"""{"agreementId":"agr","eventType":"t","occurred":"{{occurred}}"}""", CaseInsensitive)!;
 
-        Assert.Equal(utc.Ticks, VippsWebhookEndpoint<WebhookDbContext>.UtcTicks(utc.ToLocalTime()));
-        Assert.Equal(utc.Ticks, VippsWebhookEndpoint<WebhookDbContext>.UtcTicks(utc));
-        Assert.Equal(utc.Ticks, VippsWebhookEndpoint<WebhookDbContext>.UtcTicks(DateTime.SpecifyKind(utc, DateTimeKind.Unspecified)));
+        Assert.Equal(utc.Ticks, VippsWebhookEndpoint<WebhookDbContext>.UtcTicks(e.Occurred));
+        Assert.Equal($"agr:t::{utc.Ticks}", VippsWebhookEndpoint<WebhookDbContext>.RecurringKey(e));
+    }
+
+    [Fact]
+    public void A_recurring_event_without_a_time_has_no_ticks()
+    {
+        var e = JsonSerializer.Deserialize<VippsRecurringEvent>("""{"agreementId":"agr","eventType":"t","occurred":null}""", CaseInsensitive)!;
+
+        Assert.Null(e.Occurred);
         Assert.Null(VippsWebhookEndpoint<WebhookDbContext>.UtcTicks(null));
-        var withOffset = JsonSerializer.Deserialize<VippsRecurringEvent>("""{"agreementId":"agr","eventType":"t","occurred":"2026-10-15T13:00:00+02:00"}""",
-            CaseInsensitive)!;
-        Assert.Equal($"agr:t::{utc.Ticks}", VippsWebhookEndpoint<WebhookDbContext>.RecurringKey(withOffset));
     }
 
     // Setup
@@ -535,7 +544,7 @@ public class VippsWebhookEndpointTests
                 .ConfigureServices(s =>
                 {
                     s.AddDbContext<WebhookDbContext>(o => o.UseSqlite("Data Source=:memory:"));
-                    s.AddVipps(_ => { });
+                    s.AddAppKitVipps(_ => { });
                     s.AddAppKitVippsWebhooks<WebhookDbContext>(o => { o.AddSlot("shop", VippsWebhookKind.Payment, "/hook"); o.RegisterOnStart = false; });
                     s.AddRouting();
                 })

@@ -161,7 +161,7 @@ public class VippsFlatConfigurationTests
             ["Vipps:TestMerchantSerialNumber"] = "654321",
         }).Build();
         var services = new ServiceCollection();
-        services.AddVipps(config.GetSection("Vipps"), o => o.SystemName = "garge");
+        services.AddAppKitVipps(config.GetSection("Vipps"), o => o.SystemName = "garge");
 
         var options = services.BuildServiceProvider().GetRequiredService<IOptions<VippsOptions>>().Value;
 
@@ -179,7 +179,7 @@ public class VippsFlatConfigurationTests
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Vipps:ClientId"] = "id" }).Build();
         var options = new VippsOptions();
 
-        ServiceCollectionExtensions.ReadFlat(config.GetSection("Vipps"), options);
+        VippsServiceCollectionExtensions.ReadFlat(config.GetSection("Vipps"), options);
 
         Assert.False(options.Test.IsConfigured);
         Assert.Equal("https://apitest.vipps.no", options.Test.BaseUrl);

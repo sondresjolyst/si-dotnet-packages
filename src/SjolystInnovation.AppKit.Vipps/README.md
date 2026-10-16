@@ -7,7 +7,7 @@ Norwegian phone number checks. It targets .NET 10.
 ## Setup
 
 ```csharp
-builder.Services.AddVipps(o =>
+builder.Services.AddAppKitVipps(o =>
 {
     o.Live = new VippsCredentials
     {
@@ -23,7 +23,7 @@ builder.Services.AddVipps(o =>
 });
 ```
 
-`AddVipps` registers `IVippsClient` with its own `HttpClient`. Calls go to the live environment
+`AddAppKitVipps` registers `IVippsClient` with its own `HttpClient`. Calls go to the live environment
 unless your app registers its own `IVippsEnvironment`, such as one that reads an admin setting. A
 call on an existing payment or agreement takes the environment it was created in as `isTest`, so
 switching the setting never sends it to the wrong one.
@@ -32,7 +32,7 @@ If your configuration has the flat layout, such as the `Vipps__ClientId` and `Vi
 environment variables, pass the section instead:
 
 ```csharp
-builder.Services.AddVipps(builder.Configuration.GetSection("Vipps"), o => o.SystemName = "my-app");
+builder.Services.AddAppKitVipps(builder.Configuration.GetSection("Vipps"), o => o.SystemName = "my-app");
 ```
 
 The live keys are `BaseUrl`, `ClientId`, `ClientSecret`, `SubscriptionKey`, and
@@ -59,7 +59,8 @@ The client applies the limits that Vipps sets, which `VippsLimits` lists:
 - An agreement amount must be between 1 øre and NOK 20 000. An amount outside that range throws
   before anything is sent.
 - A product name is cut to 45 characters and a description to 100, never inside a character.
-- A charge falls due two days from today at the earliest, and its order ID is cut to 50 characters.
+- A charge's `Due` is a `DateOnly`, sent as `yyyy-MM-dd`. It falls due two days from today in UTC at
+  the earliest, and its order ID is cut to 50 characters.
 - A charge refund answers without a body, and Vipps sends no webhook for it. Record the refund when
   the call returns. Its description is cut to 100 characters.
 - A receipt line sends its VAT rate as `taxRate` in basis points, with the VAT split out of the line
@@ -75,7 +76,7 @@ The webhook endpoints take ePayment and Recurring events for your app's own merc
 is a slot, with a registration and a secret in the live and in the test environment.
 
 ```csharp
-builder.Services.AddVipps(builder.Configuration.GetSection("Vipps"));
+builder.Services.AddAppKitVipps(builder.Configuration.GetSection("Vipps"));
 builder.Services.AddAppKitVippsWebhooks<AppDbContext>(o =>
 {
     o.PublicBaseUrl = "https://api.example.com";
@@ -90,8 +91,8 @@ app.MapAppKitVippsWebhook<AppDbContext>("shop");
 app.MapAppKitVippsWebhook<AppDbContext>("subscription");
 ```
 
-Your DbContext implements `IVippsWebhookDbContext` and calls `modelBuilder.AddAppKitVippsWebhooks()`
-in `OnModelCreating`. That maps the processed events to the `ProcessedWebhookEvents` table, with an
+Your DbContext implements `IVippsWebhookDbContext` and calls
+`modelBuilder.AddAppKitVippsProcessedWebhookEvents()` in `OnModelCreating`. That maps the processed events to the `ProcessedWebhookEvents` table, with an
 `Id` of up to 200 characters, a `Source` of up to 50, an index on `ProcessedAt`, and an index on
 `Source` and `Id`. Pass another table name if you need one.
 
@@ -108,7 +109,8 @@ For each request, the endpoint does the following:
    clears them when it stores new registrations.
 3. It builds the event key. An ePayment event uses its `pspReference`, or else the reference and the
    event name. A Recurring event uses its `eventId`, or else the agreement, the event type, the
-   charge, and the time it happened. A test event's key starts with `test:`.
+   charge, and the UTC ticks of the time it happened. A time without an offset counts as UTC. A test
+   event's key starts with `test:`.
 4. It skips an event whose key it already processed, with 200.
 5. It checks that `msn` is the merchant serial number of the environment that signed the event. An
    event whose `msn` differs is rejected. An ePayment event without `msn` is rejected too, because
@@ -136,9 +138,9 @@ a delivery that lost that race, and a failure there is only logged.
 ```csharp
 public sealed class ShopWebhookHandler(AppDbContext db, IOrderEmails emails) : IVippsPaymentWebhookHandler
 {
-    public async Task<VippsWebhookOutcome> HandleAsync(VippsWebhookDelivery<VippsPaymentEvent> delivery, CancellationToken ct)
+    public async Task<VippsWebhookOutcome> HandleAsync(VippsWebhookDelivery<VippsPaymentEvent> delivery, CancellationToken cancellationToken)
     {
-        var order = await db.Orders.FirstOrDefaultAsync(o => o.Reference == delivery.Event.Reference, ct);
+        var order = await db.Orders.FirstOrDefaultAsync(o => o.Reference == delivery.Event.Reference, cancellationToken);
         if (order is null || order.IsTest != delivery.IsTest) return VippsWebhookOutcome.Rejected;
         order.Status = delivery.Event.Name;
         return VippsWebhookOutcome.Applied(token => emails.SendAsync(order.Id, token));
@@ -188,7 +190,8 @@ var result = VippsWebhookSignature.Verify(new VippsWebhookRequest
 }, secret, DateTimeOffset.UtcNow);
 ```
 
-`Verify` checks the content hash of the raw body bytes and the HMAC-SHA256 signature over the method,
+`Verify` returns a `VippsWebhookVerification` with a `VippsWebhookSignatureResult` and the age of
+the signature. It checks the content hash of the raw body bytes and the HMAC-SHA256 signature over the method,
 path, date, host, and hash. It also checks that the request was signed at most eight days ago,
 because Vipps retries a failed webhook for up to seven.
 
