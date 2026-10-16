@@ -63,9 +63,9 @@ public static class IdentityAndBearerExtensions
 
     /// <summary>
     /// Makes the JWT bearer scheme the default and validates the tokens that <see cref="IJwtTokenService"/>
-    /// writes. It checks the signature with <see cref="AuthOptions.Key"/>, the issuer and audience against
-    /// <see cref="AuthOptions.Issuer"/>, and the lifetime with 30 seconds of clock skew. Call it after
-    /// <see cref="ServiceCollectionExtensions.AddAppKitAuth{TContext}"/>. The scheme refuses a token when
+    /// writes. It checks the signature with <see cref="AppKitAuthOptions.Key"/>, the issuer and audience against
+    /// <see cref="AppKitAuthOptions.Issuer"/>, and the lifetime with 30 seconds of clock skew. Call it after
+    /// <see cref="AuthServiceCollectionExtensions.AddAppKitAuth{TContext}"/>. The scheme refuses a token when
     /// its user no longer exists or <paramref name="isActive"/> returns false for the user, so a deleted
     /// account stops working within <see cref="AppKitJwtBearerOptions.UserCheckCacheDuration"/>. The same
     /// check replaces the token's role claims with the user's current roles, so a removed role stops
@@ -92,7 +92,7 @@ public static class IdentityAndBearerExtensions
 
         var builder = services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
         services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
-            .Configure<IOptions<AuthOptions>, IHostEnvironment>((options, auth, environment) =>
+            .Configure<IOptions<AppKitAuthOptions>, IHostEnvironment>((options, auth, environment) =>
             {
                 options.RequireHttpsMetadata = !environment.IsDevelopment();
                 options.TokenValidationParameters = new TokenValidationParameters

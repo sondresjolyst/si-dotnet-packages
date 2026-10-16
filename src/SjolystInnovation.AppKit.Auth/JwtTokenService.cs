@@ -23,9 +23,9 @@ public interface IJwtTokenService
     string? ReadUserIdFromExpired(string token);
 }
 
-internal sealed class JwtTokenService(IOptions<AuthOptions> options, TimeProvider time) : IJwtTokenService
+internal sealed class JwtTokenService(IOptions<AppKitAuthOptions> options, TimeProvider time) : IJwtTokenService
 {
-    private readonly AuthOptions _options = options.Value;
+    private readonly AppKitAuthOptions _options = options.Value;
 
     public string Build(IdentityUser user, IEnumerable<string> roles)
     {

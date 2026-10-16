@@ -57,7 +57,7 @@ public sealed class AuthMessages
     public string InvalidEmail { get; set; } = "Not a valid email address.";
 }
 
-/// <summary>The options for <see cref="AuthEndpointsExtensions.MapAppKitAuthEndpoints{TUser, TContext}"/>.</summary>
+/// <summary>The options for <see cref="AuthEndpointsExtensions.MapAppKitAuth{TUser, TContext}"/>.</summary>
 public sealed class AppKitAuthEndpointOptions<TUser>
 {
     /// <summary>
@@ -77,11 +77,11 @@ public static partial class AuthEndpointsExtensions
     /// <summary>
     /// Maps <c>login</c>, <c>refresh-token</c>, <c>logout</c>, <c>request-password-reset</c>, and
     /// <c>reset-password</c> under <paramref name="prefix"/>. All are anonymous POST endpoints. They need
-    /// Identity with a <see cref="SignInManager{TUser}"/>, <see cref="ServiceCollectionExtensions.AddAppKitAuth{TContext}"/>,
+    /// Identity with a <see cref="SignInManager{TUser}"/>, <see cref="AuthServiceCollectionExtensions.AddAppKitAuth{TContext}"/>,
     /// and an <see cref="IAuthEmails{TUser}"/>. Errors return a <c>message</c>. A missing or malformed
     /// field returns a validation problem.
     /// </summary>
-    public static RouteGroupBuilder MapAppKitAuthEndpoints<TUser, TContext>(this IEndpointRouteBuilder endpoints,
+    public static RouteGroupBuilder MapAppKitAuth<TUser, TContext>(this IEndpointRouteBuilder endpoints,
         string prefix = "/api/auth", Action<AppKitAuthEndpointOptions<TUser>>? configure = null)
         where TUser : IdentityUser, IPasswordResetUser
         where TContext : DbContext, IAuthDbContext

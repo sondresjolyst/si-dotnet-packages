@@ -38,20 +38,26 @@ public interface IUserRolesChangedHandler<in TUser>
     Task OnRolesChangedAsync(TUser user, CancellationToken cancellationToken);
 }
 
-/// <summary>The options for <see cref="UserAdminExtensions.MapAppKitUserAdmin{TUser, TContext}"/>.</summary>
+/// <summary>The details of a user to create, passed to the new-user factory for an invite or the first admin seed.</summary>
+/// <param name="Email">The user's email address.</param>
+/// <param name="FirstName">The user's first name.</param>
+/// <param name="LastName">The user's last name.</param>
+public sealed record AppKitNewUser(string Email, string FirstName, string LastName);
+
+/// <summary>
+/// The options for <see cref="UserAdminExtensions.MapAppKitUserAdmin{TUser, TContext}"/>. The admin role comes from
+/// <see cref="AppKitAccountOptions.AdminRole"/>.
+/// </summary>
 public sealed class AppKitUserAdminOptions<TUser>
 {
     /// <summary>The roles an admin may give. The endpoints refuse any other role.</summary>
     public IReadOnlyCollection<string> Roles { get; set; } = [];
 
-    /// <summary>The role that must keep at least one active holder. Defaults to <c>Admin</c>.</summary>
-    public string AdminRole { get; set; } = "Admin";
-
     /// <summary>The authorization policy every endpoint requires. Defaults to <c>Admin</c>.</summary>
     public string Policy { get; set; } = "Admin";
 
-    /// <summary>A function that creates a user from an email address, a first name, and a last name, for an invite. Required.</summary>
-    public Func<string, string, string, TUser>? NewUser { get; set; }
+    /// <summary>A function that creates a user from an <see cref="AppKitNewUser"/>, for an invite. Required.</summary>
+    public Func<AppKitNewUser, TUser>? NewUser { get; set; }
 
     /// <summary>How long an invite code lasts. Defaults to 7 days.</summary>
     public TimeSpan InviteLifetime { get; set; } = TimeSpan.FromDays(7);
@@ -70,8 +76,12 @@ public static partial class UserAdminExtensions
     /// <c>?includeDeleted=true</c> adds deleted users. <c>POST {id}/roles</c> and
     /// <c>DELETE {id}/roles/{role}</c> give and remove a role. <c>POST invite</c> creates an account
     /// without a password and emails its owner a code through <see cref="IAuthEmails{TUser}"/>. Nobody
-    /// can remove the admin role from themselves or from the last active admin.
+    /// can remove the admin role from themselves or from the last active admin. The admin role is
+    /// <see cref="AppKitAccountOptions.AdminRole"/>, so you must register
+    /// <see cref="AccountServiceCollectionExtensions.AddAppKitAccounts{TUser, TContext}"/>.
     /// </summary>
+    /// <exception cref="InvalidOperationException">When <see cref="AppKitUserAdminOptions{TUser}.NewUser"/> is not set, or when
+    /// the app did not call <see cref="AccountServiceCollectionExtensions.AddAppKitAccounts{TUser, TContext}"/>.</exception>
     public static RouteGroupBuilder MapAppKitUserAdmin<TUser, TContext>(this IEndpointRouteBuilder endpoints,
         string prefix = "/api/users", Action<AppKitUserAdminOptions<TUser>>? configure = null)
         where TUser : IdentityUser, IAppKitAccount, IPasswordResetUser
@@ -82,8 +92,9 @@ public static partial class UserAdminExtensions
         configure?.Invoke(options);
         if (options.NewUser is null)
             throw new InvalidOperationException("AppKitUserAdminOptions.NewUser is required to create invited users.");
+        var adminRole = AppKitAccountOptions.AdminRoleFrom(endpoints.ServiceProvider, nameof(MapAppKitUserAdmin));
         var logger = endpoints.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("SjolystInnovation.AppKit.Auth.UserAdmin");
-        var handlers = new UserAdminHandlers<TUser, TContext>(options, logger);
+        var handlers = new UserAdminHandlers<TUser, TContext>(options, adminRole, logger);
 
         var group = endpoints.MapGroup(prefix).RequireAuthorization(options.Policy);
         group.MapGet("", (HttpContext http, bool includeDeleted = false) => UserAdminHandlers<TUser, TContext>.ListAsync(http, includeDeleted));
@@ -95,17 +106,25 @@ public static partial class UserAdminExtensions
 
     /// <summary>
     /// Creates the first admin from <c>Seed:AdminEmail</c> and <c>Seed:AdminPassword</c> while no user holds
-    /// <paramref name="adminRole"/>, or gives the role to an existing user with that email. The names come
-    /// from <c>Seed:AdminFirstName</c> and <c>Seed:AdminLastName</c>. The first name defaults to
-    /// <c>Admin</c> and the last name to empty. Does nothing when the email or the password is not set.
+    /// the admin role, or gives the role to an existing user with that email. The names come from
+    /// <c>Seed:AdminFirstName</c> and <c>Seed:AdminLastName</c>. The first name defaults to <c>Admin</c> and
+    /// the last name to empty. Does nothing when the email or the password is not set. The admin role is
+    /// <see cref="AppKitAccountOptions.AdminRole"/>, so you must register
+    /// <see cref="AccountServiceCollectionExtensions.AddAppKitAccounts{TUser, TContext}"/>.
     /// </summary>
+    /// <param name="services">The app's service provider.</param>
+    /// <param name="configuration">The configuration that holds the <c>Seed</c> section.</param>
+    /// <param name="newUser">A function that creates the user from an <see cref="AppKitNewUser"/>.</param>
+    /// <exception cref="InvalidOperationException">When the app did not call
+    /// <see cref="AccountServiceCollectionExtensions.AddAppKitAccounts{TUser, TContext}"/>.</exception>
     public static async Task SeedAppKitFirstAdminAsync<TUser>(this IServiceProvider services, IConfiguration configuration,
-        Func<string, string, string, TUser> newUser, string adminRole = "Admin")
+        Func<AppKitNewUser, TUser> newUser)
         where TUser : IdentityUser
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(newUser);
+        var adminRole = AppKitAccountOptions.AdminRoleFrom(services, nameof(SeedAppKitFirstAdminAsync));
         var email = configuration["Seed:AdminEmail"];
         var password = configuration["Seed:AdminPassword"];
         if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
@@ -125,7 +144,7 @@ public static partial class UserAdminExtensions
             return;
         }
 
-        var user = newUser(email, configuration["Seed:AdminFirstName"] ?? "Admin", configuration["Seed:AdminLastName"] ?? "");
+        var user = newUser(new AppKitNewUser(email, configuration["Seed:AdminFirstName"] ?? "Admin", configuration["Seed:AdminLastName"] ?? ""));
         user.UserName ??= email;
         user.Email = email;
         user.EmailConfirmed = true;
@@ -187,7 +206,7 @@ public static partial class UserAdminExtensions
     }
 }
 
-internal sealed class UserAdminHandlers<TUser, TContext>(AppKitUserAdminOptions<TUser> options, ILogger logger)
+internal sealed class UserAdminHandlers<TUser, TContext>(AppKitUserAdminOptions<TUser> options, string adminRole, ILogger logger)
     where TUser : IdentityUser, IAppKitAccount, IPasswordResetUser
     where TContext : IdentityDbContext<TUser, IdentityRole, string>
 {
@@ -242,7 +261,7 @@ internal sealed class UserAdminHandlers<TUser, TContext>(AppKitUserAdminOptions<
         if (!KnownRole(role))
             return Message("Unknown role.", StatusCodes.Status400BadRequest);
         var callerId = http.User.GetUserId();
-        var isAdminRole = string.Equals(role, options.AdminRole, StringComparison.Ordinal);
+        var isAdminRole = string.Equals(role, adminRole, StringComparison.Ordinal);
         if (isAdminRole && id == callerId)
             return Message("You cannot remove your own admin role.", StatusCodes.Status400BadRequest);
 
@@ -280,7 +299,7 @@ internal sealed class UserAdminHandlers<TUser, TContext>(AppKitUserAdminOptions<
         if (await users.FindByEmailAsync(request.Email!) is not null)
             return Message("That email already has an account.", StatusCodes.Status409Conflict);
 
-        var user = options.NewUser!(request.Email!, request.FirstName!, request.LastName!);
+        var user = options.NewUser!(new AppKitNewUser(request.Email!, request.FirstName!, request.LastName!));
         user.UserName ??= request.Email;
         user.Email = request.Email;
         user.EmailConfirmed = true;

@@ -28,7 +28,7 @@ public interface IAuthDbContext
 }
 
 /// <summary>Adds the refresh token mapping to an EF model.</summary>
-public static class ModelBuilderExtensions
+public static class RefreshTokenModelBuilderExtensions
 {
     /// <summary>
     /// Maps <see cref="RefreshToken"/> to the <c>RefreshTokens</c> table, with a required foreign key

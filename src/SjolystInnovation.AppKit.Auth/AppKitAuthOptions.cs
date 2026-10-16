@@ -1,7 +1,10 @@
 namespace SjolystInnovation.AppKit.Auth;
 
-/// <summary>The token options, bound from the app's <c>Jwt</c> configuration section.</summary>
-public sealed class AuthOptions
+/// <summary>
+/// The token options, bound from the configuration section passed to
+/// <see cref="AuthServiceCollectionExtensions.AddAppKitAuth{TContext}"/>, usually <c>Jwt</c>.
+/// </summary>
+public sealed class AppKitAuthOptions
 {
     /// <summary>The HS256 signing key. Must be at least 32 bytes as UTF-8.</summary>
     public string Key { get; set; } = string.Empty;

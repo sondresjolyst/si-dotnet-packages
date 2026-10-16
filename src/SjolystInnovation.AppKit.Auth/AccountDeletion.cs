@@ -5,6 +5,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace SjolystInnovation.AppKit.Auth;
 
@@ -41,23 +42,43 @@ public sealed class LastAdminException() : InvalidOperationException("The last a
 public sealed class AccountChangeConflictException(Exception inner)
     : InvalidOperationException("Another change to the accounts happened at the same time. Try again.", inner);
 
-/// <summary>The options for account deletion.</summary>
+/// <summary>
+/// The options for accounts. The account endpoints, the user admin endpoints, account deletion, and the
+/// first admin seed all read the admin role from here.
+/// </summary>
 public sealed class AppKitAccountOptions
 {
     /// <summary>The role that must keep at least one active holder. Defaults to <c>Admin</c>.</summary>
     public string AdminRole { get; set; } = "Admin";
+
+    // Reads the admin role, or throws when the app never called AddAppKitAccounts, so a missing call does
+    // not fall back to the default role in silence.
+    internal static string AdminRoleFrom(IServiceProvider services, string caller)
+    {
+        if (services.GetService<AccountsRegistered>() is null)
+            throw new InvalidOperationException(
+                $"{caller} reads the admin role from AppKitAccountOptions. Call AddAppKitAccounts<TUser, TContext>() first.");
+        return services.GetRequiredService<IOptions<AppKitAccountOptions>>().Value.AdminRole;
+    }
 }
+
+// Marks that AddAppKitAccounts ran. IOptions<AppKitAccountOptions> resolves without it, so it cannot tell.
+internal sealed class AccountsRegistered;
 
 /// <summary>Registers the account deletion services.</summary>
 public static class AccountServiceCollectionExtensions
 {
-    /// <summary>Registers <see cref="IAccountDeleter{TUser}"/>. Register erasers and handlers as scoped services.</summary>
+    /// <summary>
+    /// Registers <see cref="IAccountDeleter{TUser}"/> and <see cref="AppKitAccountOptions"/>. Register erasers and
+    /// handlers as scoped services.
+    /// </summary>
     public static IServiceCollection AddAppKitAccounts<TUser, TContext>(this IServiceCollection services, Action<AppKitAccountOptions>? configure = null)
         where TUser : IdentityUser, IAppKitAccount
         where TContext : DbContext, IAuthDbContext
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddOptions<AppKitAccountOptions>().Configure(o => configure?.Invoke(o));
+        services.TryAddSingleton<AccountsRegistered>();
         services.AddMemoryCache();
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddScoped<IAccountDeleter<TUser>, AccountDeleter<TUser, TContext>>();
