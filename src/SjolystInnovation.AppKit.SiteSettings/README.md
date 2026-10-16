@@ -37,6 +37,28 @@ app.MapAppKitSiteSettings<ApplicationDbContext, AppSettings>("/api", o => o.Poli
 
 `Policy` is `Admin` by default.
 
+### Hooks
+
+Two options let your app act on a save:
+
+- `OnSaving` runs after a settings change is applied to the row and before it is saved. It gets the row,
+  the values the row held before, and the request. Use it to keep your own columns in step with the
+  company fields, such as the date VAT registration started. If it throws, nothing is saved.
+- `OnSaved` runs after the settings or the branding are saved. Use it to clear a cache of the row.
+
+```csharp
+app.MapAppKitSiteSettings<ApplicationDbContext, AppSettings>("/api", o =>
+{
+    o.OnSaving = saving =>
+    {
+        if (saving.Settings.VatRegistered && !saving.Previous.VatRegistered)
+            ((AppSettings)saving.Settings).VatRegisteredFrom = DateOnly.FromDateTime(DateTime.UtcNow);
+        return Task.CompletedTask;
+    };
+    o.OnSaved = http => { http.RequestServices.GetRequiredService<IAppSettingsCache>().Invalidate(); return Task.CompletedTask; };
+});
+```
+
 ## Rules
 
 - The contact recipient and the public email must be email addresses of at most 200 characters.

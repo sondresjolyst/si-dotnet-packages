@@ -68,7 +68,25 @@ public sealed class AppKitSiteSettingsOptions
 {
     /// <summary>The authorization policy for reading the settings and changing settings and branding. Defaults to <c>Admin</c>.</summary>
     public string Policy { get; set; } = "Admin";
+
+    /// <summary>
+    /// A function that runs after a settings change is applied to the row and before it is saved, with the values
+    /// the row held before. Use it to keep the app's own columns in step, such as the date VAT registration
+    /// started. Throwing from it stops the save.
+    /// </summary>
+    public Func<SiteSettingsSaving, Task>? OnSaving { get; set; }
+
+    /// <summary>
+    /// A function that runs after the settings or the branding are saved. Use it to clear a cache of the row.
+    /// </summary>
+    public Func<HttpContext, Task>? OnSaved { get; set; }
 }
+
+/// <summary>A settings change about to be saved.</summary>
+/// <param name="Settings">The settings row with the change applied. Cast it to the app's own entity to set its other columns.</param>
+/// <param name="Previous">The values the row held before the change. The defaults when the row did not exist yet.</param>
+/// <param name="Http">The request that made the change.</param>
+public sealed record SiteSettingsSaving(ICompanySettings Settings, SiteSettingsBody Previous, HttpContext Http);
 
 /// <summary>The settings an admin reads and writes.</summary>
 public sealed record SiteSettingsBody(
@@ -123,9 +141,9 @@ public static class SiteSettingsExtensions
         var group = endpoints.MapGroup(prefix);
         group.MapGet("company", (Func<HttpContext, Task<IResult>>)SiteSettingsHandlers<TContext, TSettings>.CompanyAsync).AllowAnonymous();
         group.MapGet("settings", (Func<HttpContext, Task<IResult>>)SiteSettingsHandlers<TContext, TSettings>.GetAsync).RequireAuthorization(options.Policy);
-        group.MapPut("settings", (SiteSettingsBody body, HttpContext http) => SiteSettingsHandlers<TContext, TSettings>.UpdateAsync(body, http)).RequireAuthorization(options.Policy);
+        group.MapPut("settings", (SiteSettingsBody body, HttpContext http) => SiteSettingsHandlers<TContext, TSettings>.UpdateAsync(body, http, options)).RequireAuthorization(options.Policy);
         group.MapGet("branding", (Func<HttpContext, Task<IResult>>)BrandingHandlers<TContext, TSettings>.GetAsync).AllowAnonymous();
-        group.MapPut("branding", (Func<HttpContext, Task<IResult>>)BrandingHandlers<TContext, TSettings>.UpdateAsync).RequireAuthorization(options.Policy).DisableAntiforgery();
+        group.MapPut("branding", (Func<HttpContext, Task<IResult>>)(http => BrandingHandlers<TContext, TSettings>.UpdateAsync(http, options))).RequireAuthorization(options.Policy).DisableAntiforgery();
         return group;
     }
 }
@@ -169,13 +187,14 @@ internal static class SiteSettingsHandlers<TContext, TSettings>
 
     public static async Task<IResult> GetAsync(HttpContext http) => TypedResults.Ok(ToBody(await FindAsync(http) ?? new TSettings()));
 
-    public static async Task<IResult> UpdateAsync(SiteSettingsBody body, HttpContext http)
+    public static async Task<IResult> UpdateAsync(SiteSettingsBody body, HttpContext http, AppKitSiteSettingsOptions options)
     {
         var errors = SiteSettingsValidation.Validate(body);
         if (errors.Count > 0)
             return TypedResults.ValidationProblem(errors);
 
         var (db, s) = await FindOrAddAsync(http);
+        var previous = ToBody(s);
         s.ContactRecipientEmail = body.ContactRecipientEmail!.Trim();
         s.CompanyName = body.CompanyName!.Trim();
         s.CompanyLegalName = (body.CompanyLegalName ?? "").Trim();
@@ -187,7 +206,11 @@ internal static class SiteSettingsHandlers<TContext, TSettings>
         s.AddressRegion = (body.AddressRegion ?? "").Trim();
         s.PublicEmail = body.PublicEmail!.Trim();
         s.PublicPhone = body.PublicPhone!.Trim();
+        if (options.OnSaving is { } onSaving)
+            await onSaving(new SiteSettingsSaving(s, previous, http));
         await db.SaveChangesAsync(http.RequestAborted);
+        if (options.OnSaved is { } onSaved)
+            await onSaved(http);
         return TypedResults.Ok(ToBody(s));
     }
 

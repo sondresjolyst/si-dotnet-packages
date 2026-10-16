@@ -314,4 +314,74 @@ public class SiteSettingsTests
     [InlineData("４３４７", false)]
     public void Postal_codes_are_four_digits(string value, bool valid) =>
         Assert.Equal(valid, PostalAddress.IsPostalCode(value));
+
+    // Hooks
+
+    [Fact]
+    public async Task OnSaving_sees_the_previous_values_and_can_set_the_apps_own_columns()
+    {
+        SiteSettingsSaving? seen = null;
+        await using var app = await TestApp.StartAsync(o => o.OnSaving = saving =>
+        {
+            seen = saving;
+            if (saving.Settings.VatRegistered && !saving.Previous.VatRegistered)
+                ((TestSettings)saving.Settings).CookieBannerEnabled = false;
+            return Task.CompletedTask;
+        });
+
+        var response = await app.SendAsync(HttpMethod.Put, "/api/settings", JsonContent.Create(Body()));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(seen);
+        Assert.False(seen.Previous.VatRegistered);
+        Assert.Equal("Pyttogpanne", seen.Previous.CompanyName);
+        Assert.Equal("923 202 374", seen.Settings.OrgNumber);
+        Assert.False((await app.RowAsync())!.CookieBannerEnabled);
+    }
+
+    [Fact]
+    public async Task OnSaving_on_a_later_write_sees_what_the_row_held()
+    {
+        var previous = new List<SiteSettingsBody>();
+        await using var app = await TestApp.StartAsync(o => o.OnSaving = saving => { previous.Add(saving.Previous); return Task.CompletedTask; });
+
+        await app.SendAsync(HttpMethod.Put, "/api/settings", JsonContent.Create(Body()));
+        await app.SendAsync(HttpMethod.Put, "/api/settings", JsonContent.Create(Body(b => { b["vatRegistered"] = false; b["companyName"] = "Nytt navn"; })));
+
+        Assert.Equal(2, previous.Count);
+        Assert.True(previous[1].VatRegistered);
+        Assert.Equal("Pyttogpanne", previous[1].CompanyName);
+        Assert.Equal("923 202 374", previous[1].OrgNumber);
+    }
+
+    [Fact]
+    public async Task A_throwing_OnSaving_stops_the_save()
+    {
+        await using var app = await TestApp.StartAsync(o => o.OnSaving = _ => throw new InvalidOperationException("no"));
+
+        try
+        {
+            var response = await app.SendAsync(HttpMethod.Put, "/api/settings", JsonContent.Create(Body()));
+            Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        }
+        catch (InvalidOperationException)
+        {
+            // The test server may rethrow the handler's exception instead of answering 500.
+        }
+
+        Assert.Null(await app.RowAsync());
+    }
+
+    [Fact]
+    public async Task OnSaved_runs_after_a_save_and_not_after_a_refused_change()
+    {
+        var saved = 0;
+        await using var app = await TestApp.StartAsync(o => o.OnSaved = _ => { saved++; return Task.CompletedTask; });
+
+        await app.SendAsync(HttpMethod.Put, "/api/settings", JsonContent.Create(Body(b => b["orgNumber"] = "123")));
+        Assert.Equal(0, saved);
+
+        await app.SendAsync(HttpMethod.Put, "/api/settings", JsonContent.Create(Body()));
+        Assert.Equal(1, saved);
+    }
 }
