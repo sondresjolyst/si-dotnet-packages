@@ -10,6 +10,7 @@ on:
         description: "Package to publish again, for a tagged release that did not reach NuGet."
         type: choice
         options:
+          - src/SjolystInnovation.AppKit.AdminStats
           - src/SjolystInnovation.AppKit.Auth
           - src/SjolystInnovation.AppKit.Email
           - src/SjolystInnovation.AppKit.Hosting
