@@ -6,6 +6,7 @@
 
 ```sh
 dotnet build
+dotnet run --project tests/SjolystInnovation.AppKit.AdminStats.Tests
 dotnet run --project tests/SjolystInnovation.AppKit.Auth.Tests
 dotnet run --project tests/SjolystInnovation.AppKit.Email.Tests
 dotnet run --project tests/SjolystInnovation.AppKit.Hosting.Tests

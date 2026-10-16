@@ -7,6 +7,7 @@ same name.
 
 | Package | What it does |
 | --- | --- |
+| [SjolystInnovation.AppKit.AdminStats](src/SjolystInnovation.AppKit.AdminStats/README.md) | Daily admin statistics on your app's own snapshot table: one frozen row per completed UTC day, missed days rebuilt from a past-day sampler, and a history endpoint with today's live counts. |
 | [SjolystInnovation.AppKit.Auth](src/SjolystInnovation.AppKit.Auth/README.md) | JWT access tokens and bearer validation, rotating refresh tokens with reuse detection and cleanup, Identity defaults, and password reset and email verification codes for ASP.NET Core Identity apps. |
 | [SjolystInnovation.AppKit.Email](src/SjolystInnovation.AppKit.Email/README.md) | Transactional email through Brevo, with reply-to, attachments, a send result instead of exceptions, and delivery statistics. |
 | [SjolystInnovation.AppKit.Hosting](src/SjolystInnovation.AppKit.Hosting/README.md) | Forwarded headers from trusted proxies only, per-IP rate limiting, security headers, HTTPS, health checks, and migrations on start for ASP.NET Core APIs behind an ingress. |
@@ -16,6 +17,7 @@ same name.
 | [SjolystInnovation.AppKit.Vipps](src/SjolystInnovation.AppKit.Vipps/README.md) | A client for the Vipps MobilePay Recurring, ePayment, Userinfo, and Webhooks APIs, with a signed webhook endpoint that skips redelivered events, webhook registration at startup, and Norwegian phone number checks. |
 
 ```sh
+dotnet add package SjolystInnovation.AppKit.AdminStats
 dotnet add package SjolystInnovation.AppKit.Auth
 dotnet add package SjolystInnovation.AppKit.Email
 dotnet add package SjolystInnovation.AppKit.Hosting
