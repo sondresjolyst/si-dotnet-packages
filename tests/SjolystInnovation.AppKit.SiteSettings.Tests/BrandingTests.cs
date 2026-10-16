@@ -190,4 +190,17 @@ public class BrandingTests
     [InlineData(new byte[] { 0x47, 0x49, 0x46, 0x38, 0x38, 0x61 }, null)]
     public void Short_or_near_miss_signatures_are_judged_exactly(byte[] bytes, string? expected) =>
         Assert.Equal(expected, ImageSignature.ContentType(bytes));
+
+    [Fact]
+    public async Task OnSaved_runs_after_branding_is_saved_and_not_after_a_refused_image()
+    {
+        var saved = 0;
+        await using var app = await TestApp.StartAsync(o => o.OnSaved = _ => { saved++; return Task.CompletedTask; });
+
+        await app.SendAsync(HttpMethod.Put, "/api/branding", Form(("logo", [1, 2, 3], null)));
+        Assert.Equal(0, saved);
+
+        await app.SendAsync(HttpMethod.Put, "/api/branding", Form(("logo", Png, null)));
+        Assert.Equal(1, saved);
+    }
 }

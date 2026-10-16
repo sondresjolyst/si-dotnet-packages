@@ -23,7 +23,7 @@ internal static class BrandingHandlers<TContext, TSettings>
     /// Updates the branding from a form with an optional <c>logo</c> and <c>icon</c> file, or with
     /// <c>removeLogo</c> and <c>removeIcon</c> set to <c>true</c>. A part that is not sent stays as it is.
     /// </summary>
-    public static async Task<IResult> UpdateAsync(HttpContext http)
+    public static async Task<IResult> UpdateAsync(HttpContext http, AppKitSiteSettingsOptions options)
     {
         if (!http.Request.HasFormContentType)
             return Refused("Logo", "Send the images as a form.");
@@ -53,6 +53,8 @@ internal static class BrandingHandlers<TContext, TSettings>
         else if (icon is { } i)
             (s.IconData, s.IconContentType) = i;
         await db.SaveChangesAsync(http.RequestAborted);
+        if (options.OnSaved is { } onSaved)
+            await onSaved(http);
         return TypedResults.Ok(new BrandingInfo(s.LogoData, s.LogoContentType, s.IconData, s.IconContentType));
     }
 
