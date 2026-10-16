@@ -127,8 +127,7 @@ public static class IdentityAndBearerExtensions
     private static async Task CheckUserAsync<TUser>(TokenValidatedContext context, Func<TUser, bool>? isActive, TimeSpan cacheFor)
         where TUser : IdentityUser
     {
-        var userId = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier)
-            ?? context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Sub);
+        var userId = context.Principal?.GetUserId();
         if (string.IsNullOrEmpty(userId))
         {
             context.Fail("The token has no user id.");

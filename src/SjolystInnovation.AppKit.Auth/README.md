@@ -85,6 +85,22 @@ builder.Services.AddAppKitJwtBearer<User>(u => !u.IsDeleted, o => o.QueryTokenPa
 
 Make sure that access logs for those paths do not write the query string.
 
+## Claims
+
+`AppKitClaims` adds extension methods on `ClaimsPrincipal` for the checks your endpoints repeat. The
+package's own endpoints use them too.
+
+| Method | Returns |
+| --- | --- |
+| `GetUserId()` | The `ClaimTypes.NameIdentifier` claim, or the `sub` claim when the first is missing. Null when the user has neither. |
+| `IsCaller(userId)` | Whether the user's id equals `userId`, compared ordinally. False when the user has no id. |
+| `IsInAnyRole(roles)` | Whether the user holds at least one of `roles`. Role names are case sensitive. |
+
+```csharp
+app.MapGet("/orders/{userId}", (string userId, ClaimsPrincipal user) =>
+    user.IsCaller(userId) || user.IsInAnyRole("Admin", "Support") ? Results.Ok() : Results.Forbid());
+```
+
 ## Endpoints
 
 `MapAppKitAuthEndpoints<TUser, TContext>` maps the sign-in endpoints, so your app does not have to
@@ -203,7 +219,12 @@ builder.Services.AddScoped<IUserRolesChangedHandler<User>, SecurityRoleSync>();
 `Seed:AdminPassword` while nobody holds the admin role, or gives an existing user with that email the
 role. It does nothing until both are set.
 
+`SeedAppKitRolesAsync` creates each role that does not exist yet and logs the roles it creates. Roles
+that exist stay as they are, so you can call it on every startup. Call it before
+`SeedAppKitFirstAdminAsync`, which needs the admin role to exist.
+
 ```csharp
+await app.Services.SeedAppKitRolesAsync(RoleNames.AllRoles);
 await app.Services.SeedAppKitFirstAdminAsync<User>(app.Configuration, (email, first, last) => new User { FirstName = first, LastName = last });
 ```
 

@@ -696,4 +696,35 @@ public sealed class UserAdminTests : IAsyncDisposable
         Assert.Equal((0, 0), await CountsAsync(services));
         Assert.Contains(logs.GetSnapshot(), r => r.Level == LogLevel.Error && r.Message.StartsWith("Could not create the seed admin", StringComparison.Ordinal));
     }
+
+    private static string[] RoleNames(IServiceProvider services)
+    {
+        using var scope = services.CreateScope();
+        return [.. scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>().Roles.Select(r => r.Name!).OrderBy(n => n)];
+    }
+
+    [Fact]
+    public async Task Seeding_roles_creates_only_the_missing_ones()
+    {
+        var (services, logs) = await SeedHostAsync();
+
+        await services.SeedAppKitRolesAsync(["Admin", "Editor", "Viewer"]);
+
+        Assert.Equal(["Admin", "Editor", "Viewer"], RoleNames(services));
+        var seedLogs = logs.GetSnapshot().Where(r => r.Category == "SjolystInnovation.AppKit.Auth.Seed").Select(r => r.Message);
+        Assert.Equal(["Created the role Editor.", "Created the role Viewer."], seedLogs);
+    }
+
+    [Fact]
+    public async Task Seeding_roles_twice_changes_nothing_the_second_time()
+    {
+        var (services, logs) = await SeedHostAsync();
+        await services.SeedAppKitRolesAsync(["Admin", "Editor"]);
+        logs.Clear();
+
+        await services.SeedAppKitRolesAsync(["Admin", "Editor"]);
+
+        Assert.Equal(["Admin", "Editor"], RoleNames(services));
+        Assert.DoesNotContain(logs.GetSnapshot(), r => r.Category == "SjolystInnovation.AppKit.Auth.Seed");
+    }
 }
