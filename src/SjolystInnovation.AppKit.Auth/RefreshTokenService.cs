@@ -9,44 +9,46 @@ namespace SjolystInnovation.AppKit.Auth;
 public interface IRefreshTokenService
 {
     /// <summary>
-    /// Adds a new refresh token for the user and returns the raw token. Live tokens over
-    /// <see cref="AuthOptions.MaxLiveRefreshTokens"/> are deleted, oldest first. The caller saves.
+    /// Adds a new refresh token for the user and returns the raw token. Deletes live tokens over
+    /// <see cref="AuthOptions.MaxLiveRefreshTokens"/>, oldest first. The caller saves.
     /// </summary>
     Task<string> IssueAsync(string userId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Swaps a refresh token for a new one, in one transaction that this call saves and commits. A
-    /// token that was already used revokes every live token of the user.
+    /// Swaps a refresh token for a new one, in one transaction that this call saves and commits. If the
+    /// token was already used, every live token of the user is revoked.
     /// </summary>
     Task<RotationResult> RotateAsync(string userId, string rawToken, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes a live refresh token, as at sign-out, and returns whether there was one. A later use of
-    /// it is refused as unknown rather than taken for a replay. A token already used is left alone, so
-    /// presenting it still counts as a replay. This call saves.
+    /// Deletes a live refresh token, for example at sign-out, and returns whether there was one. A later
+    /// use of it is refused as unknown instead of treated as a replay. A token that was already used stays,
+    /// so presenting it still counts as a replay. This call saves.
     /// </summary>
     Task<bool> RevokeAsync(string rawToken, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes every live refresh token of the user, as after a password reset, and returns how many
-    /// there were. Each device then has to sign in again. A device that sends its old token is refused
-    /// as unknown rather than taken for a replay. This call saves.
+    /// Deletes every live refresh token of the user, for example after a password reset, and returns how
+    /// many there were. Each device then has to sign in again. A device that sends its old token is
+    /// refused as unknown instead of treated as a replay. This call saves.
     /// </summary>
     Task<int> RevokeAllForUserAsync(string userId, CancellationToken cancellationToken = default);
 }
 
+/// <summary>The outcome of a refresh token rotation.</summary>
 public enum RotationStatus
 {
     /// <summary>The token was swapped. <see cref="RotationResult.RefreshToken"/> holds the new one.</summary>
     Rotated,
 
-    /// <summary>The token is unknown, expired or belongs to another user. Nothing changed.</summary>
+    /// <summary>The token is unknown, expired, or belongs to another user. Nothing changed.</summary>
     Rejected,
 
     /// <summary>The token was already used. Every live token of the user is now revoked.</summary>
     Replayed,
 }
 
+/// <summary>The result of a rotation, with the new raw token when it succeeded.</summary>
 public sealed record RotationResult(RotationStatus Status, string? RefreshToken = null);
 
 internal static partial class Log
@@ -74,12 +76,12 @@ internal sealed class RefreshTokenService<TContext>(
                 .OrderBy(t => t.Created)
                 .ThenBy(t => t.Id)
                 .ToListAsync(cancellationToken))
-            // The database still reports a token live that a rotation revoked without saving yet.
+            // The database still reports a token as live when a rotation revoked it but has not saved yet.
             .Where(t => t.Revoked == null)
             .ToList();
 
-        // Delete rather than revoke. Presenting a revoked token counts as a replay, so an evicted
-        // device's next refresh would otherwise revoke every session the user has.
+        // Delete instead of revoke. Presenting a revoked token counts as a replay, so otherwise the next
+        // refresh from an evicted device would revoke every session the user has.
         foreach (var stale in live.SkipLast(_options.MaxLiveRefreshTokens - 1))
             db.RefreshTokens.Remove(stale);
 
@@ -119,8 +121,8 @@ internal sealed class RefreshTokenService<TContext>(
             }
             catch (DbUpdateConcurrencyException)
             {
-                // Revoked is a concurrency token, so a request that used the same token after this
-                // one read it makes this save fail. The token was used twice, which is a replay.
+                // Revoked is a concurrency token, so this save fails if another request used the same
+                // token after this one read it. The token was used twice, which is a replay.
             }
         }
 
@@ -169,7 +171,7 @@ internal sealed class RefreshTokenService<TContext>(
         }
     }
 
-    /// <summary>Revokes every live token of the user, trying again while other requests change them.</summary>
+    /// <summary>Revokes every live token of the user. Retries while other requests change them.</summary>
     private async Task RevokeAfterReplayAsync(string userId, CancellationToken cancellationToken)
     {
         for (var attempt = 1; ; attempt++)
@@ -179,7 +181,7 @@ internal sealed class RefreshTokenService<TContext>(
             var now = time.GetUtcNow().UtcDateTime;
             var live = await db.RefreshTokens.Where(t => t.UserId == userId && t.Revoked == null).ToListAsync(cancellationToken);
             foreach (var t in live) t.Revoked = now;
-            // Logged before the save, so a revocation that fails to save is not silent.
+            // Log before the save, so a revocation that fails to save is not silent.
             if (live.Count > 0)
                 Log.Replayed(logger, userId, live.Count);
             try

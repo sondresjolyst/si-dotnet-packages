@@ -13,7 +13,7 @@ namespace SjolystInnovation.AppKit.Auth;
 /// <summary>Adds the app's own data to an account export.</summary>
 public interface IAccountExport<in TUser>
 {
-    /// <summary>The app's data for the user. It is written under <c>data</c> in the export.</summary>
+    /// <summary>Gets the app's data for the user. The export writes it under <c>data</c>.</summary>
     Task<object?> ExportAsync(TUser user, CancellationToken cancellationToken);
 }
 
@@ -24,14 +24,16 @@ internal sealed record ChangePasswordRequest(string? CurrentPassword, string? Ne
 internal sealed record AccountExport(AccountProfile Account, IList<string> Roles, DateTime ExportedAt,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] object? Data);
 
+/// <summary>Maps the account endpoints.</summary>
 public static class AccountEndpointsExtensions
 {
     /// <summary>
-    /// Maps, under <paramref name="prefix"/> and for signed-in users: <c>GET</c> and <c>PUT {id}/profile</c>,
-    /// <c>PUT {id}/password</c>, <c>GET {id}/export</c> and <c>DELETE {id}/account</c>. The user themselves
-    /// or an admin may act, except that only the user changes their own password. Deleting goes through
-    /// <see cref="IAccountDeleter{TUser}"/>, so <see cref="AccountServiceCollectionExtensions.AddAppKitAccounts{TUser, TContext}"/>
-    /// must be registered. The admin role comes from its options.
+    /// Maps the account endpoints for signed-in users under <paramref name="prefix"/>: <c>GET</c> and
+    /// <c>PUT {id}/profile</c>, <c>PUT {id}/password</c>, <c>GET {id}/export</c>, and <c>DELETE {id}/account</c>.
+    /// The user or an admin may call them, except that only the user can change their own password.
+    /// Deleting goes through <see cref="IAccountDeleter{TUser}"/>, so you must register
+    /// <see cref="AccountServiceCollectionExtensions.AddAppKitAccounts{TUser, TContext}"/>. The admin role
+    /// comes from its options.
     /// </summary>
     public static RouteGroupBuilder MapAppKitAccount<TUser>(this IEndpointRouteBuilder endpoints, string prefix = "/api/users")
         where TUser : IdentityUser, IAppKitAccount
@@ -60,7 +62,7 @@ internal static class AccountHandlers<TUser>
 
     private static AccountProfile Profile(TUser u) => new(u.Id, u.UserName ?? "", u.FirstName, u.LastName, u.Email ?? "", u.CreatedAt);
 
-    /// <summary>The user to act on, or the answer when the caller may not or the account is gone.</summary>
+    /// <summary>Finds the user to act on. Returns a refusal when the caller may not act or the account is gone.</summary>
     private static async Task<(TUser? User, IResult? Refusal)> FindAsync(string id, HttpContext http, bool selfOnly = false)
     {
         if (selfOnly ? CallerId(http) != id : !CanActOn(http, id))

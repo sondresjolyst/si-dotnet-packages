@@ -3,11 +3,12 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace SjolystInnovation.AppKit.Vipps;
 
+/// <summary>Registers the Vipps client.</summary>
 public static class ServiceCollectionExtensions
 {
     /// <summary>
     /// Registers <see cref="IVippsClient"/> with its own <see cref="HttpClient"/>. Calls go to the live
-    /// environment unless the app registers its own <see cref="IVippsEnvironment"/>, before or after.
+    /// environment unless you register your own <see cref="IVippsEnvironment"/>, before or after this call.
     /// </summary>
     public static IHttpClientBuilder AddVipps(this IServiceCollection services, Action<VippsOptions> configure)
     {

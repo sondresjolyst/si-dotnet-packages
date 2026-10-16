@@ -11,14 +11,14 @@ namespace SjolystInnovation.AppKit.Auth;
 public interface IJwtTokenService
 {
     /// <summary>
-    /// An HS256 token with the claims <c>sub</c>, <c>unique_name</c>, <c>email</c> and one <c>role</c>
-    /// claim per role. It is valid from 5 seconds ago, to allow for clock skew.
+    /// Builds an HS256 token with the claims <c>sub</c>, <c>unique_name</c>, <c>email</c>, and one
+    /// <c>role</c> claim per role. The token is valid from 5 seconds ago, to allow for clock skew.
     /// </summary>
     string Build(IdentityUser user, IEnumerable<string> roles);
 
     /// <summary>
-    /// The user id of a token this app signed, whether or not it has expired. Null when the signature
-    /// is wrong, the algorithm is not HS256 or the token has no user id.
+    /// Reads the user id from a token this app signed, whether or not it has expired. Returns null when
+    /// the signature is wrong, the algorithm is not HS256, or the token has no user id.
     /// </summary>
     string? ReadUserIdFromExpired(string token);
 }
@@ -71,7 +71,7 @@ internal sealed class JwtTokenService(IOptions<AuthOptions> options, TimeProvide
             return principal.Claims.FirstOrDefault(c =>
                 c.Type == JwtRegisteredClaimNames.Sub || c.Type == ClaimTypes.NameIdentifier)?.Value;
         }
-        // The token comes from the client, so any failure to read it means it is not ours.
+        // The token comes from the client, so any failure to read it means the app did not sign it.
         catch (Exception)
         {
             return null;

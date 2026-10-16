@@ -16,38 +16,44 @@ namespace SjolystInnovation.AppKit.Auth;
 /// <summary>The user fields the account and admin endpoints read and the account deleter scrubs.</summary>
 public interface IAppKitAccount
 {
+    /// <summary>The user's first name.</summary>
     string FirstName { get; set; }
+    /// <summary>The user's last name.</summary>
     string LastName { get; set; }
+    /// <summary>When the account was created.</summary>
     DateTime CreatedAt { get; }
+    /// <summary>Whether the account is deleted.</summary>
     bool IsDeleted { get; set; }
+    /// <summary>When the account was deleted, or null if it is not deleted.</summary>
     DateTime? DeletedAt { get; set; }
 }
 
 /// <summary>
-/// Runs after an admin endpoint gives a user a role or takes one away, such as to update what the role
+/// Runs after an admin endpoint gives a user a role or removes one, for example to update what the role
 /// grants. The role change is saved first, so an exception here fails the request but keeps the change.
 /// </summary>
 public interface IUserRolesChangedHandler<in TUser>
 {
+    /// <summary>Handles a change to the user's roles.</summary>
     Task OnRolesChangedAsync(TUser user, CancellationToken cancellationToken);
 }
 
-/// <summary>Settings for <see cref="UserAdminExtensions.MapAppKitUserAdmin{TUser, TContext}"/>.</summary>
+/// <summary>The options for <see cref="UserAdminExtensions.MapAppKitUserAdmin{TUser, TContext}"/>.</summary>
 public sealed class AppKitUserAdminOptions<TUser>
 {
-    /// <summary>The roles an admin may give. Any other role is refused.</summary>
+    /// <summary>The roles an admin may give. The endpoints refuse any other role.</summary>
     public IReadOnlyCollection<string> Roles { get; set; } = [];
 
-    /// <summary>The role that may not be left without an active holder. <c>Admin</c> by default.</summary>
+    /// <summary>The role that must keep at least one active holder. Defaults to <c>Admin</c>.</summary>
     public string AdminRole { get; set; } = "Admin";
 
-    /// <summary>The authorization policy every endpoint requires.</summary>
+    /// <summary>The authorization policy every endpoint requires. Defaults to <c>Admin</c>.</summary>
     public string Policy { get; set; } = "Admin";
 
-    /// <summary>Makes a user from an email address, a first name and a last name, for an invite.</summary>
+    /// <summary>A function that creates a user from an email address, a first name, and a last name, for an invite. Required.</summary>
     public Func<string, string, string, TUser>? NewUser { get; set; }
 
-    /// <summary>How long an invite code lasts. Seven days by default.</summary>
+    /// <summary>How long an invite code lasts. Defaults to 7 days.</summary>
     public TimeSpan InviteLifetime { get; set; } = TimeSpan.FromDays(7);
 }
 
@@ -55,15 +61,16 @@ internal sealed record AdminUser(string Id, string UserName, string Email, strin
 internal sealed record AssignRoleRequest(string? Role);
 internal sealed record InviteRequest(string? Email, string? FirstName, string? LastName, string? Role);
 
+/// <summary>Maps the user admin endpoints and seeds the first admin.</summary>
 public static partial class UserAdminExtensions
 {
     /// <summary>
-    /// Maps, under <paramref name="prefix"/> and behind <see cref="AppKitUserAdminOptions{TUser}.Policy"/>:
-    /// <c>GET</c> to list users with their roles (<c>?includeDeleted=true</c> adds deleted ones),
-    /// <c>POST {id}/roles</c> and <c>DELETE {id}/roles/{role}</c> to give and take a role, and
-    /// <c>POST invite</c> to create an account without a password and email its owner a code through
-    /// <see cref="IAuthEmails{TUser}"/>. Nobody can take the admin role from themselves, and nobody can
-    /// take it from the last active admin.
+    /// Maps the user admin endpoints under <paramref name="prefix"/>, behind
+    /// <see cref="AppKitUserAdminOptions{TUser}.Policy"/>. <c>GET</c> lists users with their roles, and
+    /// <c>?includeDeleted=true</c> adds deleted users. <c>POST {id}/roles</c> and
+    /// <c>DELETE {id}/roles/{role}</c> give and remove a role. <c>POST invite</c> creates an account
+    /// without a password and emails its owner a code through <see cref="IAuthEmails{TUser}"/>. Nobody
+    /// can remove the admin role from themselves or from the last active admin.
     /// </summary>
     public static RouteGroupBuilder MapAppKitUserAdmin<TUser, TContext>(this IEndpointRouteBuilder endpoints,
         string prefix = "/api/users", Action<AppKitUserAdminOptions<TUser>>? configure = null)
@@ -88,9 +95,9 @@ public static partial class UserAdminExtensions
 
     /// <summary>
     /// Creates the first admin from <c>Seed:AdminEmail</c> and <c>Seed:AdminPassword</c> while no user holds
-    /// <paramref name="adminRole"/>, or gives an existing user with that email the role. Names come from
-    /// <c>Seed:AdminFirstName</c> (<c>Admin</c> by default) and <c>Seed:AdminLastName</c>. It does nothing
-    /// when the email or the password is not set.
+    /// <paramref name="adminRole"/>, or gives the role to an existing user with that email. The names come
+    /// from <c>Seed:AdminFirstName</c> and <c>Seed:AdminLastName</c>. The first name defaults to
+    /// <c>Admin</c> and the last name to empty. Does nothing when the email or the password is not set.
     /// </summary>
     public static async Task SeedAppKitFirstAdminAsync<TUser>(this IServiceProvider services, IConfiguration configuration,
         Func<string, string, string, TUser> newUser, string adminRole = "Admin")
@@ -251,7 +258,7 @@ internal sealed class UserAdminHandlers<TUser, TContext>(AppKitUserAdminOptions<
 
         if (!await TryAddRoleAsync(users, user, request.Role!))
         {
-            // No half-made account is left behind, so the invite can be sent again.
+            // Delete the half-made account, so the invite can be sent again.
             await users.DeleteAsync(user);
             return Message("Failed to assign role.", StatusCodes.Status400BadRequest);
         }
@@ -263,7 +270,7 @@ internal sealed class UserAdminHandlers<TUser, TContext>(AppKitUserAdminOptions<
         return TypedResults.Ok(new MessageResponse("Invitation sent."));
     }
 
-    // The bearer check forgets the user's cached roles, so the change applies at once on this instance.
+    // Drop the user's cached roles from the bearer check, so the change applies at once on this instance.
     private static async Task RolesChangedAsync(TUser user, HttpContext http)
     {
         http.RequestServices.GetService<IMemoryCache>()?.Remove(IdentityAndBearerExtensions.UserCheckKey(user.Id));
@@ -271,7 +278,7 @@ internal sealed class UserAdminHandlers<TUser, TContext>(AppKitUserAdminOptions<
             await handler.OnRolesChangedAsync(user, http.RequestAborted);
     }
 
-    // Identity throws instead of failing when the role is missing from the database.
+    // Identity throws instead of returning a failure when the role is missing from the database.
     private static async Task<bool> TryAddRoleAsync(UserManager<TUser> users, TUser user, string role)
     {
         try

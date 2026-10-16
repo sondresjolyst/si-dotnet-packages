@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace SjolystInnovation.AppKit.Hosting;
 
+/// <summary>Registers and maps the liveness and readiness health checks.</summary>
 public static class HealthChecksExtensions
 {
     internal const string LivenessPath = "/health";
@@ -25,9 +26,9 @@ public static class HealthChecksExtensions
     }
 
     /// <summary>
-    /// Maps <c>/health</c>, which runs no checks so a database outage does not restart the pod, and
-    /// <c>/health/ready</c>, which fails while a check tagged <c>"ready"</c> fails and so takes the pod
-    /// out of the Service. Both allow anonymous callers.
+    /// Maps <c>/health</c> and <c>/health/ready</c>. <c>/health</c> runs no checks, so a database outage
+    /// does not restart the pod. <c>/health/ready</c> fails while a check tagged <c>"ready"</c> fails,
+    /// which takes the pod out of the Service. Both allow anonymous callers.
     /// </summary>
     public static IEndpointRouteBuilder MapAppKitHealthChecks(this IEndpointRouteBuilder endpoints)
     {

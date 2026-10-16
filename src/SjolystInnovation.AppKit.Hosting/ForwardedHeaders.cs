@@ -7,14 +7,15 @@ using Microsoft.Extensions.Logging;
 
 namespace SjolystInnovation.AppKit.Hosting;
 
+/// <summary>Configures the forwarded headers middleware for trusted proxies.</summary>
 public static partial class ForwardedHeadersExtensions
 {
     /// <summary>
-    /// Takes the client IP and scheme from <c>X-Forwarded-For</c> and <c>X-Forwarded-Proto</c>, but only
+    /// Reads the client IP and scheme from <c>X-Forwarded-For</c> and <c>X-Forwarded-Proto</c>, but only
     /// when the request comes from a network listed in the <paramref name="section"/> configuration
     /// array, and only one hop back. Requests from anywhere else keep their own address. The app fails
-    /// to start on an entry that is not a CIDR. With an empty list no forwarded header is read at all,
-    /// and outside Development a warning is logged, since behind an ingress every client would then
+    /// to start on an entry that is not a CIDR. With an empty list, the app reads no forwarded header at
+    /// all. Outside Development it then logs a warning, because behind an ingress every client would
     /// share the ingress address.
     /// </summary>
     public static IApplicationBuilder UseAppKitForwardedHeaders(this IApplicationBuilder app, string section = "TrustedProxies")
@@ -24,7 +25,7 @@ public static partial class ForwardedHeadersExtensions
         var cidrs = services.GetRequiredService<IConfiguration>().GetSection(section).Get<string[]>() ?? [];
         var options = Build(cidrs, section);
 
-        // The middleware trusts every caller when it has no known networks, so it is left out.
+        // With no known networks the middleware trusts every caller, so leave it out.
         if (options.KnownIPNetworks.Count == 0)
         {
             if (!services.GetRequiredService<IHostEnvironment>().IsDevelopment())

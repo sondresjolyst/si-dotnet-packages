@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Identity;
 
 namespace SjolystInnovation.AppKit.Auth;
 
-/// <summary>Short codes that a user types in from an email.</summary>
+/// <summary>Creates and checks short codes that a user types in from an email.</summary>
 public static class VerificationCodes
 {
     private const string Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -12,7 +12,7 @@ public static class VerificationCodes
     /// <summary>How many wrong codes a user may try before they have to ask for a new one.</summary>
     public const int MaxAttempts = 5;
 
-    /// <summary>A 6 character code from A-Z and 0-9.</summary>
+    /// <summary>Generates a 6 character code from A-Z and 0-9.</summary>
     public static string Generate()
     {
         var code = new char[6];
@@ -21,7 +21,7 @@ public static class VerificationCodes
         return new string(code);
     }
 
-    /// <summary>The base64 SHA-256 hash of the text, as stored for codes and refresh tokens.</summary>
+    /// <summary>Computes the base64 SHA-256 hash of the text, as stored for codes and refresh tokens.</summary>
     public static string Hash(string text) =>
         Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 
@@ -33,8 +33,10 @@ public static class VerificationCodes
     }
 }
 
+/// <summary>The result of checking a code.</summary>
 public enum CodeCheck
 {
+    /// <summary>The code is correct and not expired.</summary>
     Valid,
 
     /// <summary>The code is wrong or expired. This counts as an attempt.</summary>
@@ -50,22 +52,26 @@ public enum CodeCheck
 /// <summary>The user fields a password reset code needs.</summary>
 public interface IPasswordResetUser
 {
+    /// <summary>The hash of the current reset code, or null if there is none.</summary>
     string? PasswordResetCodeHash { get; set; }
+    /// <summary>When the reset code expires, in UTC.</summary>
     DateTime? PasswordResetCodeExpiration { get; set; }
+    /// <summary>How many wrong reset codes the user has tried.</summary>
     int PasswordResetAttempts { get; set; }
 }
 
 /// <summary>
-/// Password reset by a code sent by email. The helpers change the user object only, and the caller
+/// Resets passwords with a code sent by email. The helpers change only the user object. The caller
 /// saves it.
 /// </summary>
 public static class PasswordResetCodes
 {
+    /// <summary>How long a reset code lasts by default. 30 minutes.</summary>
     public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(30);
 
     /// <summary>
-    /// Stores the hash of a new code and returns the code. It is valid for 30 minutes, or for
-    /// <paramref name="lifetime"/>, such as a longer one for an invitation.
+    /// Stores the hash of a new code and returns the code. The code is valid for 30 minutes, or for
+    /// <paramref name="lifetime"/> when given, for example a longer one for an invitation.
     /// </summary>
     public static string Issue<TUser>(TUser user, TimeProvider? time = null, TimeSpan? lifetime = null) where TUser : IdentityUser, IPasswordResetUser
     {
@@ -77,7 +83,7 @@ public static class PasswordResetCodes
         return code;
     }
 
-    /// <summary>Checks a code. A wrong or expired code counts an attempt.</summary>
+    /// <summary>Checks a code. A wrong or expired code counts as an attempt.</summary>
     public static CodeCheck Check<TUser>(TUser user, string code, TimeProvider? time = null) where TUser : IdentityUser, IPasswordResetUser
     {
         ArgumentNullException.ThrowIfNull(user);
@@ -92,8 +98,8 @@ public static class PasswordResetCodes
     }
 
     /// <summary>
-    /// Clears the code after the new password is set, and clears the lockout. Failed sign-ins are what
-    /// sends most people here, and whoever proved the code from their mailbox may sign in at once.
+    /// Clears the code and the lockout after the new password is set. Failed sign-ins send most people
+    /// here, and whoever proved the code from their mailbox may sign in at once.
     /// </summary>
     public static void Complete<TUser>(TUser user) where TUser : IdentityUser, IPasswordResetUser
     {
@@ -109,17 +115,21 @@ public static class PasswordResetCodes
 /// <summary>The user fields an email verification code needs.</summary>
 public interface IEmailVerificationUser
 {
+    /// <summary>The hash of the current verification code, or null if there is none.</summary>
     string? EmailVerificationCodeHash { get; set; }
+    /// <summary>When the verification code expires, in UTC.</summary>
     DateTime? EmailVerificationCodeExpiration { get; set; }
+    /// <summary>How many wrong verification codes the user has tried.</summary>
     int EmailVerificationAttempts { get; set; }
 }
 
 /// <summary>
-/// Email verification by a code sent by email. The helpers change the user object only, and the
+/// Verifies email addresses with a code sent by email. The helpers change only the user object. The
 /// caller saves it.
 /// </summary>
 public static class EmailVerificationCodes
 {
+    /// <summary>How long a verification code lasts. 1 hour.</summary>
     public static readonly TimeSpan Lifetime = TimeSpan.FromHours(1);
 
     /// <summary>Stores the hash of a new code, valid for 1 hour, and returns the code.</summary>
@@ -133,7 +143,7 @@ public static class EmailVerificationCodes
         return code;
     }
 
-    /// <summary>Checks a code. A wrong or expired code counts an attempt.</summary>
+    /// <summary>Checks a code. A wrong or expired code counts as an attempt.</summary>
     public static CodeCheck Check<TUser>(TUser user, string code, TimeProvider? time = null) where TUser : IdentityUser, IEmailVerificationUser
     {
         ArgumentNullException.ThrowIfNull(user);

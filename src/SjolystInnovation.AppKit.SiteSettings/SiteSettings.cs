@@ -8,53 +8,65 @@ using Microsoft.Extensions.DependencyInjection;
 namespace SjolystInnovation.AppKit.SiteSettings;
 
 /// <summary>
-/// The company details an app's single settings row holds. The row has the key 1, and the app's own
-/// entity implements this next to any settings of its own.
+/// The company details in the app's single settings row. The row has the key 1. The app's own entity
+/// implements this interface next to any settings of its own.
 /// </summary>
 public interface ICompanySettings
 {
+    /// <summary>The row key. Always 1.</summary>
     int Id { get; set; }
 
-    /// <summary>Where the contact form sends its messages. Not shown publicly.</summary>
+    /// <summary>The address the contact form sends its messages to. Not shown publicly.</summary>
     string ContactRecipientEmail { get; set; }
 
+    /// <summary>The company name shown on the site.</summary>
     string CompanyName { get; set; }
 
-    /// <summary>The registered name. Blank until registered, and the public info falls back to the company name.</summary>
+    /// <summary>The registered name. Blank until the company is registered. While blank, the public info uses the company name.</summary>
     string CompanyLegalName { get; set; }
 
-    /// <summary>The Norwegian organisation number. Blank until registered.</summary>
+    /// <summary>The Norwegian organization number. Blank until the company is registered.</summary>
     string OrgNumber { get; set; }
 
+    /// <summary>Whether the business is VAT registered.</summary>
     bool VatRegistered { get; set; }
 
+    /// <summary>The street address.</summary>
     string StreetAddress { get; set; }
 
+    /// <summary>The Norwegian postal code. Optional.</summary>
     string PostalCode { get; set; }
 
+    /// <summary>The place name that goes with the postal code.</summary>
     string AddressLocality { get; set; }
 
     /// <summary>The county. Optional.</summary>
     string AddressRegion { get; set; }
 
+    /// <summary>The public contact email address.</summary>
     string PublicEmail { get; set; }
 
+    /// <summary>The public phone number.</summary>
     string PublicPhone { get; set; }
 }
 
-/// <summary>The site logo and icon, stored base64 with the type read from the image itself.</summary>
+/// <summary>The site logo and icon, stored as base64 with the type read from the image itself.</summary>
 public interface IBrandingSettings
 {
+    /// <summary>The logo image as base64, or null if there is none.</summary>
     string? LogoData { get; set; }
+    /// <summary>The logo's content type, for example <c>image/png</c>.</summary>
     string? LogoContentType { get; set; }
+    /// <summary>The icon image as base64, or null if there is none.</summary>
     string? IconData { get; set; }
+    /// <summary>The icon's content type, for example <c>image/x-icon</c>.</summary>
     string? IconContentType { get; set; }
 }
 
-/// <summary>Settings for <see cref="SiteSettingsExtensions.MapAppKitSiteSettings{TContext, TSettings}"/>.</summary>
+/// <summary>The options for <see cref="SiteSettingsExtensions.MapAppKitSiteSettings{TContext, TSettings}"/>.</summary>
 public sealed class AppKitSiteSettingsOptions
 {
-    /// <summary>The authorization policy that changing settings and branding requires. <c>Admin</c> by default.</summary>
+    /// <summary>The authorization policy for reading the settings and changing settings and branding. Defaults to <c>Admin</c>.</summary>
     public string Policy { get; set; } = "Admin";
 }
 
@@ -73,8 +85,8 @@ public sealed record SiteSettingsBody(
     string? PublicPhone);
 
 /// <summary>
-/// The public company info. <paramref name="Address"/> is the one-line form for display, and the parts
-/// beside it are what structured data needs.
+/// The public company info. <paramref name="Address"/> is the one-line form for display. The separate
+/// parts are what structured data needs.
 /// </summary>
 public sealed record CompanyInfo(
     string Name,
@@ -89,13 +101,15 @@ public sealed record CompanyInfo(
     string Email,
     string Phone);
 
+/// <summary>Maps the site settings and branding endpoints.</summary>
 public static class SiteSettingsExtensions
 {
     /// <summary>
-    /// Maps, under <paramref name="prefix"/>: <c>GET company</c> and <c>GET branding</c> for everyone, and
-    /// <c>GET</c> and <c>PUT settings</c> and <c>PUT branding</c> behind <see cref="AppKitSiteSettingsOptions.Policy"/>.
-    /// The settings live in the row of <typeparamref name="TSettings"/> with the key 1. Reads before the
-    /// row exists answer the entity's defaults, and the first write creates it.
+    /// Maps the settings endpoints under <paramref name="prefix"/>. <c>GET company</c> and <c>GET branding</c>
+    /// are open to everyone. <c>GET</c> and <c>PUT settings</c> and <c>PUT branding</c> are behind
+    /// <see cref="AppKitSiteSettingsOptions.Policy"/>. The settings live in the row of
+    /// <typeparamref name="TSettings"/> with the key 1. Before the row exists, reads return the entity's
+    /// defaults. The first write creates the row.
     /// </summary>
     public static RouteGroupBuilder MapAppKitSiteSettings<TContext, TSettings>(this IEndpointRouteBuilder endpoints,
         string prefix = "/api", Action<AppKitSiteSettingsOptions>? configure = null)
@@ -116,7 +130,7 @@ public static class SiteSettingsExtensions
     }
 }
 
-// Services come from RequestServices: the route handler analyzer cannot follow generic handler parameters.
+// Services come from RequestServices, because the route handler analyzer cannot follow generic handler parameters.
 internal static class SiteSettingsHandlers<TContext, TSettings>
     where TContext : DbContext
     where TSettings : class, ICompanySettings, IBrandingSettings, new()
@@ -219,12 +233,12 @@ internal static class SiteSettingsValidation
         !string.IsNullOrWhiteSpace(value) && MailAddress.TryCreate(value.Trim(), out var address) && address.Address == value.Trim();
 }
 
-/// <summary>The Norwegian organisation number, nine digits whose last is a modulus 11 check digit.</summary>
+/// <summary>Validates the Norwegian organization number: nine digits, the last of which is a modulus 11 check digit.</summary>
 public static class OrgNumber
 {
     private static readonly int[] Weights = [3, 2, 7, 6, 5, 4, 3, 2];
 
-    /// <summary>Whether the number is nine digits with a correct check digit. Spaces are allowed, as in <c>923 202 374</c>.</summary>
+    /// <summary>Checks whether the number is nine digits with a correct check digit. Spaces are allowed, for example <c>923 202 374</c>.</summary>
     public static bool IsValid(string value)
     {
         ArgumentNullException.ThrowIfNull(value);
@@ -234,7 +248,7 @@ public static class OrgNumber
         var sum = 0;
         for (var i = 0; i < 8; i++)
             sum += (digits[i] - '0') * Weights[i];
-        // A remainder of 1 asks for the check digit 10, which no number can have.
+        // A remainder of 1 gives the check digit 10, which no valid number can have.
         var check = 11 - sum % 11;
         if (check == 11)
             check = 0;
@@ -242,17 +256,17 @@ public static class OrgNumber
     }
 }
 
-/// <summary>Norwegian postal addresses, kept as parts. The one-line form is derived so it cannot disagree with them.</summary>
+/// <summary>Helpers for Norwegian postal addresses, kept as parts. The one-line form is derived, so it cannot disagree with them.</summary>
 public static class PostalAddress
 {
-    /// <summary>The parts as one line, such as <c>Mårvegen 21a, 4347 Lye</c>, skipping any that are blank.</summary>
+    /// <summary>Joins the parts into one line, for example <c>Mårvegen 21a, 4347 Lye</c>, and skips blank parts.</summary>
     public static string Format(string? streetAddress, string? postalCode, string? addressLocality)
     {
         var place = string.Join(' ', new[] { postalCode, addressLocality }.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p!.Trim()));
         return string.Join(", ", new[] { streetAddress, place }.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p!.Trim()));
     }
 
-    /// <summary>Whether the value is a Norwegian postal code: four digits.</summary>
+    /// <summary>Checks whether the value is a Norwegian postal code of four digits.</summary>
     public static bool IsPostalCode(string value)
     {
         ArgumentNullException.ThrowIfNull(value);

@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace SjolystInnovation.AppKit.SiteSettings;
 
-/// <summary>The site logo and icon as stored, for the site's header and favicon.</summary>
+/// <summary>The stored site logo and icon, for the site's header and favicon.</summary>
 public sealed record BrandingInfo(string? LogoData, string? LogoContentType, string? IconData, string? IconContentType);
 
 internal static class BrandingHandlers<TContext, TSettings>
@@ -20,8 +20,8 @@ internal static class BrandingHandlers<TContext, TSettings>
     }
 
     /// <summary>
-    /// Takes a form with an optional <c>logo</c> and <c>icon</c> file, or <c>removeLogo</c> and <c>removeIcon</c>
-    /// set to <c>true</c>. A part that is not sent stays as it is.
+    /// Updates the branding from a form with an optional <c>logo</c> and <c>icon</c> file, or with
+    /// <c>removeLogo</c> and <c>removeIcon</c> set to <c>true</c>. A part that is not sent stays as it is.
     /// </summary>
     public static async Task<IResult> UpdateAsync(HttpContext http)
     {
@@ -58,7 +58,7 @@ internal static class BrandingHandlers<TContext, TSettings>
 
     private const string ImageRule = "The image must be a PNG, JPEG, WebP, GIF or ICO file of at most 2 MB.";
 
-    // A validation problem keyed by the part, like the settings errors, so the app can show the reason.
+    // Return a validation problem keyed by the part, like the settings errors, so the app can show the reason.
     private static ValidationProblem Refused(string field, string message) =>
         TypedResults.ValidationProblem(new Dictionary<string, string[]> { [field] = [message] });
 
@@ -75,8 +75,8 @@ internal static class BrandingHandlers<TContext, TSettings>
 }
 
 /// <summary>
-/// Tells an image's type from its first bytes, never from what the browser claims. SVG is not accepted,
-/// since it can carry script.
+/// Detects an image's type from its first bytes, never from what the browser claims. SVG is not accepted,
+/// because it can carry script.
 /// </summary>
 internal static class ImageSignature
 {

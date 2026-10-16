@@ -11,40 +11,44 @@ namespace SjolystInnovation.AppKit.Auth;
 /// <summary>Removes an app's own data for a user inside the account deletion transaction.</summary>
 public interface IAccountDataEraser<in TUser>
 {
+    /// <summary>Removes the app's data for the user. Runs inside the deletion transaction.</summary>
     Task EraseAsync(TUser user, CancellationToken cancellationToken);
 }
 
-/// <summary>Runs once an account deletion has committed, such as to disconnect the user's live connections.</summary>
+/// <summary>Runs after an account deletion commits, for example to disconnect the user's live connections.</summary>
 public interface IAccountDeletedHandler<in TUser>
 {
+    /// <summary>Handles the deleted user after the transaction commits.</summary>
     Task OnDeletedAsync(TUser user, CancellationToken cancellationToken);
 }
 
-/// <summary>Deletes accounts. The user row stays so records that point at it, such as invoices, keep it.</summary>
+/// <summary>Deletes accounts. The user row stays, so records that point at it, such as invoices, keep working.</summary>
 public interface IAccountDeleter<in TUser>
 {
     /// <summary>
-    /// In one transaction: runs every <see cref="IAccountDataEraser{TUser}"/>, scrubs the user's personal
-    /// data, locks the account for good, rotates its security stamp and deletes its refresh tokens. Then
-    /// runs every <see cref="IAccountDeletedHandler{TUser}"/>. Throws <see cref="LastAdminException"/>
-    /// for the last active admin, and rolls everything back when a step fails.
+    /// Deletes the account in one transaction. Runs every <see cref="IAccountDataEraser{TUser}"/>, scrubs
+    /// the user's personal data, locks the account for good, rotates its security stamp, and deletes its
+    /// refresh tokens. Then runs every <see cref="IAccountDeletedHandler{TUser}"/>. Throws
+    /// <see cref="LastAdminException"/> for the last active admin. If a step fails, everything rolls back.
     /// </summary>
     Task DeleteAsync(TUser user, CancellationToken cancellationToken = default);
 }
 
-/// <summary>The account is the last active admin, so deleting it would leave nobody to administer the app.</summary>
+/// <summary>Thrown when the account is the last active admin, so deleting it would leave nobody to administer the app.</summary>
 public sealed class LastAdminException() : InvalidOperationException("The last admin account cannot be deleted. Give someone else the admin role first.");
 
-/// <summary>Another change to the accounts collided with this deletion, which was rolled back. Trying again may succeed.</summary>
+/// <summary>Thrown when another change to the accounts collided with this deletion, which rolled back. A retry may succeed.</summary>
 public sealed class AccountChangeConflictException(Exception inner)
     : InvalidOperationException("Another change to the accounts happened at the same time. Try again.", inner);
 
+/// <summary>The options for account deletion.</summary>
 public sealed class AppKitAccountOptions
 {
-    /// <summary>The role that must keep an active holder. <c>Admin</c> by default.</summary>
+    /// <summary>The role that must keep at least one active holder. Defaults to <c>Admin</c>.</summary>
     public string AdminRole { get; set; } = "Admin";
 }
 
+/// <summary>Registers the account deletion services.</summary>
 public static class AccountServiceCollectionExtensions
 {
     /// <summary>Registers <see cref="IAccountDeleter{TUser}"/>. Register erasers and handlers as scoped services.</summary>
@@ -86,7 +90,7 @@ internal sealed partial class AccountDeleter<TUser, TContext>(
             throw new AccountChangeConflictException(e);
         }
 
-        // The bearer check forgets the user, so a token still in use stops at once on this instance.
+        // Drop the user from the bearer check cache, so a token still in use stops working at once on this instance.
         cache.Remove(IdentityAndBearerExtensions.UserCheckKey(user.Id));
         Log.Deleted(logger, user.Id);
         foreach (var handler in handlers)
@@ -106,8 +110,8 @@ internal sealed partial class AccountDeleter<TUser, TContext>(
 
     private async Task DeleteInTransactionAsync(TUser user, string adminRole, CancellationToken cancellationToken)
     {
-        // Serializable, with the admin check inside, so two admins deleting each other at once cannot
-        // both pass the check. The database aborts one of them instead.
+        // Serializable, with the admin check inside, so two admins who delete each other at the same time
+        // cannot both pass the check. The database aborts one of them instead.
         await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken))
         {
             if (await users.IsInRoleAsync(user, adminRole)
@@ -118,7 +122,7 @@ internal sealed partial class AccountDeleter<TUser, TContext>(
                 await eraser.EraseAsync(user, cancellationToken);
 
             Scrub(user, time.GetUtcNow().UtcDateTime);
-            // RemoveRange rather than a bulk delete, so it works on every EF provider, in-memory included.
+            // RemoveRange instead of a bulk delete, so it works on every EF provider, including in-memory.
             db.RefreshTokens.RemoveRange(await db.RefreshTokens.Where(t => t.UserId == user.Id).ToListAsync(cancellationToken));
             await db.SaveChangesAsync(cancellationToken);
 
@@ -134,7 +138,7 @@ internal sealed partial class AccountDeleter<TUser, TContext>(
     {
         user.FirstName = "Deleted";
         user.LastName = "User";
-        // A placeholder rather than null, since Identity requires a unique email. The .invalid domain never routes.
+        // A placeholder instead of null, because Identity requires a unique email. The .invalid domain never routes.
         // Identity fills in the normalized forms when it saves the user.
         user.Email = $"deleted-{user.Id}@deleted.invalid";
         user.UserName = $"deleted-{user.Id}";

@@ -12,32 +12,36 @@ using Microsoft.Extensions.Options;
 
 namespace SjolystInnovation.AppKit.Hosting;
 
-/// <summary>One limit: at most <see cref="Limit"/> requests per client IP in each <see cref="Period"/>.</summary>
+/// <summary>A limit of at most <see cref="Limit"/> requests per client IP in each <see cref="Period"/>.</summary>
 public sealed class RateLimitRule
 {
     /// <summary>
-    /// <c>VERB:/path</c>, where the verb is an HTTP method or <c>*</c> for any, and <c>*</c> in the path
-    /// matches any run of characters. The whole path must match, ignoring case and trailing slashes.
+    /// The endpoint as <c>VERB:/path</c>. The verb is an HTTP method, or <c>*</c> for any. A <c>*</c> in the
+    /// path matches any run of characters. The whole path must match, ignoring case and trailing slashes.
     /// </summary>
     public string Endpoint { get; set; } = "";
 
-    /// <summary>A whole number with a unit: <c>s</c>, <c>m</c>, <c>h</c> or <c>d</c>, such as <c>1m</c>.</summary>
+    /// <summary>The window length as a whole number with a unit, <c>s</c>, <c>m</c>, <c>h</c>, or <c>d</c>, for example <c>1m</c>.</summary>
     public string Period { get; set; } = "";
 
+    /// <summary>The number of requests allowed in each window.</summary>
     public int Limit { get; set; }
 }
 
+/// <summary>The options for <see cref="RateLimitingExtensions.AddAppKitRateLimiting"/>.</summary>
 public sealed class AppKitRateLimitOptions
 {
+    /// <summary>The rate limit rules. Defaults to none.</summary>
     public IList<RateLimitRule> Rules { get; init; } = [];
 }
 
+/// <summary>Registers and applies per-IP rate limits.</summary>
 public static partial class RateLimitingExtensions
 {
     /// <summary>
     /// Registers the ASP.NET Core rate limiter with the rules in <paramref name="section"/>. Each rule
     /// keeps a fixed window per client IP, read only from the connection, so behind a proxy it relies on
-    /// <see cref="ForwardedHeadersExtensions.UseAppKitForwardedHeaders"/>. A request matching several
+    /// <see cref="ForwardedHeadersExtensions.UseAppKitForwardedHeaders"/>. A request that matches several
     /// rules counts against each. A rejected request gets 429 with <c>Retry-After</c> and a problem
     /// details body. The app fails to start on a rule it cannot read.
     /// </summary>
@@ -85,7 +89,7 @@ public static partial class RateLimitingExtensions
         return limiters.Length == 1 ? limiters[0] : PartitionedRateLimiter.CreateChained(limiters);
     }
 
-    /// <summary>The connection's address, with an IPv4 caller on a dual-stack socket written as IPv4.</summary>
+    /// <summary>Gets the connection's address. An IPv4 caller on a dual-stack socket is written as IPv4.</summary>
     internal static string ClientKey(HttpContext context)
     {
         var address = context.Connection.RemoteIpAddress;
@@ -103,7 +107,7 @@ public static partial class RateLimitingExtensions
         Log.Rejected(http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(RateLimitingExtensions)),
             http.Request.Method, http.Request.Path);
 
-        // No detail, so a client shows its own message for 429 in its own language.
+        // Leave out the detail, so a client shows its own 429 message in its own language.
         var problem = new ProblemDetails
         {
             Status = StatusCodes.Status429TooManyRequests,
@@ -142,8 +146,8 @@ internal sealed partial class CompiledRule
         && _path.IsMatch(Normalize(request.Path.Value));
 
     /// <summary>
-    /// Routing reaches the same endpoint with or without a trailing slash, so trailing slashes are
-    /// dropped before matching. Kestrel has already resolved dot segments.
+    /// Drops trailing slashes before matching, because routing reaches the same endpoint with or without
+    /// one. Kestrel has already resolved dot segments.
     /// </summary>
     internal static string Normalize(string? path)
     {

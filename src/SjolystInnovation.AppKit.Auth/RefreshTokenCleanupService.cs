@@ -6,8 +6,8 @@ using Microsoft.Extensions.Logging;
 namespace SjolystInnovation.AppKit.Auth;
 
 /// <summary>
-/// Deletes refresh tokens past their expiry when the app starts and once a day after. A revoked
-/// token is kept until it expires, because presenting it again is how a replay is caught.
+/// Deletes expired refresh tokens when the app starts and once a day after that. A revoked token stays
+/// until it expires, because presenting it again is how the service detects a replay.
 /// </summary>
 internal sealed partial class RefreshTokenCleanupService<TContext>(
     IServiceScopeFactory scopes, TimeProvider time, ILogger<RefreshTokenCleanupService<TContext>> logger) : BackgroundService
@@ -37,7 +37,7 @@ internal sealed partial class RefreshTokenCleanupService<TContext>(
                 Log.Deleted(logger, deleted);
             return deleted;
         }
-        // A failed run is logged and tried again on the next tick.
+        // Log a failed run and try again on the next tick.
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Log.Failed(logger, ex);

@@ -14,27 +14,28 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace SjolystInnovation.AppKit.Auth;
 
-/// <summary>Settings for <see cref="IdentityAndBearerExtensions.AddAppKitJwtBearer{TUser}"/>.</summary>
+/// <summary>The options for <see cref="IdentityAndBearerExtensions.AddAppKitJwtBearer{TUser}"/>.</summary>
 public sealed class AppKitJwtBearerOptions
 {
     /// <summary>
-    /// Paths where the token may come as <c>?access_token=</c>, such as <c>/hubs</c> for SignalR, which
-    /// cannot send a header when it opens a WebSocket. Matched by whole segments. Empty by default.
+    /// The paths where the token may come as <c>?access_token=</c>, for example <c>/hubs</c> for SignalR,
+    /// which cannot send a header when it opens a WebSocket. Paths match by whole segments. Defaults to empty.
     /// </summary>
     public IList<string> QueryTokenPaths { get; } = [];
 
-    /// <summary>How long the answer of the user check is kept per user. One minute by default.</summary>
+    /// <summary>How long the result of the user check is cached per user. Defaults to 1 minute.</summary>
     public TimeSpan UserCheckCacheDuration { get; set; } = TimeSpan.FromMinutes(1);
 }
 
+/// <summary>Registers Identity and the JWT bearer scheme.</summary>
 public static class IdentityAndBearerExtensions
 {
     /// <summary>
     /// Registers ASP.NET Core Identity with <see cref="IdentityRole"/>, EF stores in
-    /// <typeparamref name="TContext"/> and the default token providers. Sign-in locks for 30 minutes
-    /// after 5 failed attempts, new users included. A password needs 8 characters with a digit, a lower
-    /// case and an upper case letter, and no symbol. Every email is unique. <paramref name="configure"/>
-    /// runs after these defaults.
+    /// <typeparamref name="TContext"/>, and the default token providers. Sign-in locks for 30 minutes
+    /// after 5 failed attempts, including for new users. A password needs at least 8 characters with a
+    /// digit, a lowercase letter, and an uppercase letter. A symbol is not required. Every email is
+    /// unique. <paramref name="configure"/> runs after these defaults.
     /// </summary>
     public static IdentityBuilder AddAppKitIdentity<TUser, TContext>(this IServiceCollection services, Action<IdentityOptions>? configure = null)
         where TUser : IdentityUser
@@ -61,14 +62,14 @@ public static class IdentityAndBearerExtensions
     }
 
     /// <summary>
-    /// Makes the JWT bearer scheme the default and validates the tokens <see cref="IJwtTokenService"/>
-    /// writes: the signature with <see cref="AuthOptions.Key"/>, the issuer and audience against
+    /// Makes the JWT bearer scheme the default and validates the tokens that <see cref="IJwtTokenService"/>
+    /// writes. It checks the signature with <see cref="AuthOptions.Key"/>, the issuer and audience against
     /// <see cref="AuthOptions.Issuer"/>, and the lifetime with 30 seconds of clock skew. Call it after
-    /// <see cref="ServiceCollectionExtensions.AddAppKitAuth{TContext}"/>. A token is refused when its
-    /// user no longer exists or <paramref name="isActive"/> returns false for the user, so a deleted
-    /// account stops working within <see cref="AppKitJwtBearerOptions.UserCheckCacheDuration"/>. The
-    /// token's role claims are replaced with the user's current roles from the same check, so a role
-    /// taken away stops counting within that time too.
+    /// <see cref="ServiceCollectionExtensions.AddAppKitAuth{TContext}"/>. The scheme refuses a token when
+    /// its user no longer exists or <paramref name="isActive"/> returns false for the user, so a deleted
+    /// account stops working within <see cref="AppKitJwtBearerOptions.UserCheckCacheDuration"/>. The same
+    /// check replaces the token's role claims with the user's current roles, so a removed role stops
+    /// counting within that time too.
     /// </summary>
     public static AuthenticationBuilder AddAppKitJwtBearer<TUser>(this IServiceCollection services,
         Func<TUser, bool>? isActive = null, Action<AppKitJwtBearerOptions>? configure = null)
@@ -79,7 +80,8 @@ public static class IdentityAndBearerExtensions
         configure?.Invoke(appKit);
         services.AddMemoryCache();
 
-        // Identity sets cookie schemes as the defaults, so these win whichever is registered first.
+        // Identity sets its cookie schemes as the defaults. PostConfigure runs after every Configure, so
+        // these win whichever is registered first.
         services.PostConfigure<AuthenticationOptions>(options =>
         {
             options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -108,7 +110,7 @@ public static class IdentityAndBearerExtensions
                 {
                     OnMessageReceived = context =>
                     {
-                        // Without the query value the token stays empty and the header is read instead.
+                        // Outside these paths the token stays empty, and the handler reads the header instead.
                         if (appKit.QueryTokenPaths.Any(p => context.Request.Path.StartsWithSegments(p)))
                             context.Token = context.Request.Query["access_token"].ToString();
                         return Task.CompletedTask;
@@ -119,7 +121,7 @@ public static class IdentityAndBearerExtensions
         return builder;
     }
 
-    /// <summary>The cache key of the bearer check's answer for a user, removed when the user's roles or account change.</summary>
+    /// <summary>Builds the cache key for a user's bearer check result. Callers remove it when the user's roles or account change.</summary>
     internal static string UserCheckKey(string userId) => $"SjolystInnovation.AppKit.Auth:user-check:{userId}";
 
     private static async Task CheckUserAsync<TUser>(TokenValidatedContext context, Func<TUser, bool>? isActive, TimeSpan cacheFor)
@@ -150,7 +152,7 @@ public static class IdentityAndBearerExtensions
             return;
         }
 
-        // The roles in the token were true when it was issued. The current ones replace them.
+        // The roles in the token were correct when it was issued. The current roles replace them.
         if (context.Principal?.Identity is ClaimsIdentity identity)
         {
             foreach (var claim in identity.FindAll(identity.RoleClaimType).ToList())
