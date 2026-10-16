@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace SjolystInnovation.AppKit.Vipps;
 
 /// <summary>How often a recurring agreement charges.</summary>
@@ -59,10 +61,12 @@ public sealed record VippsAgreement
     public string Status { get; init; } = string.Empty;
     /// <summary>The product name.</summary>
     public string ProductName { get; init; } = string.Empty;
-    /// <summary>When the agreement started.</summary>
-    public DateTime? Start { get; init; }
-    /// <summary>When the agreement stopped.</summary>
-    public DateTime? Stop { get; init; }
+    /// <summary>When the agreement started. A time without an offset counts as UTC.</summary>
+    [JsonConverter(typeof(VippsUtcDateTimeOffsetConverter))]
+    public DateTimeOffset? Start { get; init; }
+    /// <summary>When the agreement stopped. A time without an offset counts as UTC.</summary>
+    [JsonConverter(typeof(VippsUtcDateTimeOffsetConverter))]
+    public DateTimeOffset? Stop { get; init; }
     /// <summary>The user's profile id, once they have approved.</summary>
     public string? Sub { get; init; }
 }
@@ -72,8 +76,8 @@ public sealed record VippsCreateChargeRequest
 {
     /// <summary>The amount in øre.</summary>
     public required int AmountInOre { get; init; }
-    /// <summary>The date the charge falls due.</summary>
-    public required DateTime Due { get; init; }
+    /// <summary>The date the charge falls due. Vipps receives it as <c>yyyy-MM-dd</c>.</summary>
+    public required DateOnly Due { get; init; }
     /// <summary>The description the user sees.</summary>
     public required string Description { get; init; }
     /// <summary>The order id, which becomes the charge id. At most 50 characters are sent.</summary>

@@ -177,6 +177,21 @@ public class VippsClientTests
     }
 
     [Fact]
+    public async Task GetAgreement_ReadsTheStartAndStopAsUtcWhenVippsSendsNoOffset()
+    {
+        var (client, vipps, _, _, _) = Create();
+        vipps.Respond = r => (HttpStatusCode.OK, r.RequestUri!.AbsolutePath == "/accesstoken/get"
+            ? """{"access_token":"t","expires_in":3600}"""
+            : """{"id":"agr_1","status":"STOPPED","start":"2026-10-01T08:00:00Z","stop":"2026-10-15T13:00:00"}""");
+
+        var agreement = await client.GetAgreementAsync("agr_1");
+
+        Assert.Equal(new DateTimeOffset(2026, 10, 1, 8, 0, 0, TimeSpan.Zero), agreement.Start);
+        Assert.Equal(new DateTimeOffset(2026, 10, 15, 13, 0, 0, TimeSpan.Zero), agreement.Stop);
+        Assert.Equal(TimeSpan.Zero, agreement.Stop!.Value.Offset);
+    }
+
+    [Fact]
     public async Task StopAgreement_PatchesTheStatus()
     {
         var (client, vipps, _, _, _) = Create();
@@ -193,7 +208,7 @@ public class VippsClientTests
         var (client, vipps, _, _, _) = Create();
         var charge = await client.CreateChargeAsync("agr_1", new VippsCreateChargeRequest
         {
-            AmountInOre = 29900, Due = new DateTime(2026, 11, 1), Description = "Garge November", OrderId = "garge-sub-1-2026-11",
+            AmountInOre = 29900, Due = new DateOnly(2026, 11, 1), Description = "Garge November", OrderId = "garge-sub-1-2026-11",
         }, "garge-sub-1-2026-11");
 
         var body = vipps.Body("/recurring/v3/agreements/agr_1/charges");
@@ -210,7 +225,7 @@ public class VippsClientTests
     public async Task CreateCharge_MovesADueDateSoonerThanVippsAllowsToTheEarliestItAccepts()
     {
         var (client, vipps, _, _, _) = Create();
-        await client.CreateChargeAsync("agr_1", new VippsCreateChargeRequest { AmountInOre = 100, Due = Now.UtcDateTime, Description = "x", OrderId = "o" }, "k");
+        await client.CreateChargeAsync("agr_1", new VippsCreateChargeRequest { AmountInOre = 100, Due = DateOnly.FromDateTime(Now.UtcDateTime), Description = "x", OrderId = "o" }, "k");
         Assert.Equal("2026-10-13", vipps.Body("/recurring/v3/agreements/agr_1/charges").GetProperty("due").GetString());
     }
 
@@ -218,7 +233,7 @@ public class VippsClientTests
     public async Task CreateCharge_CutsTheOrderIdTo50Characters()
     {
         var (client, vipps, _, _, _) = Create();
-        await client.CreateChargeAsync("agr_1", new VippsCreateChargeRequest { AmountInOre = 100, Due = new DateTime(2026, 12, 1), Description = "x", OrderId = new string('o', 60) }, "k");
+        await client.CreateChargeAsync("agr_1", new VippsCreateChargeRequest { AmountInOre = 100, Due = new DateOnly(2026, 12, 1), Description = "x", OrderId = new string('o', 60) }, "k");
         Assert.Equal(new string('o', 50), vipps.Body("/recurring/v3/agreements/agr_1/charges").GetProperty("orderId").GetString());
     }
 

@@ -24,14 +24,14 @@ public class VippsWebhookRegistrationServiceTests
         public List<(string Url, IReadOnlyCollection<string> Events, bool IsTest)> Registered { get; } = [];
         public List<(string Id, bool IsTest)> Deleted { get; } = [];
 
-        public Task<IReadOnlyList<VippsWebhook>> ListWebhooksAsync(bool isTest, CancellationToken ct = default)
+        public Task<IReadOnlyList<VippsWebhook>> ListWebhooksAsync(bool isTest, CancellationToken cancellationToken = default)
         {
             Calls.Add($"list {isTest}");
             if (ListFails.Contains(isTest)) throw new HttpRequestException("down");
             return Task.FromResult<IReadOnlyList<VippsWebhook>>(Listed.TryGetValue(isTest, out var l) ? l : []);
         }
 
-        public Task<VippsRegisteredWebhook> RegisterWebhookAsync(string url, IReadOnlyCollection<string> events, bool isTest, CancellationToken ct = default)
+        public Task<VippsRegisteredWebhook> RegisterWebhookAsync(string url, IReadOnlyCollection<string> events, bool isTest, CancellationToken cancellationToken = default)
         {
             Calls.Add("register");
             if (RegisterFails.Contains(url)) throw new HttpRequestException("down");
@@ -40,7 +40,7 @@ public class VippsWebhookRegistrationServiceTests
             return Task.FromResult(new VippsRegisteredWebhook($"new-{(isTest ? "test" : "live")}-{_seq}", $"secret-{_seq}"));
         }
 
-        public Task DeleteWebhookAsync(string webhookId, bool isTest, CancellationToken ct = default)
+        public Task DeleteWebhookAsync(string webhookId, bool isTest, CancellationToken cancellationToken = default)
         {
             Calls.Add("delete");
             if (DeleteFails.Contains(webhookId)) throw new HttpRequestException("down");
@@ -48,19 +48,19 @@ public class VippsWebhookRegistrationServiceTests
             return Task.CompletedTask;
         }
 
-        public Task<bool> IsTestAsync(CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<VippsCreateAgreementResponse> CreateAgreementAsync(VippsCreateAgreementRequest request, string idempotencyKey, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<VippsAgreement> GetAgreementAsync(string agreementId, bool? isTest = null, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task StopAgreementAsync(string agreementId, string idempotencyKey, bool? isTest = null, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task UpdateAgreementMaxAmountAsync(string agreementId, int maxAmountInOre, string idempotencyKey, bool? isTest = null, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<VippsCreateChargeResponse> CreateChargeAsync(string agreementId, VippsCreateChargeRequest request, string idempotencyKey, bool? isTest = null, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task RefundChargeAsync(string agreementId, string chargeId, int amountInOre, string description, string idempotencyKey, bool? isTest = null, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<VippsCreatePaymentResponse> CreatePaymentAsync(VippsCreatePaymentRequest request, string idempotencyKey, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<VippsPayment> GetPaymentAsync(string reference, bool? isTest = null, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<VippsPayment> CapturePaymentAsync(string reference, int amountInOre, string idempotencyKey, bool? isTest = null, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task CancelPaymentAsync(string reference, string idempotencyKey, bool? isTest = null, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<VippsPayment> RefundPaymentAsync(string reference, int amountInOre, string idempotencyKey, bool? isTest = null, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<VippsUserInfo?> GetUserInfoAsync(string profileSub, bool? isTest = null, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<bool> IsTestAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<VippsCreateAgreementResponse> CreateAgreementAsync(VippsCreateAgreementRequest request, string idempotencyKey, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<VippsAgreement> GetAgreementAsync(string agreementId, bool? isTest = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task StopAgreementAsync(string agreementId, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task UpdateAgreementMaxAmountAsync(string agreementId, int maxAmountInOre, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<VippsCreateChargeResponse> CreateChargeAsync(string agreementId, VippsCreateChargeRequest request, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task RefundChargeAsync(string agreementId, string chargeId, int amountInOre, string description, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<VippsCreatePaymentResponse> CreatePaymentAsync(VippsCreatePaymentRequest request, string idempotencyKey, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<VippsPayment> GetPaymentAsync(string reference, bool? isTest = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<VippsPayment> CapturePaymentAsync(string reference, int amountInOre, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task CancelPaymentAsync(string reference, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<VippsPayment> RefundPaymentAsync(string reference, int amountInOre, string idempotencyKey, bool? isTest = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<VippsUserInfo?> GetUserInfoAsync(string profileSub, bool? isTest = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     /// <summary>A store like an app's adapter over its own settings columns.</summary>

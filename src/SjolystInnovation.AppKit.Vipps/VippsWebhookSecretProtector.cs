@@ -32,7 +32,7 @@ public interface IVippsWebhookSecretProtector
 /// Protects secrets with the purpose and prefix in <see cref="VippsWebhookOptions"/>. An app that moves from
 /// its own protector keeps its purpose and prefix, so the stored secrets stay readable.
 /// </summary>
-public sealed class VippsWebhookSecretProtector : IVippsWebhookSecretProtector
+internal sealed class VippsWebhookSecretProtector : IVippsWebhookSecretProtector
 {
     private readonly IDataProtector _protector;
     private readonly string _prefix;

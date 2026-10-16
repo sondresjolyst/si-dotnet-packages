@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 namespace SjolystInnovation.AppKit.Vipps;
 
 /// <summary>The result of a webhook signature check.</summary>
-public enum VippsWebhookResult
+public enum VippsWebhookSignatureResult
 {
     /// <summary>The request passed every check.</summary>
     Valid,
@@ -52,10 +52,10 @@ public sealed record VippsWebhookRequest
 }
 
 /// <summary>The outcome of a check, and how long ago the request was signed.</summary>
-public readonly record struct VippsWebhookVerification(VippsWebhookResult Result, TimeSpan Age)
+public readonly record struct VippsWebhookVerification(VippsWebhookSignatureResult Result, TimeSpan Age)
 {
     /// <summary>Whether the request passed every check.</summary>
-    public bool IsValid => Result == VippsWebhookResult.Valid;
+    public bool IsValid => Result == VippsWebhookSignatureResult.Valid;
 }
 
 /// <summary>Checks the HMAC-SHA256 signature Vipps puts on each webhook request.</summary>
@@ -77,7 +77,7 @@ public static partial class VippsWebhookSignature
     /// <summary>Checks the content hash, the signed date, and the signature of a request.</summary>
     public static VippsWebhookVerification Verify(VippsWebhookRequest request, string secret, DateTimeOffset now)
     {
-        if (string.IsNullOrEmpty(secret)) return new(VippsWebhookResult.MissingSecret, TimeSpan.Zero);
+        if (string.IsNullOrEmpty(secret)) return new(VippsWebhookSignatureResult.MissingSecret, TimeSpan.Zero);
 
         var headers = CheckHeaders(request, now);
         if (!headers.IsValid) return headers;
@@ -88,13 +88,13 @@ public static partial class VippsWebhookSignature
             ? SHA256.HashData(raw.Span)
             : SHA256.HashData(Encoding.UTF8.GetBytes(request.Body)));
         if (!CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(bodyHash), Encoding.ASCII.GetBytes(request.ContentSha256!)))
-            return new(VippsWebhookResult.BadContentHash, age);
+            return new(VippsWebhookSignatureResult.BadContentHash, age);
 
         // METHOD\n<path and query>\n<x-ms-date>;<host>;<x-ms-content-sha256>
         var canonical = $"{request.Method}\n{request.PathAndQuery}\n{request.Date};{request.Host};{request.ContentSha256}";
         var computed = Convert.ToBase64String(HMACSHA256.HashData(Encoding.UTF8.GetBytes(secret), Encoding.UTF8.GetBytes(canonical)));
         var valid = CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(computed), Encoding.ASCII.GetBytes(match.Groups[1].Value));
-        return new(valid ? VippsWebhookResult.Valid : VippsWebhookResult.BadSignature, age);
+        return new(valid ? VippsWebhookSignatureResult.Valid : VippsWebhookSignatureResult.BadSignature, age);
     }
 
     /// <summary>
@@ -105,13 +105,13 @@ public static partial class VippsWebhookSignature
     {
         var auth = request.Authorization ?? string.Empty;
         if (!auth.StartsWith("HMAC-SHA256 ", StringComparison.Ordinal) || !SignaturePattern().IsMatch(auth))
-            return new(VippsWebhookResult.MissingHeader, TimeSpan.Zero);
-        if (string.IsNullOrEmpty(request.Date) || string.IsNullOrEmpty(request.ContentSha256)) return new(VippsWebhookResult.MissingHeader, TimeSpan.Zero);
+            return new(VippsWebhookSignatureResult.MissingHeader, TimeSpan.Zero);
+        if (string.IsNullOrEmpty(request.Date) || string.IsNullOrEmpty(request.ContentSha256)) return new(VippsWebhookSignatureResult.MissingHeader, TimeSpan.Zero);
 
         if (!DateTimeOffset.TryParse(request.Date, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var signedAt))
-            return new(VippsWebhookResult.BadDate, TimeSpan.Zero);
+            return new(VippsWebhookSignatureResult.BadDate, TimeSpan.Zero);
         var age = now - signedAt;
-        if (age > MaxAge || -age > MaxClockAhead) return new(VippsWebhookResult.Stale, age);
-        return new(VippsWebhookResult.Valid, age);
+        if (age > MaxAge || -age > MaxClockAhead) return new(VippsWebhookSignatureResult.Stale, age);
+        return new(VippsWebhookSignatureResult.Valid, age);
     }
 }

@@ -25,7 +25,7 @@ public class VippsWebhookSignatureTests
         };
     }
 
-    private static VippsWebhookResult Check(VippsWebhookRequest request, string secret = Secret) => VippsWebhookSignature.Verify(request, secret, Now).Result;
+    private static VippsWebhookSignatureResult Check(VippsWebhookRequest request, string secret = Secret) => VippsWebhookSignature.Verify(request, secret, Now).Result;
 
     [Fact]
     public void ASignedRequest_IsValid()
@@ -36,17 +36,17 @@ public class VippsWebhookSignatureTests
     }
 
     [Fact]
-    public void AnotherSecret_IsABadSignature() => Assert.Equal(VippsWebhookResult.BadSignature, Check(Signed(), "other"));
+    public void AnotherSecret_IsABadSignature() => Assert.Equal(VippsWebhookSignatureResult.BadSignature, Check(Signed(), "other"));
 
     [Fact]
-    public void ATamperedBody_IsABadContentHash() => Assert.Equal(VippsWebhookResult.BadContentHash, Check(Signed() with { Body = Body + " " }));
+    public void ATamperedBody_IsABadContentHash() => Assert.Equal(VippsWebhookSignatureResult.BadContentHash, Check(Signed() with { Body = Body + " " }));
 
     [Fact]
     public void ABodyAndHashSwappedTogether_IsABadSignature()
     {
         const string other = """{"reference":"order-43"}""";
         var tampered = Signed() with { Body = other, ContentSha256 = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(other))) };
-        Assert.Equal(VippsWebhookResult.BadSignature, Check(tampered));
+        Assert.Equal(VippsWebhookSignatureResult.BadSignature, Check(tampered));
     }
 
     [Theory]
@@ -57,11 +57,11 @@ public class VippsWebhookSignatureTests
     {
         var request = Signed();
         request = request with { Method = method ?? request.Method, PathAndQuery = path ?? request.PathAndQuery, Host = host ?? request.Host };
-        Assert.Equal(VippsWebhookResult.BadSignature, Check(request));
+        Assert.Equal(VippsWebhookSignatureResult.BadSignature, Check(request));
     }
 
     [Fact]
-    public void NoSecret_IsMissingSecret() => Assert.Equal(VippsWebhookResult.MissingSecret, Check(Signed(), ""));
+    public void NoSecret_IsMissingSecret() => Assert.Equal(VippsWebhookSignatureResult.MissingSecret, Check(Signed(), ""));
 
     [Theory]
     [InlineData(null)]
@@ -70,23 +70,23 @@ public class VippsWebhookSignatureTests
     [InlineData("HMAC-SHA256 SignedHeaders=x")]
     [InlineData("hmac-sha256 Signature=abc")]
     public void AMissingOrForeignAuthorization_IsMissingHeader(string? authorization) =>
-        Assert.Equal(VippsWebhookResult.MissingHeader, Check(Signed() with { Authorization = authorization }));
+        Assert.Equal(VippsWebhookSignatureResult.MissingHeader, Check(Signed() with { Authorization = authorization }));
 
     [Fact]
     public void AMissingDateOrHash_IsMissingHeader()
     {
-        Assert.Equal(VippsWebhookResult.MissingHeader, Check(Signed() with { Date = null }));
-        Assert.Equal(VippsWebhookResult.MissingHeader, Check(Signed() with { ContentSha256 = "" }));
+        Assert.Equal(VippsWebhookSignatureResult.MissingHeader, Check(Signed() with { Date = null }));
+        Assert.Equal(VippsWebhookSignatureResult.MissingHeader, Check(Signed() with { ContentSha256 = "" }));
     }
 
     [Fact]
-    public void AnUnreadableDate_IsBadDate() => Assert.Equal(VippsWebhookResult.BadDate, Check(Signed() with { Date = "yesterday" }));
+    public void AnUnreadableDate_IsBadDate() => Assert.Equal(VippsWebhookSignatureResult.BadDate, Check(Signed() with { Date = "yesterday" }));
 
     [Theory]
     [InlineData(-8 * 24 * 60 - 1)]
     [InlineData(6)]
     public void ADateOutsideTheRetryPeriod_IsStale(int minutesFromNow) =>
-        Assert.Equal(VippsWebhookResult.Stale, Check(Signed(signedAt: Now.AddMinutes(minutesFromNow))));
+        Assert.Equal(VippsWebhookSignatureResult.Stale, Check(Signed(signedAt: Now.AddMinutes(minutesFromNow))));
 
     [Theory]
     [InlineData(-8 * 24 * 60)]
@@ -109,8 +109,8 @@ public class VippsWebhookSignatureTests
         var signature = Convert.ToBase64String(HMACSHA256.HashData(Encoding.UTF8.GetBytes(Secret), Encoding.UTF8.GetBytes(canonical)));
         var request = signed with { ContentSha256 = hash, Authorization = $"HMAC-SHA256 SignedHeaders=x-ms-date;host;x-ms-content-sha256&Signature={signature}" };
 
-        Assert.Equal(VippsWebhookResult.Valid, Check(request with { RawBody = withBom }));
-        Assert.Equal(VippsWebhookResult.BadContentHash, Check(request));
+        Assert.Equal(VippsWebhookSignatureResult.Valid, Check(request with { RawBody = withBom }));
+        Assert.Equal(VippsWebhookSignatureResult.BadContentHash, Check(request));
     }
 
     [Fact]

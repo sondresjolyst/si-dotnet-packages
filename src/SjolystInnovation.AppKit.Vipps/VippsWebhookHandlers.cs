@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace SjolystInnovation.AppKit.Vipps;
 
 /// <summary>An amount in a webhook event.</summary>
@@ -43,8 +45,9 @@ public sealed record VippsRecurringEvent
     public string? EventId { get; init; }
     /// <summary>The event name, for example <see cref="VippsEvents.AgreementActivated"/>.</summary>
     public string EventType { get; init; } = string.Empty;
-    /// <summary>When the change happened, in UTC.</summary>
-    public DateTime? Occurred { get; init; }
+    /// <summary>When the change happened. A time without an offset counts as UTC.</summary>
+    [JsonConverter(typeof(VippsUtcDateTimeOffsetConverter))]
+    public DateTimeOffset? Occurred { get; init; }
     /// <summary>Who stopped the agreement, on <see cref="VippsEvents.AgreementStopped"/>.</summary>
     public string? Actor { get; init; }
     /// <summary>The charge id, on charge events.</summary>

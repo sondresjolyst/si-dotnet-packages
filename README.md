@@ -13,7 +13,7 @@ same name.
 | [SjolystInnovation.AppKit.SiteSettings](src/SjolystInnovation.AppKit.SiteSettings/README.md) | Admin-managed company details, site branding, and legal pages: settings, public company info, logo and icon uploads, and editable terms, privacy, and cookie pages, with Norwegian organization number and postal code checks. |
 | [SjolystInnovation.AppKit.Storage](src/SjolystInnovation.AppKit.Storage/README.md) | Uploaded files on local disk: named stores that tell the file type from its first bytes, refuse oversized and unknown files, and serve files with a correctly encoded `Content-Disposition`. |
 | [SjolystInnovation.AppKit.Storage.Images](src/SjolystInnovation.AppKit.Storage.Images/README.md) | Content images on the existing `ContentImages` tables: uploads with resized WebP renditions, EXIF orientation, recorded dimensions, cache-friendly serving, and cleanup of images that nothing references. |
-| [SjolystInnovation.AppKit.Vipps](src/SjolystInnovation.AppKit.Vipps/README.md) | A client for the Vipps MobilePay Recurring, ePayment, Userinfo, and Webhooks APIs, with webhook signature checks. |
+| [SjolystInnovation.AppKit.Vipps](src/SjolystInnovation.AppKit.Vipps/README.md) | A client for the Vipps MobilePay Recurring, ePayment, Userinfo, and Webhooks APIs, with a signed webhook endpoint that skips redelivered events, webhook registration at startup, and Norwegian phone number checks. |
 
 ```sh
 dotnet add package SjolystInnovation.AppKit.Auth

@@ -55,7 +55,7 @@ internal static partial class VippsWebhookEndpoint<TContext>
     {
         var services = http.RequestServices;
         var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("SjolystInnovation.AppKit.Vipps.VippsWebhook");
-        var ct = http.RequestAborted;
+        var cancellationToken = http.RequestAborted;
         var options = services.GetRequiredService<IOptions<VippsWebhookOptions>>().Value;
         var now = (services.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow();
         var request = http.Request;
@@ -79,7 +79,7 @@ internal static partial class VippsWebhookEndpoint<TContext>
             return TypedResults.Unauthorized();
         }
 
-        var body = await ReadBodyAsync(request, options.MaxBodyBytes, ct);
+        var body = await ReadBodyAsync(request, options.MaxBodyBytes, cancellationToken);
         if (body is null)
         {
             Log.TooLarge(logger, slot.Name, options.MaxBodyBytes);
@@ -87,7 +87,7 @@ internal static partial class VippsWebhookEndpoint<TContext>
         }
 
         var (verify, isTest) = await VerifyAsync(http, slot, signed with { RawBody = body }, now, logger);
-        if (verify != VippsWebhookResult.Valid)
+        if (verify != VippsWebhookSignatureResult.Valid)
         {
             Log.VerifyFailed(logger, slot.Name, verify);
             return TypedResults.Unauthorized();
@@ -110,13 +110,13 @@ internal static partial class VippsWebhookEndpoint<TContext>
     }
 
     /// <summary>Reads the body. Returns null when it is longer than <paramref name="maxBytes"/>.</summary>
-    private static async Task<byte[]?> ReadBodyAsync(HttpRequest request, int maxBytes, CancellationToken ct)
+    private static async Task<byte[]?> ReadBodyAsync(HttpRequest request, int maxBytes, CancellationToken cancellationToken)
     {
         if (request.ContentLength > maxBytes) return null;
         using var buffer = new MemoryStream();
         var chunk = new byte[8192];
         int read;
-        while ((read = await request.Body.ReadAsync(chunk, ct)) > 0)
+        while ((read = await request.Body.ReadAsync(chunk, cancellationToken)) > 0)
         {
             if (buffer.Length + read > maxBytes) return null;
             buffer.Write(chunk, 0, read);
@@ -128,13 +128,13 @@ internal static partial class VippsWebhookEndpoint<TContext>
     /// Checks the signature against the live secret, then the test secret. Returns the environment of the
     /// registration whose secret signed it.
     /// </summary>
-    private static async Task<(VippsWebhookResult Result, bool IsTest)> VerifyAsync(HttpContext http, VippsWebhookSlot slot, VippsWebhookRequest signed, DateTimeOffset now, ILogger logger)
+    private static async Task<(VippsWebhookSignatureResult Result, bool IsTest)> VerifyAsync(HttpContext http, VippsWebhookSlot slot, VippsWebhookRequest signed, DateTimeOffset now, ILogger logger)
     {
         var services = http.RequestServices;
         var secrets = await services.GetRequiredService<VippsWebhookSecretCache>().GetAsync(slot.Name,
             services.GetRequiredService<IVippsWebhookRegistrationStore>(), services.GetRequiredService<IVippsWebhookSecretProtector>(), http.RequestAborted);
 
-        var result = VippsWebhookResult.MissingSecret;
+        var result = VippsWebhookSignatureResult.MissingSecret;
         foreach (var (isTest, secret) in new[] { (false, secrets.Live), (true, secrets.Test) })
         {
             if (secret is null) continue;
@@ -165,13 +165,8 @@ internal static partial class VippsWebhookEndpoint<TContext>
     internal static string RecurringKey(VippsRecurringEvent e) =>
         !string.IsNullOrEmpty(e.EventId) ? e.EventId : $"{e.AgreementId}:{e.EventType}:{e.ChargeId}:{UtcTicks(e.Occurred)}";
 
-    /// <summary>The UTC ticks of a time. A time without a zone counts as UTC.</summary>
-    internal static long? UtcTicks(DateTime? time) => time switch
-    {
-        null => null,
-        { Kind: DateTimeKind.Unspecified } t => t.Ticks,
-        { } t => t.ToUniversalTime().Ticks,
-    };
+    /// <summary>The UTC ticks of a time.</summary>
+    internal static long? UtcTicks(DateTimeOffset? time) => time?.UtcTicks;
 
     /// <summary>
     /// The key an event is marked processed under. Test and live keep separate keys, so an event from one
@@ -186,11 +181,11 @@ internal static partial class VippsWebhookEndpoint<TContext>
         if (payload is null) return TypedResults.BadRequest();
 
         var services = http.RequestServices;
-        var ct = http.RequestAborted;
+        var cancellationToken = http.RequestAborted;
         var db = services.GetRequiredService<TContext>();
         var eventKey = EventKey(key(payload), isTest);
 
-        if (await db.ProcessedWebhookEvents.AsNoTracking().AnyAsync(e => e.Id == eventKey, ct))
+        if (await db.ProcessedWebhookEvents.AsNoTracking().AnyAsync(e => e.Id == eventKey, cancellationToken))
         {
             Log.Duplicate(logger, slot.Name, eventKey);
             return TypedResults.Ok();
@@ -204,7 +199,7 @@ internal static partial class VippsWebhookEndpoint<TContext>
         if (!msnMatches)
         {
             Log.MsnMismatch(logger, slot.Name, eventKey, payloadMsn ?? "-", expectedMsn);
-            return await RejectAsync(db, slot, eventKey, services, logger, ct);
+            return await RejectAsync(db, slot, eventKey, services, logger, cancellationToken);
         }
 
         VippsWebhookOutcome outcome;
@@ -213,13 +208,13 @@ internal static partial class VippsWebhookEndpoint<TContext>
             outcome = payload switch
             {
                 VippsPaymentEvent e => await services.GetRequiredService<IVippsPaymentWebhookHandler>().HandleAsync(
-                    new VippsWebhookDelivery<VippsPaymentEvent> { Event = e, IsTest = isTest, EventKey = eventKey, Slot = slot.Name }, ct),
+                    new VippsWebhookDelivery<VippsPaymentEvent> { Event = e, IsTest = isTest, EventKey = eventKey, Slot = slot.Name }, cancellationToken),
                 VippsRecurringEvent e => await services.GetRequiredService<IVippsRecurringWebhookHandler>().HandleAsync(
-                    new VippsWebhookDelivery<VippsRecurringEvent> { Event = e, IsTest = isTest, EventKey = eventKey, Slot = slot.Name }, ct),
+                    new VippsWebhookDelivery<VippsRecurringEvent> { Event = e, IsTest = isTest, EventKey = eventKey, Slot = slot.Name }, cancellationToken),
                 _ => throw new InvalidOperationException("Unknown Vipps webhook event type."),
             };
         }
-        catch (Exception ex) when (!ct.IsCancellationRequested)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             Log.HandlerFailed(logger, ex, slot.Name, eventKey);
             return TypedResults.StatusCode(StatusCodes.Status500InternalServerError);
@@ -232,15 +227,15 @@ internal static partial class VippsWebhookEndpoint<TContext>
                 return TypedResults.StatusCode(StatusCodes.Status500InternalServerError);
             case VippsWebhookOutcomeKind.Rejected:
                 Log.Rejected(logger, slot.Name, eventKey);
-                return await RejectAsync(db, slot, eventKey, services, logger, ct);
+                return await RejectAsync(db, slot, eventKey, services, logger, cancellationToken);
         }
 
         bool saved;
         try
         {
-            saved = await SaveProcessedAsync(db, slot, eventKey, services, ct);
+            saved = await SaveProcessedAsync(db, slot, eventKey, services, cancellationToken);
         }
-        catch (Exception ex) when (!ct.IsCancellationRequested)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             // Neither the changes nor the marker are stored, so the redelivery is handled again.
             Log.SaveFailed(logger, ex, slot.Name, eventKey);
@@ -256,7 +251,7 @@ internal static partial class VippsWebhookEndpoint<TContext>
         {
             try
             {
-                await afterCommit(ct);
+                await afterCommit(cancellationToken);
             }
             catch (Exception ex)
             {
@@ -271,15 +266,15 @@ internal static partial class VippsWebhookEndpoint<TContext>
     /// answers 200, because Vipps retries any 4xx or 5xx for seven days and holds back the payment's later
     /// events until one succeeds.
     /// </summary>
-    private static async Task<IResult> RejectAsync(TContext db, VippsWebhookSlot slot, string eventKey, IServiceProvider services, ILogger logger, CancellationToken ct)
+    private static async Task<IResult> RejectAsync(TContext db, VippsWebhookSlot slot, string eventKey, IServiceProvider services, ILogger logger, CancellationToken cancellationToken)
     {
         db.ChangeTracker.Clear();
         try
         {
-            await SaveProcessedAsync(db, slot, eventKey, services, ct);
+            await SaveProcessedAsync(db, slot, eventKey, services, cancellationToken);
             return TypedResults.Ok();
         }
-        catch (Exception ex) when (!ct.IsCancellationRequested)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             Log.SaveFailed(logger, ex, slot.Name, eventKey);
             return TypedResults.StatusCode(StatusCodes.Status500InternalServerError);
@@ -291,20 +286,20 @@ internal static partial class VippsWebhookEndpoint<TContext>
     /// stored or neither is. Returns false when a concurrent delivery of the same event saved first, in which
     /// case nothing from this delivery is stored.
     /// </summary>
-    internal static async Task<bool> SaveProcessedAsync(TContext db, VippsWebhookSlot slot, string eventKey, IServiceProvider services, CancellationToken ct)
+    internal static async Task<bool> SaveProcessedAsync(TContext db, VippsWebhookSlot slot, string eventKey, IServiceProvider services, CancellationToken cancellationToken)
     {
         var now = (services.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow().UtcDateTime;
         db.ProcessedWebhookEvents.Add(new VippsProcessedWebhookEvent { Id = eventKey, Source = slot.Name, ProcessedAt = now });
         try
         {
-            await db.SaveChangesAsync(ct);
+            await db.SaveChangesAsync(cancellationToken);
             return true;
         }
         // A relational database reports the duplicate marker as a DbUpdateException, the in-memory provider
         // as an ArgumentException. Either way it only counts as a lost race once the other marker is found.
         catch (Exception ex) when (ex is DbUpdateException or InvalidOperationException or ArgumentException)
         {
-            var raceLost = await db.ProcessedWebhookEvents.AsNoTracking().AnyAsync(e => e.Id == eventKey, ct);
+            var raceLost = await db.ProcessedWebhookEvents.AsNoTracking().AnyAsync(e => e.Id == eventKey, cancellationToken);
             if (!raceLost) throw;
             db.ChangeTracker.Clear();
             return false;
@@ -318,7 +313,7 @@ internal static partial class VippsWebhookEndpoint<TContext>
     {
         // Anyone can call the endpoint, so a refused signature is routine and not a warning.
         [LoggerMessage(Level = LogLevel.Information, Message = "Vipps {Slot} webhook verify failed: {Reason}")]
-        public static partial void VerifyFailed(ILogger logger, string slot, VippsWebhookResult reason);
+        public static partial void VerifyFailed(ILogger logger, string slot, VippsWebhookSignatureResult reason);
 
         [LoggerMessage(Level = LogLevel.Information, Message = "Vipps {Slot} webhook refused: the body exceeds {MaxBytes} bytes")]
         public static partial void TooLarge(ILogger logger, string slot, int maxBytes);

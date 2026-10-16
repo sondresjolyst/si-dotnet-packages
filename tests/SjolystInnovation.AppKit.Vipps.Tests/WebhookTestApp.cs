@@ -27,7 +27,7 @@ public class WebhookDbContext(DbContextOptions<WebhookDbContext> options) : DbCo
     public DbSet<TestOrder> Orders => Set<TestOrder>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
-        modelBuilder.AddAppKitVippsWebhooks().AddAppKitVippsWebhookRegistrations();
+        modelBuilder.AddAppKitVippsProcessedWebhookEvents().AddAppKitVippsWebhookRegistrations();
 }
 
 /// <summary>What the test handlers do, set by each test.</summary>
@@ -112,7 +112,7 @@ internal sealed class WebhookTestApp : IAsyncDisposable
                     s.AddScoped<TestHandler>();
                     s.AddScoped<IVippsPaymentWebhookHandler>(sp => sp.GetRequiredService<TestHandler>());
                     s.AddScoped<IVippsRecurringWebhookHandler>(sp => sp.GetRequiredService<TestHandler>());
-                    s.AddVipps(o =>
+                    s.AddAppKitVipps(o =>
                     {
                         o.Live.MerchantSerialNumber = LiveMsn;
                         o.Test.MerchantSerialNumber = TestMsn;

@@ -83,7 +83,7 @@ public class VippsHelpersTests
     public async Task AddVipps_RegistersTheClient_LiveByDefault()
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddVipps(o => o.SystemName = "garge-api");
+        services.AddAppKitVipps(o => o.SystemName = "garge-api");
         await using var provider = services.BuildServiceProvider();
 
         Assert.IsType<VippsClient>(provider.GetRequiredService<IVippsClient>());
@@ -96,7 +96,7 @@ public class VippsHelpersTests
     {
         var services = new ServiceCollection().AddLogging();
         services.AddSingleton<IVippsEnvironment>(new FixedVippsEnvironment(true));
-        services.AddVipps(_ => { });
+        services.AddAppKitVipps(_ => { });
         await using var provider = services.BuildServiceProvider();
         Assert.True(await provider.GetRequiredService<IVippsClient>().IsTestAsync());
     }
