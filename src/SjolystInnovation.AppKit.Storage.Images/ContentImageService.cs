@@ -96,7 +96,7 @@ public static class AppKitContentImages
     /// <param name="services">The service collection.</param>
     /// <param name="section">The configuration section with <c>ImagesPath</c> and <c>MaxImageBytes</c>.</param>
     /// <returns>The service collection.</returns>
-    public static IServiceCollection AddAppKitContentImages<TContext>(this IServiceCollection services, IConfiguration section)
+    public static IServiceCollection AddAppKitContentImages<TContext>(this IServiceCollection services, IConfigurationSection section)
         where TContext : DbContext
     {
         ArgumentNullException.ThrowIfNull(section);
@@ -161,7 +161,7 @@ internal sealed class ContentImageService<TContext>(
         var variants = new List<GeneratedVariant>();
         try
         {
-            var dimensions = processor.Probe(stored.StoredPath);
+            var dimensions = (await processor.ProbeAsync(stored.StoredPath, cancellationToken)).Dimensions;
             var generated = await processor.GenerateWebpVariantsAsync(stored.StoredPath, cancellationToken);
             variants.AddRange(generated.Variants);
             var image = new ContentImage
@@ -184,10 +184,10 @@ internal sealed class ContentImageService<TContext>(
         }
         catch
         {
-            // Without its row, nothing would ever find these files again.
-            store.Delete(stored.StoredPath);
+            // Without its row, nothing would ever find these files again. The cleanup runs even after a cancel.
+            await store.DeleteAsync(stored.StoredPath, CancellationToken.None);
             foreach (var variant in variants)
-                store.Delete(variant.StoredPath);
+                await store.DeleteAsync(variant.StoredPath, CancellationToken.None);
             throw;
         }
     }
@@ -205,8 +205,9 @@ internal sealed class ContentImageService<TContext>(
         db.Set<ContentImage>().Remove(image);
         await db.SaveChangesAsync(cancellationToken);
 
+        // The rows are gone, so the files go too, even after a cancel.
         foreach (var path in paths.Distinct())
-            store.Delete(path);
+            await store.DeleteAsync(path, CancellationToken.None);
     }
 
     public async Task<int> DeleteOrphansAsync(IEnumerable<string> ids, CancellationToken cancellationToken = default)
@@ -242,7 +243,7 @@ internal sealed class ContentImageService<TContext>(
         db.Set<ContentImage>().RemoveRange(orphans);
         await db.SaveChangesAsync(cancellationToken);
         foreach (var path in paths)
-            store.Delete(path);
+            await store.DeleteAsync(path, CancellationToken.None);
         return orphans.Count;
     }
 
@@ -312,7 +313,7 @@ internal sealed class ContentImageService<TContext>(
             foreach (var row in rows)
                 db.Entry(row).State = EntityState.Detached;
             foreach (var variant in generated)
-                store.Delete(variant.StoredPath);
+                await store.DeleteAsync(variant.StoredPath, CancellationToken.None);
             if (cancellationToken.IsCancellationRequested)
                 throw;
             return [];

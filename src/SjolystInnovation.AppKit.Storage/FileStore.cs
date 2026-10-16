@@ -62,18 +62,21 @@ public interface IAppKitFileStore
 
     /// <summary>Opens a stored file for reading.</summary>
     /// <param name="storedPath">The <see cref="StoredFile.StoredPath"/> of the file.</param>
+    /// <param name="cancellationToken">A token that cancels the open.</param>
     /// <returns>The file content. Dispose it when you are done.</returns>
     /// <exception cref="FileNotFoundException">When the store has no such file.</exception>
-    Stream OpenRead(string storedPath);
+    Task<Stream> OpenReadAsync(string storedPath, CancellationToken cancellationToken = default);
 
     /// <summary>Checks whether the store has a file.</summary>
     /// <param name="storedPath">The <see cref="StoredFile.StoredPath"/> of the file.</param>
+    /// <param name="cancellationToken">A token that cancels the check.</param>
     /// <returns>True when the file exists.</returns>
-    bool Exists(string storedPath);
+    Task<bool> ExistsAsync(string storedPath, CancellationToken cancellationToken = default);
 
     /// <summary>Deletes a stored file. A file that does not exist is not an error.</summary>
     /// <param name="storedPath">The <see cref="StoredFile.StoredPath"/> of the file.</param>
-    void Delete(string storedPath);
+    /// <param name="cancellationToken">A token that cancels the delete.</param>
+    Task DeleteAsync(string storedPath, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Registers named file stores.</summary>
@@ -172,16 +175,25 @@ internal sealed partial class LocalFileStore : IAppKitFileStore
         return new StoredFile(storedName, FileSignature.ContentType(kind), size, CleanFileName(fileName, storedName));
     }
 
-    public Stream OpenRead(string storedPath) =>
-        new FileStream(ResolvePath(storedPath), FileMode.Open, FileAccess.Read, FileShare.Read);
-
-    public bool Exists(string storedPath) => File.Exists(ResolvePath(storedPath));
-
-    public void Delete(string storedPath)
+    public Task<Stream> OpenReadAsync(string storedPath, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult<Stream>(new FileStream(ResolvePath(storedPath), FileMode.Open, FileAccess.Read, FileShare.Read));
+    }
+
+    public Task<bool> ExistsAsync(string storedPath, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(File.Exists(ResolvePath(storedPath)));
+    }
+
+    public Task DeleteAsync(string storedPath, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         var fullPath = ResolvePath(storedPath);
         if (File.Exists(fullPath))
             File.Delete(fullPath);
+        return Task.CompletedTask;
     }
 
     /// <summary>
