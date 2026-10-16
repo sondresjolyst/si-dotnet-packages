@@ -68,8 +68,7 @@ internal sealed class JwtTokenService(IOptions<AuthOptions> options, TimeProvide
             if (validated is not JwtSecurityToken jwt
                 || !jwt.Header.Alg.Equals(SecurityAlgorithms.HmacSha256, StringComparison.OrdinalIgnoreCase))
                 return null;
-            return principal.Claims.FirstOrDefault(c =>
-                c.Type == JwtRegisteredClaimNames.Sub || c.Type == ClaimTypes.NameIdentifier)?.Value;
+            return principal.GetUserId();
         }
         // The token comes from the client, so any failure to read it means the app did not sign it.
         catch (Exception)

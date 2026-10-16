@@ -55,7 +55,7 @@ internal static class AccountHandlers<TUser>
     private static T Get<T>(HttpContext http) where T : notnull => http.RequestServices.GetRequiredService<T>();
 
     private static string? CallerId(HttpContext http) =>
-        http.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? http.User.FindFirstValue("sub");
+        http.User.GetUserId();
 
     private static bool CanActOn(HttpContext http, string id) =>
         CallerId(http) == id || http.User.IsInRole(Get<IOptions<AppKitAccountOptions>>(http).Value.AdminRole);

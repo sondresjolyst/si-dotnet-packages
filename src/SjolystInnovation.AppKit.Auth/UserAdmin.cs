@@ -139,6 +139,32 @@ public static partial class UserAdminExtensions
         Log.SeedCreated(logger, user.Id);
     }
 
+    /// <summary>
+    /// Creates each role in <paramref name="roles"/> that does not exist yet. Existing roles stay as they
+    /// are, so the call is safe on every startup. Logs each role it creates and each role it fails to create.
+    /// </summary>
+    /// <param name="services">The app's service provider.</param>
+    /// <param name="roles">The role names the app uses.</param>
+    public static async Task SeedAppKitRolesAsync(this IServiceProvider services, IEnumerable<string> roles)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(roles);
+
+        using var scope = services.CreateScope();
+        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+        var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("SjolystInnovation.AppKit.Auth.Seed");
+        foreach (var role in roles)
+        {
+            if (await roleManager.RoleExistsAsync(role))
+                continue;
+            var created = await roleManager.CreateAsync(new IdentityRole(role));
+            if (created.Succeeded)
+                Log.RoleCreated(logger, role);
+            else
+                Log.RoleFailed(logger, role, string.Join(" ", created.Errors.Select(e => e.Description)));
+        }
+    }
+
     internal static partial class Log
     {
         [LoggerMessage(Level = LogLevel.Information, Message = "Gave the admin role to the existing seed user {UserId}.")]
@@ -149,6 +175,12 @@ public static partial class UserAdminExtensions
 
         [LoggerMessage(Level = LogLevel.Error, Message = "Could not create the seed admin: {Errors}")]
         public static partial void SeedFailed(ILogger logger, string errors);
+
+        [LoggerMessage(Level = LogLevel.Information, Message = "Created the role {Role}.")]
+        public static partial void RoleCreated(ILogger logger, string role);
+
+        [LoggerMessage(Level = LogLevel.Error, Message = "Could not create the role {Role}: {Errors}")]
+        public static partial void RoleFailed(ILogger logger, string role, string errors);
 
         [LoggerMessage(Level = LogLevel.Information, Message = "User {UserId} invited with the role {Role}.")]
         public static partial void Invited(ILogger logger, string userId, string role);
@@ -209,7 +241,7 @@ internal sealed class UserAdminHandlers<TUser, TContext>(AppKitUserAdminOptions<
     {
         if (!KnownRole(role))
             return Message("Unknown role.", StatusCodes.Status400BadRequest);
-        var callerId = http.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? http.User.FindFirstValue("sub");
+        var callerId = http.User.GetUserId();
         var isAdminRole = string.Equals(role, options.AdminRole, StringComparison.Ordinal);
         if (isAdminRole && id == callerId)
             return Message("You cannot remove your own admin role.", StatusCodes.Status400BadRequest);
