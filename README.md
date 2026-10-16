@@ -11,6 +11,8 @@ same name.
 | [SjolystInnovation.AppKit.Email](src/SjolystInnovation.AppKit.Email/README.md) | Transactional email through Brevo, with reply-to, attachments, a send result instead of exceptions, and delivery statistics. |
 | [SjolystInnovation.AppKit.Hosting](src/SjolystInnovation.AppKit.Hosting/README.md) | Forwarded headers from trusted proxies only, per-IP rate limiting, security headers, HTTPS, health checks, and migrations on start for ASP.NET Core APIs behind an ingress. |
 | [SjolystInnovation.AppKit.SiteSettings](src/SjolystInnovation.AppKit.SiteSettings/README.md) | Admin-managed company details, site branding, and legal pages: settings, public company info, logo and icon uploads, and editable terms, privacy, and cookie pages, with Norwegian organization number and postal code checks. |
+| [SjolystInnovation.AppKit.Storage](src/SjolystInnovation.AppKit.Storage/README.md) | Uploaded files on local disk: named stores that tell the file type from its first bytes, refuse oversized and unknown files, and serve files with a correctly encoded `Content-Disposition`. |
+| [SjolystInnovation.AppKit.Storage.Images](src/SjolystInnovation.AppKit.Storage.Images/README.md) | Content images on the existing `ContentImages` tables: uploads with resized WebP renditions, EXIF orientation, recorded dimensions, cache-friendly serving, and cleanup of images that nothing references. |
 | [SjolystInnovation.AppKit.Vipps](src/SjolystInnovation.AppKit.Vipps/README.md) | A client for the Vipps MobilePay Recurring, ePayment, Userinfo, and Webhooks APIs, with webhook signature checks. |
 
 ```sh
@@ -18,6 +20,8 @@ dotnet add package SjolystInnovation.AppKit.Auth
 dotnet add package SjolystInnovation.AppKit.Email
 dotnet add package SjolystInnovation.AppKit.Hosting
 dotnet add package SjolystInnovation.AppKit.SiteSettings
+dotnet add package SjolystInnovation.AppKit.Storage
+dotnet add package SjolystInnovation.AppKit.Storage.Images
 dotnet add package SjolystInnovation.AppKit.Vipps
 ```
 
