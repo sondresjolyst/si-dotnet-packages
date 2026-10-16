@@ -1,8 +1,8 @@
 # SjolystInnovation.AppKit.Hosting
 
 This package holds startup pieces for an ASP.NET Core API behind an ingress: the client IP taken only
-from trusted proxies, per-IP rate limiting on that IP, security headers, HTTPS, and health probes. You
-can adopt each piece on its own.
+from trusted proxies, per-IP rate limiting on that IP, security headers, HTTPS, health probes, and
+migrations on start. You can adopt each piece on its own.
 
 ```sh
 dotnet add package SjolystInnovation.AppKit.Hosting
@@ -15,6 +15,8 @@ builder.Services.AddAppKitHealthChecks<ApplicationDbContext>();
 builder.Services.AddAppKitRateLimiting(builder.Configuration.GetSection("RateLimiting"));
 
 var app = builder.Build();
+
+await app.Services.MigrateAppKitDatabaseAsync<ApplicationDbContext>(app.Configuration);
 
 app.UseAppKitForwardedHeaders();
 app.UseExceptionHandler();
@@ -101,3 +103,39 @@ Outside Development, `UseAppKitHttps` sends HSTS and redirects plain HTTP to HTT
 
 To add more readiness checks, add them to the builder that `AddAppKitHealthChecks` returns, with the
 tag `"ready"`.
+
+## Migrations on start
+
+`MigrateAppKitDatabaseAsync<TContext>` applies the pending Entity Framework Core migrations when the
+app starts. It creates its own scope, so you can call it on `app.Services` right after
+`builder.Build()`.
+
+```csharp
+await app.Services.MigrateAppKitDatabaseAsync<ApplicationDbContext>(app.Configuration, o =>
+{
+    // An index build on a large table takes longer than the default command timeout.
+    o.CommandTimeout = TimeSpan.FromMinutes(15);
+});
+```
+
+| Option | |
+| --- | --- |
+| `CommandTimeout` | The command timeout while migrations run. The previous timeout comes back afterward, also when a migration fails. Defaults to `null`, which keeps the provider's timeout. |
+| `Retries` | Retries when the database cannot be reached. Defaults to 5. |
+| `RetryDelay` | The wait before the first retry. Each later wait is twice as long. Defaults to 2 seconds. |
+
+The helper logs `Applying {Count} pending migration(s): {Migrations}` before it migrates. If nothing is
+pending, it only writes a debug message.
+
+To turn it off, for example when a separate job runs the migrations, set `Database:AutoMigrate` to
+`false`. The helper then logs that it skipped and returns. The setting defaults to `true`.
+
+```json
+"Database": {
+  "AutoMigrate": false
+}
+```
+
+The helper retries only while it checks for pending migrations, which is when it first reaches the
+database. It retries a provider error marked transient, a socket error, or a timeout. A failing
+migration is never retried, so the app fails to start and the error is in the log.
