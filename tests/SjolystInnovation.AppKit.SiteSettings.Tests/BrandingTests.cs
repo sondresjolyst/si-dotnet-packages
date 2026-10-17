@@ -37,6 +37,20 @@ public class BrandingTests
     private static async Task<JsonElement> JsonAsync(HttpResponseMessage response) =>
         JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
 
+    private const string ImageRule = "The image must be a PNG, JPEG, WebP, GIF or ICO file of at most 2 MB.";
+
+    // The refusal has one field, the English rule as its message, the given code, and no limits.
+    private static async Task AssertRefusedAsync(HttpResponseMessage response, string field, string code, string message = ImageRule)
+    {
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var json = await JsonAsync(response);
+        Assert.Equal(field, Assert.Single(json.GetProperty("errors").EnumerateObject()).Name);
+        Assert.Equal(message, Assert.Single(json.GetProperty("errors").GetProperty(field).EnumerateArray()).GetString());
+        Assert.Equal(field, Assert.Single(json.GetProperty("codes").EnumerateObject()).Name);
+        Assert.Equal(code, Assert.Single(json.GetProperty("codes").GetProperty(field).EnumerateArray()).GetString());
+        Assert.Empty(json.GetProperty("limits").EnumerateObject());
+    }
+
     [Theory]
     [InlineData("png", "image/png")]
     [InlineData("jpeg", "image/jpeg")]
@@ -134,8 +148,7 @@ public class BrandingTests
 
         var response = await app.SendAsync(HttpMethod.Put, "/api/branding", Form(("icon", Ico, null), ("logo", Encoding.UTF8.GetBytes(text), null)));
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Contains("PNG, JPEG, WebP, GIF or ICO", (await JsonAsync(response)).GetProperty("errors").GetProperty("Logo")[0].GetString(), StringComparison.Ordinal);
+        await AssertRefusedAsync(response, "Logo", "invalidImage");
         var row = await app.RowAsync();
         Assert.Equal("image/png", row!.LogoContentType);
         Assert.Null(row.IconData);
@@ -148,8 +161,7 @@ public class BrandingTests
 
         var response = await app.SendAsync(HttpMethod.Put, "/api/branding", Form(("logo", Png, null), ("icon", "<svg/>"u8.ToArray(), null)));
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(["Icon"], (await JsonAsync(response)).GetProperty("errors").EnumerateObject().Select(p => p.Name));
+        await AssertRefusedAsync(response, "Icon", "invalidImage");
         Assert.Null(await app.RowAsync());
     }
 
@@ -162,8 +174,9 @@ public class BrandingTests
         var tooBig = new byte[justFits.Length + 1];
         Png.CopyTo(tooBig, 0);
 
-        Assert.Equal(HttpStatusCode.BadRequest, (await app.SendAsync(HttpMethod.Put, "/api/branding", Form(("logo", [], null)))).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await app.SendAsync(HttpMethod.Put, "/api/branding", Form(("logo", tooBig, null)))).StatusCode);
+        await AssertRefusedAsync(await app.SendAsync(HttpMethod.Put, "/api/branding", Form(("logo", [], null))), "Logo", "invalidImage");
+        await AssertRefusedAsync(await app.SendAsync(HttpMethod.Put, "/api/branding", Form(("logo", tooBig, null))), "Logo", "imageTooLarge");
+        await AssertRefusedAsync(await app.SendAsync(HttpMethod.Put, "/api/branding", Form(("icon", tooBig, null))), "Icon", "imageTooLarge");
         Assert.Equal(HttpStatusCode.OK, (await app.SendAsync(HttpMethod.Put, "/api/branding", Form(("logo", justFits, null)))).StatusCode);
     }
 
@@ -174,7 +187,7 @@ public class BrandingTests
 
         var response = await app.SendAsync(HttpMethod.Put, "/api/branding", new StringContent("{}", Encoding.UTF8, "application/json"));
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await AssertRefusedAsync(response, "Logo", "notAForm", "Send the images as a form.");
         Assert.Null(await app.RowAsync());
     }
 

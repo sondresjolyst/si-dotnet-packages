@@ -133,6 +133,9 @@ public static class LegalPagesExtensions
 internal sealed class LegalPageHandlers<TContext>(AppKitLegalPagesOptions options)
     where TContext : DbContext
 {
+    // The column holds 200 characters, see AddAppKitLegalPages.
+    private const int MaxTitleLength = 200;
+
     private static LegalPageInfo Info(LegalPage p) => new(p.Key, p.Locale, p.Title, p.BodyMarkdown, p.UpdatedAt);
 
     public async Task<IResult> GetAsync(string key, string? locale, HttpContext http)
@@ -162,15 +165,15 @@ internal sealed class LegalPageHandlers<TContext>(AppKitLegalPagesOptions option
         if (!options.KnownLocale(locale))
             return TypedResults.Problem("Unsupported locale.", statusCode: StatusCodes.Status400BadRequest);
 
-        var errors = new Dictionary<string, string[]>();
+        var problem = new SiteSettingsProblem();
         if (string.IsNullOrWhiteSpace(body.Title))
-            errors["Title"] = ["Required."];
-        else if (body.Title.Trim().Length > 200)
-            errors["Title"] = ["At most 200 characters."];
+            problem.Set("Title", SiteSettingsErrorCodes.Required, "Required.");
+        else if (body.Title.Trim().Length > MaxTitleLength)
+            problem.Set("Title", SiteSettingsErrorCodes.TooLong, $"At most {MaxTitleLength} characters.", MaxTitleLength);
         if (string.IsNullOrWhiteSpace(body.BodyMarkdown))
-            errors["BodyMarkdown"] = ["Required."];
-        if (errors.Count > 0)
-            return TypedResults.ValidationProblem(errors);
+            problem.Set("BodyMarkdown", SiteSettingsErrorCodes.Required, "Required.");
+        if (problem.Errors.Count > 0)
+            return problem.ToResult();
 
         var db = http.RequestServices.GetRequiredService<TContext>();
         var now = (http.RequestServices.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow().UtcDateTime;

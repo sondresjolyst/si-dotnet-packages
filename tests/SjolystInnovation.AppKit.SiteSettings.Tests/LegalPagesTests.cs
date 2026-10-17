@@ -108,7 +108,12 @@ public class LegalPagesTests
         var response = await PutAsync(app, "/api/content/legal/terms/no", title, body);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal([field], (await JsonAsync(response)).GetProperty("errors").EnumerateObject().Select(p => p.Name));
+        var json = await JsonAsync(response);
+        Assert.Equal([field], json.GetProperty("errors").EnumerateObject().Select(p => p.Name));
+        Assert.Equal("Required.", Assert.Single(json.GetProperty("errors").GetProperty(field).EnumerateArray()).GetString());
+        Assert.Equal(field, Assert.Single(json.GetProperty("codes").EnumerateObject()).Name);
+        Assert.Equal("required", Assert.Single(json.GetProperty("codes").GetProperty(field).EnumerateArray()).GetString());
+        Assert.Empty(json.GetProperty("limits").EnumerateObject());
         Assert.Empty(await PagesAsync(app));
     }
 
@@ -118,7 +123,29 @@ public class LegalPagesTests
         await using var app = await StartAsync();
 
         Assert.Equal(HttpStatusCode.OK, (await PutAsync(app, "/api/content/legal/terms/no", new string('x', 200))).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await PutAsync(app, "/api/content/legal/terms/no", new string('x', 201))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await PutAsync(app, "/api/content/legal/terms/no", $"  {new string('x', 200)}  ")).StatusCode);
+        var response = await PutAsync(app, "/api/content/legal/terms/no", new string('x', 201));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var json = await JsonAsync(response);
+        Assert.Equal("At most 200 characters.", Assert.Single(json.GetProperty("errors").GetProperty("Title").EnumerateArray()).GetString());
+        Assert.Equal("tooLong", Assert.Single(json.GetProperty("codes").GetProperty("Title").EnumerateArray()).GetString());
+        var limit = Assert.Single(json.GetProperty("limits").EnumerateObject());
+        Assert.Equal(("Title", 200), (limit.Name, limit.Value.GetInt32()));
+    }
+
+    [Fact]
+    public async Task A_long_title_and_a_missing_body_get_a_code_each()
+    {
+        await using var app = await StartAsync();
+
+        var json = await JsonAsync(await PutAsync(app, "/api/content/legal/terms/no", new string('x', 201), ""));
+
+        Assert.Equal(["BodyMarkdown", "Title"], json.GetProperty("codes").EnumerateObject().Select(p => p.Name).Order());
+        Assert.Equal("tooLong", json.GetProperty("codes").GetProperty("Title")[0].GetString());
+        Assert.Equal("required", json.GetProperty("codes").GetProperty("BodyMarkdown")[0].GetString());
+        Assert.Equal("Title", Assert.Single(json.GetProperty("limits").EnumerateObject()).Name);
+        Assert.Empty(await PagesAsync(app));
     }
 
     [Fact]

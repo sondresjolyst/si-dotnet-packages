@@ -34,7 +34,7 @@ app.MapAppKitSiteSettings<ApplicationDbContext, AppSettings>("/api", o => o.Poli
 | `GET settings` | `Policy` | The company fields as stored. |
 | `PUT settings` | `Policy` | Saves the company fields, trimmed, and creates the row on the first write. A bad field gives a validation problem keyed by field, with a code for each error. See [Error codes](#error-codes). |
 | `GET branding` | Everyone | `logoData`, `logoContentType`, `iconData`, and `iconContentType`, base64 and `null` while unset. |
-| `PUT branding` | `Policy` | A form with an optional `logo` and `icon` file, or `removeLogo` and `removeIcon` set to `true`. A part that is not sent stays as it is. |
+| `PUT branding` | `Policy` | A form with an optional `logo` and `icon` file, or `removeLogo` and `removeIcon` set to `true`. A part that is not sent stays as it is. A refused file gives a validation problem keyed by the part, with a code. See [Error codes](#error-codes). |
 
 `Policy` is `Admin` by default.
 
@@ -77,15 +77,17 @@ app.MapAppKitSiteSettings<ApplicationDbContext, AppSettings>("/api", o =>
 - A postal code is four digits and needs the place that goes with it. Neither is required.
 - A logo or icon is a PNG, JPEG, WebP, GIF, or ICO file of at most 2 MB. Its type comes from its first
   bytes, never from what the browser claims. SVG is refused, because it can carry script. A refused
-  image answers a validation problem keyed by `Logo` or `Icon` with the reason, and nothing is saved.
+  image answers a validation problem keyed by `Logo` or `Icon` with the reason and its code, and nothing
+  is saved.
 
 `NorwegianOrgNumber.IsValid`, `PostalAddress.IsPostalCode`, and `PostalAddress.Format` are public for your
 app's own use, such as invoices and structured data.
 
 ## Error codes
 
-A bad field in `PUT settings` answers a validation problem. Next to the English messages in `errors`, it
-has two extensions keyed by the same fields. `codes` holds a stable code for each message, so a client can
+A bad field in `PUT settings`, a refused file in `PUT branding`, and a bad title or body when saving a legal
+page answer a validation problem. Next to the English messages in `errors`, it has two extensions keyed by
+the same fields. `codes` holds a stable code for each message, so a client can
 show its own text in its own language. `limits` holds the character limit for each field whose code is
 `tooLong`, and is empty otherwise.
 
@@ -106,6 +108,12 @@ show its own text in its own language. `limits` holds the character limit for ea
 | `invalidOrgNumber` | The organisation number is not nine digits with a correct check digit. |
 | `invalidPostalCode` | The postal code is not four digits. |
 | `placeRequired` | A postal code is given without its place name. |
+| `invalidImage` | The logo or icon is not a PNG, JPEG, WebP, GIF, or ICO file, judged by its bytes. An empty file counts. |
+| `imageTooLarge` | The logo or icon is larger than 2 MB. |
+| `notAForm` | `PUT branding` got a body that is not a form. The error is keyed by `Logo`. |
+
+Saving a legal page uses `required` for a blank `Title` or `BodyMarkdown` and `tooLong` for a `Title` over
+200 characters.
 
 The codes are also constants on `SiteSettingsErrorCodes`. New codes may come in a minor version, so a
 client shows the message from `errors` for a code it does not know.
@@ -132,7 +140,7 @@ await app.Services.SeedAppKitLegalPagesAsync<ApplicationDbContext>(
 | --- | --- | --- |
 | `GET {key}?locale=` | Everyone | The page in the requested language, or in the first of `Locales` when it has none there. `404` for a page that is not in `Keys` or has no text. |
 | `GET` | `Policy` | Every page in every language, by key and then language. |
-| `PUT {key}/{locale}` with `title`, `bodyMarkdown` | `Policy` | Saves the page, creating it the first time. An unknown key or language answers `400` with the reason as `detail`. A missing title or body, or a title over 200 characters, is a validation problem. |
+| `PUT {key}/{locale}` with `title`, `bodyMarkdown` | `Policy` | Saves the page, creating it the first time. An unknown key or language answers `400` with the reason as `detail`. A missing title or body, or a title over 200 characters, is a validation problem with codes. See [Error codes](#error-codes). |
 
 | Option | Default | |
 | --- | --- | --- |

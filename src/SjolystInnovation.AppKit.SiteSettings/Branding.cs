@@ -26,21 +26,23 @@ internal static class BrandingHandlers<TContext, TSettings>
     public static async Task<IResult> UpdateAsync(HttpContext http, AppKitSiteSettingsOptions options)
     {
         if (!http.Request.HasFormContentType)
-            return Refused("Logo", "Send the images as a form.");
+            return Refused("Logo", SiteSettingsErrorCodes.NotAForm, "Send the images as a form.");
         var form = await http.Request.ReadFormAsync(http.RequestAborted);
 
         (string Data, string ContentType)? logo = null, icon = null;
         if (form["removeLogo"] != "true" && form.Files["logo"] is { } logoFile)
         {
-            logo = await ReadImageAsync(logoFile, http.RequestAborted);
-            if (logo is null)
-                return Refused("Logo", ImageRule);
+            var (image, refusal) = await ReadImageAsync("Logo", logoFile, http.RequestAborted);
+            if (refusal is not null)
+                return refusal;
+            logo = image;
         }
         if (form["removeIcon"] != "true" && form.Files["icon"] is { } iconFile)
         {
-            icon = await ReadImageAsync(iconFile, http.RequestAborted);
-            if (icon is null)
-                return Refused("Icon", ImageRule);
+            var (image, refusal) = await ReadImageAsync("Icon", iconFile, http.RequestAborted);
+            if (refusal is not null)
+                return refusal;
+            icon = image;
         }
 
         var (db, s) = await SiteSettingsHandlers<TContext, TSettings>.FindOrAddAsync(http);
@@ -61,18 +63,26 @@ internal static class BrandingHandlers<TContext, TSettings>
     private const string ImageRule = "The image must be a PNG, JPEG, WebP, GIF or ICO file of at most 2 MB.";
 
     // Return a validation problem keyed by the part, like the settings errors, so the app can show the reason.
-    private static ValidationProblem Refused(string field, string message) =>
-        TypedResults.ValidationProblem(new Dictionary<string, string[]> { [field] = [message] });
-
-    private static async Task<(string Data, string ContentType)?> ReadImageAsync(IFormFile file, CancellationToken cancellationToken)
+    private static ValidationProblem Refused(string field, string code, string message)
     {
-        // An empty file has no signature, so the check below refuses it.
+        var problem = new SiteSettingsProblem();
+        problem.Set(field, code, message);
+        return problem.ToResult();
+    }
+
+    /// <summary>Reads an accepted image, or gives the refusal for the part named <paramref name="field"/>.</summary>
+    private static async Task<((string Data, string ContentType) Image, ValidationProblem? Refusal)> ReadImageAsync(
+        string field, IFormFile file, CancellationToken cancellationToken)
+    {
         if (file.Length > MaxImageBytes)
-            return null;
+            return (default, Refused(field, SiteSettingsErrorCodes.ImageTooLarge, ImageRule));
         using var ms = new MemoryStream();
         await file.CopyToAsync(ms, cancellationToken);
         var bytes = ms.ToArray();
-        return ImageSignature.ContentType(bytes) is { } contentType ? (Convert.ToBase64String(bytes), contentType) : null;
+        // An empty file has no signature, so this refuses it.
+        return ImageSignature.ContentType(bytes) is { } contentType
+            ? ((Convert.ToBase64String(bytes), contentType), null)
+            : (default, Refused(field, SiteSettingsErrorCodes.InvalidImage, ImageRule));
     }
 }
 
