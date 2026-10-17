@@ -328,10 +328,10 @@ out blank ones. Pass the organization number as stored. The email writes the lin
 | `OrgNumber` | `VatRegistered` | Norwegian | English |
 | --- | --- | --- | --- |
 | `923202374` | `false` | `Org.nr. 923 202 374` | `Org. no. 923 202 374` |
-| `923202374` | `true` | `Org.nr. 923 202 374 MVA` | `Org. no. 923 202 374 VAT` |
+| `923202374` | `true` | `Org.nr. 923 202 374 MVA` | `Org. no. 923 202 374 MVA` |
 | Blank | Either | No line | No line |
 
-Nine digits, with or without spaces, are grouped in threes. Anything else is shown trimmed as given.
+Nine digits, with or without spaces, are grouped in threes. Anything else is shown trimmed as given. Both languages write `MVA`, because Norwegian bookkeeping rules (bokføringsforskriften § 5-1-2) put those letters after the organization number of a business in the VAT register, also in English.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
