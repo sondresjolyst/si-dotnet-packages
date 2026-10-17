@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.SiteSettings-v1.0.0...SjolystInnovation.AppKit.SiteSettings-v1.0.1) (2026-10-17)
+
+
+### Bug Fixes
+
+* **site-settings:** give the invalid image and too large image refusals their own messages ([#75](https://github.com/sondresjolyst/si-dotnet-packages/issues/75)) ([081db80](https://github.com/sondresjolyst/si-dotnet-packages/commit/081db805f8a471531e92111bce7285cff470e68a))
+
 ## [1.0.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.SiteSettings-v0.5.0...SjolystInnovation.AppKit.SiteSettings-v1.0.0) (2026-10-17)
 
 
