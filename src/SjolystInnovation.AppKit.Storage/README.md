@@ -78,3 +78,23 @@ The answer has `X-Content-Type-Options: nosniff` and a `Content-Disposition` of 
 `attachment`. Every type other than a raster image, PDF and SVG included, also gets
 `Content-Security-Policy: sandbox`, so a document shown inline cannot run script on your site. The file name goes in as plain ASCII `filename` and, when it has other letters such as `ø`,
 also as UTF-8 `filename*`. Quotes and line breaks in the name cannot break the header.
+
+## Storage usage
+
+`IAppKitStorageUsage` measures named stores for an admin page. `AddAppKitFileStore` registers it.
+
+```csharp
+var usage = await storageUsage.GetAsync([AppKitContentImages.StoreName, "reports"]);
+// { "storageUsedBytes": 73400320, "diskTotalBytes": 10737418240, "diskFreeBytes": 8589934592 }
+```
+
+| Field | |
+| --- | --- |
+| `StorageUsedBytes` | Every file in the stores, subdirectories included. A store whose directory does not exist yet counts as 0, and a store inside another listed one counts once. |
+| `DiskTotalBytes` | The size of the disk that holds the first store. |
+| `DiskFreeBytes` | The space free on that disk for the app. |
+
+The disk is the mount point that holds the store's directory, so a volume mounted at `/data` reports
+its own size, not the container's root file system. If the disk cannot be read, both disk fields are
+0 and the service logs a warning. A name that no store was registered under throws
+`InvalidOperationException`.

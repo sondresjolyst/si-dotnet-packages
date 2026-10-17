@@ -66,6 +66,19 @@ app.MapAppKitSiteSettings<ApplicationDbContext, AppSettings>("/api", o =>
 });
 ```
 
+## Contact recipient
+
+`ContactRecipientEmail` is the private address that your app's contact form sends enquiries to. An admin
+sets it with the other company fields, and it is required. It stays private: `GET company` never shows
+it, and only `GET settings` behind `Policy` does. Show `PublicEmail` on the site instead.
+
+The package sends no email itself. Your contact form endpoint reads the address from the row:
+
+```csharp
+var settings = await db.AppSettings.SingleAsync(ct);
+await email.SendAsync(new EmailMessage(settings.ContactRecipientEmail, subject, html) { ReplyTo = enquiry.Email }, ct);
+```
+
 ## Rules
 
 - The contact recipient and the public email must be email addresses of at most 200 characters.

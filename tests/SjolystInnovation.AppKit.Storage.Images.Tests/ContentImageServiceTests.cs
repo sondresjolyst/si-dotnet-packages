@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace SjolystInnovation.AppKit.Storage.Images.Tests;
@@ -30,6 +31,19 @@ public class ContentImageServiceTests
         Assert.Equal(4, image.Variants.Count);
         Assert.Equal(4, await app.WithDbAsync(db => db.Set<ContentImageVariant>().CountAsync(v => v.ContentImageId == image.Id)));
         Assert.Equal(5, app.Files().Length);
+    }
+
+    [Fact]
+    public async Task The_storage_usage_of_the_image_store_counts_the_images_and_their_renditions()
+    {
+        await using var app = await TestApp.StartAsync();
+        await CreateAsync(app, TestImages.Png(800, 400));
+
+        var usage = await app.Services.GetRequiredService<IAppKitStorageUsage>().GetAsync([AppKitContentImages.StoreName]);
+
+        Assert.Equal(Directory.GetFiles(app.Root).Sum(f => new FileInfo(f).Length), usage.StorageUsedBytes);
+        Assert.True(usage.StorageUsedBytes > 0);
+        Assert.True(usage.DiskTotalBytes > 0);
     }
 
     [Fact]

@@ -175,6 +175,47 @@ public sealed class UserAdminTests : IAsyncDisposable
 
     private bool Cached(string id) => _host!.Services.GetRequiredService<IMemoryCache>().TryGetValue(IdentityAndBearerExtensions.UserCheckKey(id), out _);
 
+    // Roles
+
+    [Fact]
+    public async Task Lists_the_configured_roles_in_their_order_as_a_plain_array()
+    {
+        await StartAsync();
+
+        var response = await SendAsync(HttpMethod.Get, "/api/users/roles");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("""["Admin","Editor","Default"]""", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Lists_only_the_configured_roles_not_every_role_in_the_database()
+    {
+        await StartAsync(o => o.Roles = ["Default", "Admin"]);
+
+        var response = await SendAsync(HttpMethod.Get, "/api/users/roles");
+
+        Assert.Equal(["Default", "Admin"], (await JsonAsync(response)).EnumerateArray().Select(r => r.GetString()));
+    }
+
+    [Fact]
+    public async Task Lists_no_roles_when_none_are_configured()
+    {
+        await StartAsync(o => o.Roles = []);
+
+        Assert.Equal("[]", await (await SendAsync(HttpMethod.Get, "/api/users/roles")).Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task The_roles_route_does_not_hide_a_user_called_roles()
+    {
+        await StartAsync();
+        await UserAsync("roles");
+
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Post, "/api/users/roles/roles", new { role = "Editor" })).StatusCode);
+        Assert.Equal(["Editor"], await RolesOfAsync("roles"));
+    }
+
     // Role change handlers
 
     [Fact]
@@ -259,7 +300,7 @@ public sealed class UserAdminTests : IAsyncDisposable
     {
         await StartAsync();
 
-        foreach (var (method, path) in new[] { (HttpMethod.Get, "/api/users"), (HttpMethod.Post, "/api/users/x/roles"), (HttpMethod.Delete, "/api/users/x/roles/Editor"), (HttpMethod.Post, "/api/users/invite") })
+        foreach (var (method, path) in new[] { (HttpMethod.Get, "/api/users"), (HttpMethod.Get, "/api/users/roles"), (HttpMethod.Post, "/api/users/x/roles"), (HttpMethod.Delete, "/api/users/x/roles/Editor"), (HttpMethod.Post, "/api/users/invite") })
         {
             Assert.Equal(HttpStatusCode.Unauthorized, (await SendAsync(method, path, new { }, caller: "")).StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await SendAsync(method, path, new { }, roles: "Default")).StatusCode);

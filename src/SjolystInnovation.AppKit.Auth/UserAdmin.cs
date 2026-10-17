@@ -50,7 +50,7 @@ public sealed record AppKitNewUser(string Email, string FirstName, string LastNa
 /// </summary>
 public sealed class AppKitUserAdminOptions<TUser>
 {
-    /// <summary>The roles an admin may give. The endpoints refuse any other role.</summary>
+    /// <summary>The roles an admin may give, as <c>GET roles</c> lists them. The endpoints refuse any other role.</summary>
     public IReadOnlyCollection<string> Roles { get; set; } = [];
 
     /// <summary>The authorization policy every endpoint requires. Defaults to <c>Admin</c>.</summary>
@@ -73,7 +73,8 @@ public static partial class UserAdminExtensions
     /// <summary>
     /// Maps the user admin endpoints under <paramref name="prefix"/>, behind
     /// <see cref="AppKitUserAdminOptions{TUser}.Policy"/>. <c>GET</c> lists users with their roles, and
-    /// <c>?includeDeleted=true</c> adds deleted users. <c>POST {id}/roles</c> and
+    /// <c>?includeDeleted=true</c> adds deleted users. <c>GET roles</c> lists
+    /// <see cref="AppKitUserAdminOptions{TUser}.Roles"/> in their order. <c>POST {id}/roles</c> and
     /// <c>DELETE {id}/roles/{role}</c> give and remove a role. <c>POST invite</c> creates an account
     /// without a password and emails its owner a code through <see cref="IAuthEmails{TUser}"/>. Nobody
     /// can remove the admin role from themselves or from the last active admin. The admin role is
@@ -98,6 +99,7 @@ public static partial class UserAdminExtensions
 
         var group = endpoints.MapGroup(prefix).RequireAuthorization(options.Policy);
         group.MapGet("", (HttpContext http, bool includeDeleted = false) => UserAdminHandlers<TUser, TContext>.ListAsync(http, includeDeleted));
+        group.MapGet("roles", handlers.ListRoles);
         group.MapPost("{id}/roles", (string id, AssignRoleRequest request, HttpContext http) => handlers.AddRoleAsync(id, request, http));
         group.MapDelete("{id}/roles/{role}", (string id, string role, HttpContext http) => handlers.RemoveRoleAsync(id, role, http));
         group.MapPost("invite", (InviteRequest request, HttpContext http) => handlers.InviteAsync(request, http));
@@ -218,6 +220,9 @@ internal sealed class UserAdminHandlers<TUser, TContext>(AppKitUserAdminOptions<
     private const string RoleAssignFailed = "Failed to assign role.";
 
     private bool KnownRole(string? role) => role is not null && options.Roles.Contains(role);
+
+    /// <summary>The roles an admin may give, in the order the app configured them.</summary>
+    public Ok<string[]> ListRoles() => TypedResults.Ok(options.Roles.ToArray());
 
     public static async Task<IResult> ListAsync(HttpContext http, bool includeDeleted)
     {
