@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace SjolystInnovation.AppKit.Auth;
 
@@ -30,33 +31,6 @@ internal sealed record ResetPasswordRequest(string? Email, string? Code, string?
 internal sealed record TokenResponse(string Token, string RefreshToken);
 internal sealed record MessageResponse(string Message);
 
-/// <summary>The messages the auth endpoints return. Defaults to English.</summary>
-public sealed class AuthMessages
-{
-    /// <summary>The message for a wrong email or password.</summary>
-    public string InvalidCredentials { get; set; } = "Invalid email or password.";
-    /// <summary>The message for a sign-in that is locked after too many failed attempts.</summary>
-    public string LockedOut { get; set; } = "Too many failed attempts. This login is temporarily locked, try again later.";
-    /// <summary>The message for an access token that cannot be read on refresh.</summary>
-    public string InvalidToken { get; set; } = "Invalid token";
-    /// <summary>The message for a refresh whose user is gone or not active.</summary>
-    public string UserNotFound { get; set; } = "User not found";
-    /// <summary>The message for a refresh token that is unknown, used, or expired.</summary>
-    public string InvalidRefreshToken { get; set; } = "Invalid or expired refresh token";
-    /// <summary>The message after a reset request, whether or not the address has an account.</summary>
-    public string ResetRequested { get; set; } = "If this email is registered, a reset code has been sent.";
-    /// <summary>The message for a wrong or expired reset code.</summary>
-    public string InvalidResetCode { get; set; } = "Invalid or expired reset code.";
-    /// <summary>The message when a reset code has had too many wrong attempts.</summary>
-    public string TooManyResetAttempts { get; set; } = "Too many attempts. Request a new reset code.";
-    /// <summary>The message after a successful password reset.</summary>
-    public string PasswordReset { get; set; } = "Password reset successfully.";
-    /// <summary>The validation message for a missing field.</summary>
-    public string Required { get; set; } = "Required.";
-    /// <summary>The validation message for a malformed email address.</summary>
-    public string InvalidEmail { get; set; } = "Not a valid email address.";
-}
-
 /// <summary>The options for <see cref="AuthEndpointsExtensions.MapAppKitAuth{TUser, TContext}"/>.</summary>
 public sealed class AppKitAuthEndpointOptions<TUser>
 {
@@ -66,9 +40,6 @@ public sealed class AppKitAuthEndpointOptions<TUser>
     /// set, every user is active.
     /// </summary>
     public Func<TUser, bool>? IsActive { get; set; }
-
-    /// <summary>The messages the endpoints return.</summary>
-    public AuthMessages Messages { get; } = new();
 }
 
 /// <summary>Maps the auth endpoints.</summary>
@@ -78,8 +49,9 @@ public static partial class AuthEndpointsExtensions
     /// Maps <c>login</c>, <c>refresh-token</c>, <c>logout</c>, <c>request-password-reset</c>, and
     /// <c>reset-password</c> under <paramref name="prefix"/>. All are anonymous POST endpoints. They need
     /// Identity with a <see cref="SignInManager{TUser}"/>, <see cref="AuthServiceCollectionExtensions.AddAppKitAuth{TContext}"/>,
-    /// and an <see cref="IAuthEmails{TUser}"/>. Errors return a <c>message</c>. A missing or malformed
-    /// field returns a validation problem.
+    /// and an <see cref="IAuthEmails{TUser}"/>. An error returns a <c>message</c> and a <c>code</c>. A
+    /// missing or malformed field, or a password Identity rejects, returns a validation problem with a
+    /// code for each field error. <see cref="AuthErrorCodes"/> lists the codes.
     /// </summary>
     public static RouteGroupBuilder MapAppKitAuth<TUser, TContext>(this IEndpointRouteBuilder endpoints,
         string prefix = "/api/auth", Action<AppKitAuthEndpointOptions<TUser>>? configure = null)
@@ -95,7 +67,7 @@ public static partial class AuthEndpointsExtensions
         var group = endpoints.MapGroup(prefix).AllowAnonymous();
         group.MapPost("login", (LoginRequest request, HttpContext http) => handlers.LoginAsync(request, http));
         group.MapPost("refresh-token", (RefreshTokenRequest request, HttpContext http) => handlers.RefreshAsync(request, http));
-        group.MapPost("logout", (LogoutRequest request, HttpContext http) => handlers.LogoutAsync(request, http));
+        group.MapPost("logout", (LogoutRequest request, HttpContext http) => AuthHandlers<TUser, TContext>.LogoutAsync(request, http));
         group.MapPost("request-password-reset", (PasswordResetRequest request, HttpContext http) => handlers.RequestResetAsync(request, http));
         group.MapPost("reset-password", (ResetPasswordRequest request, HttpContext http) => handlers.ResetAsync(request, http));
         return group;
@@ -124,25 +96,26 @@ internal sealed class AuthHandlers<TUser, TContext>(AppKitAuthEndpointOptions<TU
     where TUser : IdentityUser, IPasswordResetUser
     where TContext : DbContext, IAuthDbContext
 {
-    private AuthMessages M => options.Messages;
-
     private bool Active(TUser? user) => user is not null && (options.IsActive is null || options.IsActive(user));
 
     private static T Get<T>(HttpContext http) where T : notnull => http.RequestServices.GetRequiredService<T>();
 
-    private static JsonHttpResult<MessageResponse> Message(string message, int status) => TypedResults.Json(new MessageResponse(message), statusCode: status);
+    private const string InvalidCredentials = "Invalid email or password.";
+    private const string InvalidResetCode = "Invalid or expired reset code.";
 
-    private ValidationProblem? Validate(params (string Field, string? Value, bool IsEmail)[] fields)
+    private static JsonHttpResult<AuthError> Error(string code, string message, int status) => AuthResults.Error(code, message, status);
+
+    private static ValidationProblem? Validate(params (string Field, string? Value, bool IsEmail)[] fields)
     {
-        var errors = new Dictionary<string, string[]>();
+        var errors = new AuthFieldErrors();
         foreach (var (field, value, isEmail) in fields)
         {
             if (string.IsNullOrWhiteSpace(value))
-                errors[field] = [M.Required];
+                errors.Required(field);
             else if (isEmail && !LooksLikeEmail(value))
-                errors[field] = [M.InvalidEmail];
+                errors.Add(field, AuthErrorCodes.InvalidEmail, AuthFieldErrors.InvalidEmailMessage);
         }
-        return errors.Count == 0 ? null : TypedResults.ValidationProblem(errors);
+        return errors.Any ? errors.ToResult() : null;
     }
 
     // The same rule as FluentValidation's EmailAddress: one @ with something on both sides.
@@ -161,7 +134,7 @@ internal sealed class AuthHandlers<TUser, TContext>(AppKitAuthEndpointOptions<TU
 
         var user = await users.FindByEmailAsync(request.Email!);
         if (!Active(user))
-            return Message(M.InvalidCredentials, StatusCodes.Status401Unauthorized);
+            return Error(AuthErrorCodes.InvalidCredentials, InvalidCredentials, StatusCodes.Status401Unauthorized);
 
         var result = await signIn.PasswordSignInAsync(user!.UserName ?? string.Empty, request.Password!, isPersistent: false, lockoutOnFailure: true);
         if (!result.Succeeded)
@@ -169,10 +142,10 @@ internal sealed class AuthHandlers<TUser, TContext>(AppKitAuthEndpointOptions<TU
             if (result.IsLockedOut)
             {
                 AuthEndpointsExtensions.Log.LockedOut(logger, user.Id);
-                return Message(M.LockedOut, StatusCodes.Status401Unauthorized);
+                return Error(AuthErrorCodes.LockedOut, "Too many failed attempts. This login is temporarily locked, try again later.", StatusCodes.Status401Unauthorized);
             }
             AuthEndpointsExtensions.Log.SignInFailed(logger, user.Id);
-            return Message(M.InvalidCredentials, StatusCodes.Status401Unauthorized);
+            return Error(AuthErrorCodes.InvalidCredentials, InvalidCredentials, StatusCodes.Status401Unauthorized);
         }
 
         var token = jwt.Build(user, await users.GetRolesAsync(user));
@@ -189,23 +162,23 @@ internal sealed class AuthHandlers<TUser, TContext>(AppKitAuthEndpointOptions<TU
 
         var userId = jwt.ReadUserIdFromExpired(request.Token!);
         if (userId is null)
-            return Message(M.InvalidToken, StatusCodes.Status400BadRequest);
+            return Error(AuthErrorCodes.InvalidToken, "Invalid token", StatusCodes.Status400BadRequest);
 
         var user = await users.FindByIdAsync(userId);
         if (!Active(user))
-            return Message(M.UserNotFound, StatusCodes.Status401Unauthorized);
+            return Error(AuthErrorCodes.UserNotFound, "User not found", StatusCodes.Status401Unauthorized);
 
         var rotation = await refreshTokens.RotateAsync(user!.Id, request.RefreshToken!, http.RequestAborted);
         if (rotation.Status != RotationStatus.Rotated)
         {
             AuthEndpointsExtensions.Log.RefreshRefused(logger, user.Id, rotation.Status);
-            return Message(M.InvalidRefreshToken, StatusCodes.Status401Unauthorized);
+            return Error(AuthErrorCodes.InvalidRefreshToken, "Invalid or expired refresh token", StatusCodes.Status401Unauthorized);
         }
 
         return TypedResults.Ok(new TokenResponse(jwt.Build(user, await users.GetRolesAsync(user)), rotation.RefreshToken!));
     }
 
-    public async Task<IResult> LogoutAsync(LogoutRequest request, HttpContext http)
+    public static async Task<IResult> LogoutAsync(LogoutRequest request, HttpContext http)
     {
         var refreshTokens = Get<IRefreshTokenService>(http);
         if (Validate(("RefreshToken", request.RefreshToken, false)) is { } invalid)
@@ -232,7 +205,7 @@ internal sealed class AuthHandlers<TUser, TContext>(AppKitAuthEndpointOptions<TU
         }
 
         // An unknown address gets the same response, so the endpoint does not reveal who has an account.
-        return TypedResults.Ok(new MessageResponse(M.ResetRequested));
+        return TypedResults.Ok(new MessageResponse("If this email is registered, a reset code has been sent."));
     }
 
     public async Task<IResult> ResetAsync(ResetPasswordRequest request, HttpContext http)
@@ -243,27 +216,27 @@ internal sealed class AuthHandlers<TUser, TContext>(AppKitAuthEndpointOptions<TU
 
         var user = await users.FindByEmailAsync(request.Email!);
         if (!Active(user))
-            return Message(M.InvalidResetCode, StatusCodes.Status400BadRequest);
+            return Error(AuthErrorCodes.InvalidResetCode, InvalidResetCode, StatusCodes.Status400BadRequest);
 
         switch (PasswordResetCodes.Check(user!, request.Code!))
         {
             case CodeCheck.TooManyAttempts:
-                return Message(M.TooManyResetAttempts, StatusCodes.Status429TooManyRequests);
+                return Error(AuthErrorCodes.TooManyResetAttempts, "Too many attempts. Request a new reset code.", StatusCodes.Status429TooManyRequests);
             case CodeCheck.Invalid:
                 await users.UpdateAsync(user!);
-                return Message(M.InvalidResetCode, StatusCodes.Status400BadRequest);
+                return Error(AuthErrorCodes.InvalidResetCode, InvalidResetCode, StatusCodes.Status400BadRequest);
         }
 
         var token = await users.GeneratePasswordResetTokenAsync(user!);
         var result = await users.ResetPasswordAsync(user!, token, request.NewPassword!);
         if (!result.Succeeded)
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["NewPassword"] = result.Errors.Select(e => e.Description).ToArray() });
+            return new AuthFieldErrors().Password("NewPassword", result.Errors, Get<IOptions<IdentityOptions>>(http).Value.Password.RequiredLength).ToResult();
 
         PasswordResetCodes.Complete(user!);
         await users.UpdateAsync(user!);
         // A new password ends every session, so a session that someone took over cannot continue.
         var sessions = await refreshTokens.RevokeAllForUserAsync(user!.Id, http.RequestAborted);
         AuthEndpointsExtensions.Log.PasswordReset(logger, user.Id, sessions);
-        return TypedResults.Ok(new MessageResponse(M.PasswordReset));
+        return TypedResults.Ok(new MessageResponse("Password reset successfully."));
     }
 }

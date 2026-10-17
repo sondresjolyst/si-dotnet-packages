@@ -79,13 +79,11 @@ internal static class AccountHandlers<TUser>
 
     public static async Task<IResult> UpdateAsync(string id, UpdateProfileRequest request, HttpContext http)
     {
-        var errors = new Dictionary<string, string[]>();
-        if (string.IsNullOrWhiteSpace(request.FirstName) || request.FirstName.Length > 50)
-            errors["FirstName"] = ["Required, at most 50 characters."];
-        if (string.IsNullOrWhiteSpace(request.LastName) || request.LastName.Length > 50)
-            errors["LastName"] = ["Required, at most 50 characters."];
-        if (errors.Count > 0)
-            return TypedResults.ValidationProblem(errors);
+        var errors = new AuthFieldErrors();
+        errors.Name("FirstName", request.FirstName, 50);
+        errors.Name("LastName", request.LastName, 50);
+        if (errors.Any)
+            return errors.ToResult();
 
         var (user, refusal) = await FindAsync(id, http);
         if (refusal is not null)
@@ -93,18 +91,18 @@ internal static class AccountHandlers<TUser>
         user!.FirstName = request.FirstName!;
         user.LastName = request.LastName!;
         var result = await Get<UserManager<TUser>>(http).UpdateAsync(user);
-        return result.Succeeded ? TypedResults.Ok(Profile(user)) : Message("Failed to update profile.", StatusCodes.Status400BadRequest);
+        return result.Succeeded ? TypedResults.Ok(Profile(user)) : AuthResults.Error(AuthErrorCodes.ProfileUpdateFailed, "Failed to update profile.", StatusCodes.Status400BadRequest);
     }
 
     public static async Task<IResult> ChangePasswordAsync(string id, ChangePasswordRequest request, HttpContext http)
     {
-        var errors = new Dictionary<string, string[]>();
+        var errors = new AuthFieldErrors();
         if (string.IsNullOrWhiteSpace(request.CurrentPassword))
-            errors["CurrentPassword"] = ["Required."];
+            errors.Required("CurrentPassword");
         if (string.IsNullOrWhiteSpace(request.NewPassword))
-            errors["NewPassword"] = ["Required."];
-        if (errors.Count > 0)
-            return TypedResults.ValidationProblem(errors);
+            errors.Required("NewPassword");
+        if (errors.Any)
+            return errors.ToResult();
 
         var (user, refusal) = await FindAsync(id, http, selfOnly: true);
         if (refusal is not null)
@@ -112,7 +110,7 @@ internal static class AccountHandlers<TUser>
         var result = await Get<UserManager<TUser>>(http).ChangePasswordAsync(user!, request.CurrentPassword!, request.NewPassword!);
         return result.Succeeded
             ? TypedResults.Ok(new MessageResponse("Password changed."))
-            : TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["NewPassword"] = result.Errors.Select(e => e.Description).ToArray() });
+            : new AuthFieldErrors().Password("NewPassword", result.Errors, Get<IOptions<IdentityOptions>>(http).Value.Password.RequiredLength, currentField: "CurrentPassword").ToResult();
     }
 
     public static async Task<IResult> ExportAsync(string id, HttpContext http)
@@ -135,12 +133,14 @@ internal static class AccountHandlers<TUser>
         {
             await Get<IAccountDeleter<TUser>>(http).DeleteAsync(user!, http.RequestAborted);
         }
-        catch (Exception e) when (e is LastAdminException or AccountChangeConflictException)
+        catch (LastAdminException e)
         {
-            return Message(e.Message, StatusCodes.Status409Conflict);
+            return AuthResults.Error(AuthErrorCodes.LastAdmin, e.Message, StatusCodes.Status409Conflict);
+        }
+        catch (AccountChangeConflictException e)
+        {
+            return AuthResults.Error(AuthErrorCodes.AccountChangeConflict, e.Message, StatusCodes.Status409Conflict);
         }
         return TypedResults.NoContent();
     }
-
-    private static JsonHttpResult<MessageResponse> Message(string message, int status) => TypedResults.Json(new MessageResponse(message), statusCode: status);
 }

@@ -124,11 +124,71 @@ All endpoints are anonymous `POST` requests under the prefix:
 | `request-password-reset` | `email` | `200`, whether or not the address has an account. Emails a code to one that does. |
 | `reset-password` | `email`, `code`, `newPassword` | `200`, and every session ends. `429` after 5 wrong codes. |
 
-Refusals answer `{ message }` with `400` or `401`. A missing or malformed field answers a validation
-problem keyed by field, as does a password Identity rejects. If `IsActive` refuses a user, the
-endpoints treat the user like an unknown one. You can translate every message in `o.Messages`.
+Refusals answer `{ message, code }` with `400`, `401`, or `429`. A missing or malformed field answers a
+validation problem keyed by field, as does a password Identity rejects. Each error carries a stable
+code, so the app can show its own text. For the codes, see [Error codes](#error-codes). If `IsActive`
+refuses a user, the endpoints treat the user like an unknown one.
 
 The endpoints log user IDs, never email addresses.
+
+## Error codes
+
+Every error of the auth, account, and user admin endpoints carries a stable code from
+`AuthErrorCodes`, next to its English message. The app shows its own text for a code it knows, in its
+own language, and the English message for a code it does not.
+
+An error that belongs to no field answers a JSON body with the message and the code:
+
+```json
+{ "message": "Invalid email or password.", "code": "invalidCredentials" }
+```
+
+A field error answers a validation problem. The `codes` extension is keyed like `errors`, with one
+code for each message at the same place. The `limits` extension holds the number for `tooLong` and
+`passwordTooShort`:
+
+```json
+{
+  "errors": { "NewPassword": ["Passwords must be at least 8 characters.", "Passwords must have at least one digit ('0'-'9')."] },
+  "codes": { "NewPassword": ["passwordTooShort", "passwordRequiresDigit"] },
+  "limits": { "NewPassword": 8 }
+}
+```
+
+| Code | Endpoint | Status |
+| --- | --- | --- |
+| `invalidCredentials` | `login`. A wrong password, or an unknown or inactive user. | `401` |
+| `lockedOut` | `login`, after 5 failed sign-ins. | `401` |
+| `invalidToken` | `refresh-token`, when the access token cannot be read. | `400` |
+| `userNotFound` | `refresh-token`, when the user is gone or inactive. | `401` |
+| `invalidRefreshToken` | `refresh-token`, when the refresh token is unknown, used, or expired. | `401` |
+| `invalidResetCode` | `reset-password`. A wrong or expired code, or an unknown or inactive user. | `400` |
+| `tooManyResetAttempts` | `reset-password`, after 5 wrong codes. | `429` |
+| `profileUpdateFailed` | `PUT {id}/profile`, when Identity cannot save. | `400` |
+| `lastAdmin` | `DELETE {id}/account` and `DELETE {id}/roles/{role}`, for the last active admin. | `409` |
+| `accountChangeConflict` | `DELETE {id}/account`, when another change collided. A retry may succeed. | `409` |
+| `unknownRole` | `POST {id}/roles` and `DELETE {id}/roles/{role}`. On `invite` it is a field error on `Role`. | `400` |
+| `ownAdminRole` | `DELETE {id}/roles/{role}`, for the caller's own admin role. | `400` |
+| `roleAssignFailed` | `POST {id}/roles` and `invite`, when Identity cannot give the role. | `400` |
+| `roleRemoveFailed` | `DELETE {id}/roles/{role}`, when Identity cannot take the role. | `400` |
+| `emailTaken` | `invite`, for an email with an account. Also a field error on `Email` if Identity refuses a duplicate. | `409` |
+
+| Field code | Fields |
+| --- | --- |
+| `required` | Any required field that is blank. |
+| `invalidEmail` | `Email` on `login`, `request-password-reset`, `reset-password`, and `invite`. |
+| `tooLong` | `FirstName` and `LastName`, over 50 characters. The limit is in `limits`. |
+| `passwordTooShort` | `NewPassword`. Identity's required length is in `limits`. |
+| `passwordRequiresDigit`, `passwordRequiresLower`, `passwordRequiresUpper` | `NewPassword`. |
+| `passwordRequiresNonAlphanumeric`, `passwordRequiresUniqueChars` | `NewPassword`, when the app's Identity options require them. |
+| `weakPassword` | `NewPassword`, for any other password rule, such as one the app adds. |
+| `wrongPassword` | `CurrentPassword` on `PUT {id}/password`. |
+| `unknownRole` | `Role` on `invite`. |
+| `emailTaken` | `Email` on `invite`, when Identity refuses a duplicate. |
+
+`login` never says whether an email has an account, so it has no code for an unconfirmed email. A
+`429` from the rate limiter in `SjolystInnovation.AppKit.Hosting` has no code. The status says it all.
+Successful answers, such as `{ message }` after a reset, have no code. Show your own text for them.
 
 ## Emails
 
@@ -266,7 +326,7 @@ may act, except that only the user changes their own password.
 | --- | --- |
 | `GET {id}/profile` | `{ id, userName, firstName, lastName, email, createdAt }` |
 | `PUT {id}/profile` with `firstName`, `lastName` | The updated profile. Names are required, at most 50 characters. |
-| `PUT {id}/password` with `currentPassword`, `newPassword` | `200`. A wrong current password or a weak new one is a validation problem on `NewPassword`. |
+| `PUT {id}/password` with `currentPassword`, `newPassword` | `200`. A wrong current password is a validation problem on `CurrentPassword`, and a weak new one on `NewPassword`. |
 | `GET {id}/export` | `{ account, roles, exportedAt }`, plus `data` from an `IAccountDataExporter<TUser>` when the app registers one. |
 | `DELETE {id}/account` | `204` through `IAccountDeleter`. The last admin, or a change that collided with it, gives `409`. |
 

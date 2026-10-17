@@ -373,6 +373,7 @@ public sealed class UserAdminTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("Unknown role.", await MessageAsync(response));
+        Assert.Equal(AuthErrorCodes.UnknownRole, await ErrorJson.CodeAsync(response));
         Assert.Empty(await RolesOfAsync("al"));
     }
 
@@ -385,7 +386,7 @@ public sealed class UserAdminTests : IAsyncDisposable
         var response = await SendAsync(HttpMethod.Post, "/api/users/al/roles", new { role = " " });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.True((await JsonAsync(response)).GetProperty("errors").TryGetProperty("Role", out _));
+        Assert.Equal(["Role=required"], await ErrorJson.FieldCodesAsync(response));
     }
 
     [Fact]
@@ -422,6 +423,7 @@ public sealed class UserAdminTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("Unknown role.", await MessageAsync(response));
+        Assert.Equal(AuthErrorCodes.UnknownRole, await ErrorJson.CodeAsync(response));
     }
 
     [Fact]
@@ -435,6 +437,7 @@ public sealed class UserAdminTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("You cannot remove your own admin role.", await MessageAsync(response));
+        Assert.Equal(AuthErrorCodes.OwnAdminRole, await ErrorJson.CodeAsync(response));
         Assert.Equal(["Admin"], await RolesOfAsync("boss"));
     }
 
@@ -449,6 +452,7 @@ public sealed class UserAdminTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal("The last admin keeps the admin role. Give someone else the role first.", await MessageAsync(response));
+        Assert.Equal(AuthErrorCodes.LastAdmin, await ErrorJson.CodeAsync(response));
         Assert.Equal(["Admin"], await RolesOfAsync("last"));
     }
 
@@ -546,6 +550,7 @@ public sealed class UserAdminTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("Failed to assign role.", await MessageAsync(response));
+        Assert.Equal(AuthErrorCodes.RoleAssignFailed, await ErrorJson.CodeAsync(response));
         using var scope = _host!.Services.CreateScope();
         Assert.Empty(scope.ServiceProvider.GetRequiredService<IdentityTestDbContext>().Users);
         Assert.Empty(_emails.Invites);
@@ -561,17 +566,18 @@ public sealed class UserAdminTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal("That email already has an account.", await MessageAsync(response));
+        Assert.Equal(AuthErrorCodes.EmailTaken, await ErrorJson.CodeAsync(response));
         Assert.Empty(_emails.Invites);
     }
 
     [Theory]
-    [InlineData(null, "Kari", "N", "Editor", "Email")]
-    [InlineData("nope", "Kari", "N", "Editor", "Email")]
-    [InlineData("a@b.invalid", " ", "N", "Editor", "FirstName")]
-    [InlineData("a@b.invalid", "Kari", "", "Editor", "LastName")]
-    [InlineData("a@b.invalid", "Kari", "N", "Root", "Role")]
-    [InlineData("a@b.invalid", "Kari", "N", null, "Role")]
-    public async Task Inviting_with_a_bad_field_is_a_validation_problem(string? email, string? first, string? last, string? role, string field)
+    [InlineData(null, "Kari", "N", "Editor", "Email", "required")]
+    [InlineData("nope", "Kari", "N", "Editor", "Email", "invalidEmail")]
+    [InlineData("a@b.invalid", " ", "N", "Editor", "FirstName", "required")]
+    [InlineData("a@b.invalid", "Kari", "", "Editor", "LastName", "required")]
+    [InlineData("a@b.invalid", "Kari", "N", "Root", "Role", "unknownRole")]
+    [InlineData("a@b.invalid", "Kari", "N", null, "Role", "required")]
+    public async Task Inviting_with_a_bad_field_is_a_validation_problem(string? email, string? first, string? last, string? role, string field, string code)
     {
         await StartAsync();
 
@@ -579,6 +585,7 @@ public sealed class UserAdminTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal([field], (await JsonAsync(response)).GetProperty("errors").EnumerateObject().Select(p => p.Name));
+        Assert.Equal([$"{field}={code}"], await ErrorJson.FieldCodesAsync(response));
         Assert.Empty(_emails.Invites);
     }
 
@@ -592,6 +599,8 @@ public sealed class UserAdminTests : IAsyncDisposable
         var response = await SendAsync(HttpMethod.Post, "/api/users/invite", new { email = "a@b.invalid", firstName = new string('x', first), lastName = new string('y', last), role = "Editor" });
 
         Assert.Equal([field], (await JsonAsync(response)).GetProperty("errors").EnumerateObject().Select(p => p.Name));
+        Assert.Equal([$"{field}=tooLong"], await ErrorJson.FieldCodesAsync(response));
+        Assert.Equal([$"{field}=50"], await ErrorJson.LimitsAsync(response));
     }
 
     [Fact]
@@ -601,7 +610,7 @@ public sealed class UserAdminTests : IAsyncDisposable
 
         var response = await SendAsync(HttpMethod.Post, "/api/users/invite", new { email = new string('a', 190) + "@example.invalid", firstName = "K", lastName = "N", role = "Editor" });
 
-        Assert.Equal(["Email"], (await JsonAsync(response)).GetProperty("errors").EnumerateObject().Select(p => p.Name));
+        Assert.Equal(["Email=invalidEmail"], await ErrorJson.FieldCodesAsync(response));
     }
 
     // Seeding

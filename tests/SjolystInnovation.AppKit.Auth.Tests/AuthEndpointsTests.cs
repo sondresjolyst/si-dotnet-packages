@@ -138,6 +138,7 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Equal("Invalid email or password.", await MessageAsync(response));
+        Assert.Equal(AuthErrorCodes.InvalidCredentials, await ErrorJson.CodeAsync(response));
         Assert.Equal(1, Db(db => db.Users.Single().AccessFailedCount));
         Assert.Equal(0, Db(db => db.RefreshTokens.Count()));
     }
@@ -151,6 +152,7 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Equal("Invalid email or password.", await MessageAsync(response));
+        Assert.Equal(AuthErrorCodes.InvalidCredentials, await ErrorJson.CodeAsync(response));
     }
 
     [Fact]
@@ -163,6 +165,7 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Equal("Invalid email or password.", await MessageAsync(response));
+        Assert.Equal(AuthErrorCodes.InvalidCredentials, await ErrorJson.CodeAsync(response));
         Assert.Equal(0, Db(db => db.Users.Single().AccessFailedCount));
     }
 
@@ -178,16 +181,32 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Equal("Too many failed attempts. This login is temporarily locked, try again later.", await MessageAsync(response));
+        Assert.Equal(AuthErrorCodes.LockedOut, await ErrorJson.CodeAsync(response));
+    }
+
+    [Theory]
+    [InlineData(null, null, "Email=required", "Password=required")]
+    [InlineData(" ", "x", "Email=required")]
+    [InlineData("not-an-email", "", "Email=invalidEmail", "Password=required")]
+    public async Task Login_field_errors_carry_a_code_for_each_message(string? email, string? password, params string[] codes)
+    {
+        await StartAsync();
+
+        var response = await PostAsync("login", new { email, password });
+
+        Assert.Equal(codes, await ErrorJson.FieldCodesAsync(response));
+        Assert.Empty(await ErrorJson.LimitsAsync(response));
     }
 
     [Fact]
-    public async Task Login_messages_can_be_changed()
+    public async Task Field_errors_keep_their_English_messages()
     {
-        await StartAsync(o => o.Messages.InvalidCredentials = "Feil e-post eller passord.");
+        await StartAsync();
 
-        var response = await PostAsync("login", new { email = "ghost@example.invalid", password = Password });
+        var response = await PostAsync("login", new { email = "nope" });
 
-        Assert.Equal("Feil e-post eller passord.", await MessageAsync(response));
+        Assert.Equal(["Not a valid email address."], await ErrorJson.MessagesAsync(response, "Email"));
+        Assert.Equal(["Required."], await ErrorJson.MessagesAsync(response, "Password"));
     }
 
     [Theory]
@@ -245,6 +264,7 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("Invalid token", await MessageAsync(response));
+        Assert.Equal(AuthErrorCodes.InvalidToken, await ErrorJson.CodeAsync(response));
     }
 
     [Fact]
@@ -259,6 +279,7 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Equal("User not found", await MessageAsync(response));
+        Assert.Equal(AuthErrorCodes.UserNotFound, await ErrorJson.CodeAsync(response));
     }
 
     [Fact]
@@ -272,6 +293,7 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Equal("Invalid or expired refresh token", await MessageAsync(response));
+        Assert.Equal(AuthErrorCodes.InvalidRefreshToken, await ErrorJson.CodeAsync(response));
     }
 
     [Fact]
@@ -297,6 +319,7 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(["RefreshToken", "Token"], await ErrorFieldsAsync(response));
+        Assert.Equal(["RefreshToken=required", "Token=required"], await ErrorJson.FieldCodesAsync(response));
     }
 
     // Logout
@@ -331,6 +354,7 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(["RefreshToken"], await ErrorFieldsAsync(response));
+        Assert.Equal(["RefreshToken=required"], await ErrorJson.FieldCodesAsync(response));
     }
 
     // Password reset
@@ -374,7 +398,7 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
         var response = await PostAsync("request-password-reset", new { email = "nope" });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(["Email"], await ErrorFieldsAsync(response));
+        Assert.Equal(["Email=invalidEmail"], await ErrorJson.FieldCodesAsync(response));
     }
 
     private async Task<string> CodeForAsync(string id = "u1")
@@ -439,6 +463,7 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("Invalid or expired reset code.", await MessageAsync(response));
+        Assert.Equal(AuthErrorCodes.InvalidResetCode, await ErrorJson.CodeAsync(response));
         Assert.Equal(1, Db(db => db.Users.Single().PasswordResetAttempts));
     }
 
@@ -455,6 +480,7 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
         Assert.Equal("Too many attempts. Request a new reset code.", await MessageAsync(response));
+        Assert.Equal(AuthErrorCodes.TooManyResetAttempts, await ErrorJson.CodeAsync(response));
     }
 
     [Fact]
@@ -468,7 +494,9 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
         var weak = await PostAsync("reset-password", new { email = "u1@example.invalid", code, newPassword = "short" });
 
         Assert.Equal(HttpStatusCode.BadRequest, weak.StatusCode);
-        Assert.Equal(["NewPassword"], await ErrorFieldsAsync(weak));
+        Assert.Equal(["NewPassword=passwordTooShort,passwordRequiresDigit,passwordRequiresUpper"], await ErrorJson.FieldCodesAsync(weak));
+        Assert.Equal(["NewPassword=8"], await ErrorJson.LimitsAsync(weak));
+        Assert.Contains("Passwords must be at least 8 characters.", await ErrorJson.MessagesAsync(weak, "NewPassword"));
         Assert.Equal(1, Db(db => db.RefreshTokens.Count(t => t.Revoked == null)));
         Assert.Equal(HttpStatusCode.OK, (await PostAsync("reset-password", new { email = "u1@example.invalid", code, newPassword = "NewPassword2" })).StatusCode);
     }
@@ -486,8 +514,23 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, inactive.StatusCode);
         Assert.Equal("Invalid or expired reset code.", await MessageAsync(inactive));
+        Assert.Equal(AuthErrorCodes.InvalidResetCode, await ErrorJson.CodeAsync(inactive));
         Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
         Assert.Equal("Invalid or expired reset code.", await MessageAsync(unknown));
+        Assert.Equal(AuthErrorCodes.InvalidResetCode, await ErrorJson.CodeAsync(unknown));
+    }
+
+    [Fact]
+    public async Task A_password_without_a_lowercase_letter_has_its_own_code_and_no_limit()
+    {
+        await StartAsync();
+        await UserAsync();
+        var code = await CodeForAsync();
+
+        var weak = await PostAsync("reset-password", new { email = "u1@example.invalid", code, newPassword = "PASSWORD12" });
+
+        Assert.Equal(["NewPassword=passwordRequiresLower"], await ErrorJson.FieldCodesAsync(weak));
+        Assert.Empty(await ErrorJson.LimitsAsync(weak));
     }
 
     [Fact]
@@ -498,7 +541,7 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
         var response = await PostAsync("reset-password", new { email = "u1@example.invalid" });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(["Code", "NewPassword"], await ErrorFieldsAsync(response));
+        Assert.Equal(["Code=required", "NewPassword=required"], await ErrorJson.FieldCodesAsync(response));
     }
 
     [Fact]

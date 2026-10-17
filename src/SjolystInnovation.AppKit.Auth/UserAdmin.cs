@@ -212,7 +212,10 @@ internal sealed class UserAdminHandlers<TUser, TContext>(AppKitUserAdminOptions<
 {
     private static T Get<T>(HttpContext http) where T : notnull => http.RequestServices.GetRequiredService<T>();
 
-    private static JsonHttpResult<MessageResponse> Message(string message, int status) => TypedResults.Json(new MessageResponse(message), statusCode: status);
+    private static JsonHttpResult<AuthError> Error(string code, string message, int status) => AuthResults.Error(code, message, status);
+
+    private const string UnknownRole = "Unknown role.";
+    private const string RoleAssignFailed = "Failed to assign role.";
 
     private bool KnownRole(string? role) => role is not null && options.Roles.Contains(role);
 
@@ -238,9 +241,9 @@ internal sealed class UserAdminHandlers<TUser, TContext>(AppKitUserAdminOptions<
     public async Task<IResult> AddRoleAsync(string id, AssignRoleRequest request, HttpContext http)
     {
         if (string.IsNullOrWhiteSpace(request.Role))
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["Role"] = ["Required."] });
+            return new AuthFieldErrors().Required("Role").ToResult();
         if (!KnownRole(request.Role))
-            return Message("Unknown role.", StatusCodes.Status400BadRequest);
+            return Error(AuthErrorCodes.UnknownRole, UnknownRole, StatusCodes.Status400BadRequest);
 
         var users = Get<UserManager<TUser>>(http);
         var user = await users.FindByIdAsync(id);
@@ -251,7 +254,7 @@ internal sealed class UserAdminHandlers<TUser, TContext>(AppKitUserAdminOptions<
 
         var result = await users.AddToRoleAsync(user, request.Role);
         if (!result.Succeeded)
-            return Message("Failed to assign role.", StatusCodes.Status400BadRequest);
+            return Error(AuthErrorCodes.RoleAssignFailed, RoleAssignFailed, StatusCodes.Status400BadRequest);
         await RolesChangedAsync(user, http);
         return TypedResults.Ok(new MessageResponse("Role assigned."));
     }
@@ -259,11 +262,11 @@ internal sealed class UserAdminHandlers<TUser, TContext>(AppKitUserAdminOptions<
     public async Task<IResult> RemoveRoleAsync(string id, string role, HttpContext http)
     {
         if (!KnownRole(role))
-            return Message("Unknown role.", StatusCodes.Status400BadRequest);
+            return Error(AuthErrorCodes.UnknownRole, UnknownRole, StatusCodes.Status400BadRequest);
         var callerId = http.User.GetUserId();
         var isAdminRole = string.Equals(role, adminRole, StringComparison.Ordinal);
         if (isAdminRole && id == callerId)
-            return Message("You cannot remove your own admin role.", StatusCodes.Status400BadRequest);
+            return Error(AuthErrorCodes.OwnAdminRole, "You cannot remove your own admin role.", StatusCodes.Status400BadRequest);
 
         var users = Get<UserManager<TUser>>(http);
         var user = await users.FindByIdAsync(id);
@@ -272,32 +275,34 @@ internal sealed class UserAdminHandlers<TUser, TContext>(AppKitUserAdminOptions<
 
         if (isAdminRole && !user.IsDeleted && await users.IsInRoleAsync(user, role)
             && (await users.GetUsersInRoleAsync(role)).Count(a => !a.IsDeleted) <= 1)
-            return Message("The last admin keeps the admin role. Give someone else the role first.", StatusCodes.Status409Conflict);
+            return Error(AuthErrorCodes.LastAdmin, "The last admin keeps the admin role. Give someone else the role first.", StatusCodes.Status409Conflict);
 
         var result = await users.RemoveFromRoleAsync(user, role);
         if (!result.Succeeded)
-            return Message("Failed to remove role.", StatusCodes.Status400BadRequest);
+            return Error(AuthErrorCodes.RoleRemoveFailed, "Failed to remove role.", StatusCodes.Status400BadRequest);
         await RolesChangedAsync(user, http);
         return TypedResults.NoContent();
     }
 
     public async Task<IResult> InviteAsync(InviteRequest request, HttpContext http)
     {
-        var errors = new Dictionary<string, string[]>();
-        if (string.IsNullOrWhiteSpace(request.Email) || !LooksLikeEmail(request.Email) || request.Email.Length > 200)
-            errors["Email"] = ["Not a valid email address."];
-        if (string.IsNullOrWhiteSpace(request.FirstName) || request.FirstName.Length > 50)
-            errors["FirstName"] = ["Required, at most 50 characters."];
-        if (string.IsNullOrWhiteSpace(request.LastName) || request.LastName.Length > 50)
-            errors["LastName"] = ["Required, at most 50 characters."];
-        if (!KnownRole(request.Role))
-            errors["Role"] = ["Unknown role."];
-        if (errors.Count > 0)
-            return TypedResults.ValidationProblem(errors);
+        var errors = new AuthFieldErrors();
+        if (string.IsNullOrWhiteSpace(request.Email))
+            errors.Required("Email");
+        else if (!LooksLikeEmail(request.Email) || request.Email.Length > 200)
+            errors.Add("Email", AuthErrorCodes.InvalidEmail, AuthFieldErrors.InvalidEmailMessage);
+        errors.Name("FirstName", request.FirstName, 50);
+        errors.Name("LastName", request.LastName, 50);
+        if (string.IsNullOrWhiteSpace(request.Role))
+            errors.Required("Role");
+        else if (!KnownRole(request.Role))
+            errors.Add("Role", AuthErrorCodes.UnknownRole, UnknownRole);
+        if (errors.Any)
+            return errors.ToResult();
 
         var users = Get<UserManager<TUser>>(http);
         if (await users.FindByEmailAsync(request.Email!) is not null)
-            return Message("That email already has an account.", StatusCodes.Status409Conflict);
+            return Error(AuthErrorCodes.EmailTaken, "That email already has an account.", StatusCodes.Status409Conflict);
 
         var user = options.NewUser!(new AppKitNewUser(request.Email!, request.FirstName!, request.LastName!));
         user.UserName ??= request.Email;
@@ -305,13 +310,13 @@ internal sealed class UserAdminHandlers<TUser, TContext>(AppKitUserAdminOptions<
         user.EmailConfirmed = true;
         var created = await users.CreateAsync(user);
         if (!created.Succeeded)
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["Email"] = created.Errors.Select(e => e.Description).ToArray() });
+            return InvalidNewAccount(created.Errors);
 
         if (!await TryAddRoleAsync(users, user, request.Role!))
         {
             // Delete the half-made account, so the invite can be sent again.
             await users.DeleteAsync(user);
-            return Message("Failed to assign role.", StatusCodes.Status400BadRequest);
+            return Error(AuthErrorCodes.RoleAssignFailed, RoleAssignFailed, StatusCodes.Status400BadRequest);
         }
         var code = PasswordResetCodes.Issue(user, lifetime: options.InviteLifetime);
         await users.UpdateAsync(user);
@@ -319,6 +324,21 @@ internal sealed class UserAdminHandlers<TUser, TContext>(AppKitUserAdminOptions<
         await Get<IAuthEmails<TUser>>(http).SendInviteAsync(user, code, http.RequestAborted);
         UserAdminExtensions.Log.Invited(logger, user.Id, request.Role!);
         return TypedResults.Ok(new MessageResponse("Invitation sent."));
+    }
+
+    /// <summary>
+    /// Keys Identity's errors for a new account by <c>Email</c>, as <c>emailTaken</c> for a taken email or
+    /// user name and <c>invalidEmail</c> otherwise.
+    /// </summary>
+    internal static ValidationProblem InvalidNewAccount(IEnumerable<IdentityError> identityErrors)
+    {
+        var errors = new AuthFieldErrors();
+        foreach (var error in identityErrors)
+        {
+            var taken = error.Code is nameof(IdentityErrorDescriber.DuplicateEmail) or nameof(IdentityErrorDescriber.DuplicateUserName);
+            errors.Add("Email", taken ? AuthErrorCodes.EmailTaken : AuthErrorCodes.InvalidEmail, error.Description);
+        }
+        return errors.ToResult();
     }
 
     // Drop the user's cached roles from the bearer check, so the change applies at once on this instance.
