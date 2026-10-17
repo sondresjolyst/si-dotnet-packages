@@ -49,13 +49,18 @@ internal sealed class TestApp : IAsyncDisposable
     }
 
     public Task<HttpContext> SendAsync(string path, string remoteIp = "203.0.113.9", string method = "GET",
-        Dictionary<string, string>? headers = null, string scheme = "http", string host = "api.example.com") =>
+        Dictionary<string, string>? headers = null, string scheme = "http", string host = "api.example.com",
+        string? query = null, Stream? body = null) =>
         _host.GetTestServer().SendAsync(c =>
         {
             c.Request.Method = method;
             c.Request.Scheme = scheme;
             c.Request.Host = new HostString(host);
             c.Request.Path = path;
+            if (query is not null)
+                c.Request.QueryString = new QueryString(query);
+            if (body is not null)
+                c.Request.Body = body;
             c.Connection.RemoteIpAddress = IPAddress.Parse(remoteIp);
             foreach (var (name, value) in headers ?? [])
                 c.Request.Headers[name] = value;
