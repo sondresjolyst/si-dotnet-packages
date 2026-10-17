@@ -5,6 +5,10 @@ using Microsoft.EntityFrameworkCore;
 namespace SjolystInnovation.AppKit.SiteSettings;
 
 /// <summary>The stored site logo and icon, for the site's header and favicon.</summary>
+/// <param name="LogoData">The logo image as base64, or null if there is none.</param>
+/// <param name="LogoContentType">The logo's content type, or null if there is no logo.</param>
+/// <param name="IconData">The icon image as base64, or null if there is none.</param>
+/// <param name="IconContentType">The icon's content type, or null if there is no icon.</param>
 public sealed record BrandingInfo(string? LogoData, string? LogoContentType, string? IconData, string? IconContentType);
 
 internal static class BrandingHandlers<TContext, TSettings>

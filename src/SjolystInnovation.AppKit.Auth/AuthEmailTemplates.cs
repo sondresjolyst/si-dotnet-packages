@@ -47,7 +47,10 @@ public interface IEmailBrand
 /// <summary>The language the auth emails are written in.</summary>
 public enum EmailLanguage
 {
+    /// <summary>English.</summary>
     English,
+
+    /// <summary>Norwegian Bokmål.</summary>
     Norwegian,
 }
 

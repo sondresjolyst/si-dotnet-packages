@@ -111,6 +111,17 @@ public sealed record SiteSettingsSaving(ICompanySettings Settings, SiteSettingsB
 public sealed record SiteSettingsSaved(ICompanySettings Settings, SiteSettingsPart Part, HttpContext Http);
 
 /// <summary>The settings an admin reads and writes.</summary>
+/// <param name="ContactRecipientEmail">The address the contact form sends its messages to.</param>
+/// <param name="CompanyName">The company name shown on the site.</param>
+/// <param name="CompanyLegalName">The registered name.</param>
+/// <param name="OrgNumber">The Norwegian organization number.</param>
+/// <param name="VatRegistered">Whether the business is VAT registered.</param>
+/// <param name="StreetAddress">The street address.</param>
+/// <param name="PostalCode">The Norwegian postal code.</param>
+/// <param name="AddressLocality">The place name that goes with the postal code.</param>
+/// <param name="AddressRegion">The county.</param>
+/// <param name="PublicEmail">The public contact email address.</param>
+/// <param name="PublicPhone">The public phone number.</param>
 public sealed record SiteSettingsBody(
     string? ContactRecipientEmail,
     string? CompanyName,
@@ -128,6 +139,17 @@ public sealed record SiteSettingsBody(
 /// The public company info. <paramref name="Address"/> is the one-line form for display. The separate
 /// parts are what structured data needs.
 /// </summary>
+/// <param name="Name">The company name shown on the site.</param>
+/// <param name="LegalName">The registered name, or the company name while that is blank.</param>
+/// <param name="OrgNumber">The Norwegian organization number. Blank until the company is registered.</param>
+/// <param name="VatRegistered">Whether the business is VAT registered.</param>
+/// <param name="Address">The address on one line, for display.</param>
+/// <param name="StreetAddress">The street address.</param>
+/// <param name="PostalCode">The Norwegian postal code.</param>
+/// <param name="AddressLocality">The place name that goes with the postal code.</param>
+/// <param name="AddressRegion">The county.</param>
+/// <param name="Email">The public contact email address.</param>
+/// <param name="Phone">The public phone number. Empty while none is set.</param>
 public sealed record CompanyInfo(
     string Name,
     string LegalName,

@@ -14,6 +14,8 @@ public sealed record EmailMessage(string To, string Subject, string HtmlBody)
 }
 
 /// <summary>A file sent with an email. The provider takes its type from the file name's extension.</summary>
+/// <param name="Name">The file name, such as <c>invoice-0007.pdf</c>. Its extension sets the type.</param>
+/// <param name="Content">The file's bytes.</param>
 public sealed record EmailAttachment(string Name, byte[] Content);
 
 /// <summary>The result of sending an email, including whether the provider accepted it for delivery.</summary>
@@ -23,6 +25,14 @@ public sealed record EmailAttachment(string Name, byte[] Content);
 public sealed record EmailResult(bool Sent, string? MessageId = null, string? Error = null);
 
 /// <summary>The delivery counts over the last days, including today.</summary>
+/// <param name="Days">The number of days the counts cover.</param>
+/// <param name="Requests">The emails sent to the provider.</param>
+/// <param name="Delivered">The emails delivered.</param>
+/// <param name="HardBounces">The emails refused for good, such as to an address that does not exist.</param>
+/// <param name="SoftBounces">The emails refused for now, such as to a full mailbox.</param>
+/// <param name="SpamReports">The emails that recipients marked as spam.</param>
+/// <param name="Blocked">The emails the provider did not send, such as to an address that bounced before.</param>
+/// <param name="Invalid">The emails to an address that is not valid.</param>
 public sealed record EmailStats(int Days, int Requests, int Delivered, int HardBounces, int SoftBounces, int SpamReports, int Blocked, int Invalid);
 
 /// <summary>Sends transactional email.</summary>
