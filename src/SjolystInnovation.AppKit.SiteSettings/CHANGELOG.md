@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.SiteSettings-v0.5.0...SjolystInnovation.AppKit.SiteSettings-v1.0.0) (2026-10-17)
+
+
+### Features
+
+* **site-settings:** return a stable code for each legal page and branding error ([#59](https://github.com/sondresjolyst/si-dotnet-packages/issues/59)) ([9e172e9](https://github.com/sondresjolyst/si-dotnet-packages/commit/9e172e9476d2dc5560b84598d3a1057ea22c1539)), closes [#48](https://github.com/sondresjolyst/si-dotnet-packages/issues/48) [#49](https://github.com/sondresjolyst/si-dotnet-packages/issues/49)
+
 ## [0.5.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.SiteSettings-v0.4.0...SjolystInnovation.AppKit.SiteSettings-v0.5.0) (2026-10-17)
 
 
