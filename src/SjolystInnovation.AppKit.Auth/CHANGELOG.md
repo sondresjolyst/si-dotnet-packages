@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v1.0.0...SjolystInnovation.AppKit.Auth-v1.0.1) (2026-10-17)
+
+
+### Bug Fixes
+
+* **auth:** write MVA after the organization number in English emails too ([#73](https://github.com/sondresjolyst/si-dotnet-packages/issues/73)) ([a2ea028](https://github.com/sondresjolyst/si-dotnet-packages/commit/a2ea0283cb71db354b81d7e6f225f76079966502))
+
 ## [1.0.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v0.9.0...SjolystInnovation.AppKit.Auth-v1.0.0) (2026-10-17)
 
 
