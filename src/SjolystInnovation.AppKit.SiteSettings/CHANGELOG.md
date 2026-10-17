@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.SiteSettings-v0.4.0...SjolystInnovation.AppKit.SiteSettings-v0.5.0) (2026-10-17)
+
+
+### Features
+
+* **site-settings:** add page sections with AddAppKitPageSections and MapAppKitPageSections ([#56](https://github.com/sondresjolyst/si-dotnet-packages/issues/56)) ([60f9ad5](https://github.com/sondresjolyst/si-dotnet-packages/commit/60f9ad50bee0f5fce5cb52befdaf4667974eb6c2))
+
 ## [0.4.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.SiteSettings-v0.3.0...SjolystInnovation.AppKit.SiteSettings-v0.4.0) (2026-10-17)
 
 
