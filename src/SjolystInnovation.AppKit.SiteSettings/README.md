@@ -68,7 +68,9 @@ app.MapAppKitSiteSettings<ApplicationDbContext, AppSettings>("/api", o =>
 ## Rules
 
 - The contact recipient and the public email must be email addresses of at most 200 characters.
-- The company name, street address, and public phone are required.
+- The company name and street address are required.
+- The public phone is optional and at most 40 characters. While it is blank, `GET company` answers an
+  empty `phone`.
 - The organization number is nine digits with a modulus 11 check digit, spaces allowed. It may be
   blank until the business is registered, but not while it is VAT registered.
 - A postal code is four digits and needs the place that goes with it. Neither is required.
