@@ -83,8 +83,8 @@ public interface IAppKitFileStore
 public static class FileStoreServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers a file store as a keyed <see cref="IAppKitFileStore"/> under <paramref name="name"/>. The
-    /// app fails to start without a <see cref="AppKitFileStoreOptions.Path"/>, a positive
+    /// Registers a file store as a keyed <see cref="IAppKitFileStore"/> under <paramref name="name"/>, and
+    /// <see cref="IAppKitStorageUsage"/> to measure the stores. The app fails to start without a <see cref="AppKitFileStoreOptions.Path"/>, a positive
     /// <see cref="AppKitFileStoreOptions.MaxBytes"/>, and at least one allowed kind.
     /// </summary>
     /// <param name="services">The service collection.</param>
@@ -105,6 +105,7 @@ public static class FileStoreServiceCollectionExtensions
         services.TryAddKeyedSingleton<IAppKitFileStore>(name, (sp, _) => new LocalFileStore(
             sp.GetRequiredService<IOptionsMonitor<AppKitFileStoreOptions>>().Get(name),
             sp.GetRequiredService<ILogger<LocalFileStore>>()));
+        services.TryAddSingleton<IAppKitStorageUsage, StorageUsage>();
         return services;
     }
 }

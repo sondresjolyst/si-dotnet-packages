@@ -105,3 +105,12 @@ and is then resized. If a width fails, the renditions already written are delete
 `NotSupportedException` for them. It also checks the references first and deletes after, in separate
 queries. A reference that another request adds between the check and the delete can lose its image. The
 apps edit content as a single admin, so that window is acceptable there.
+
+## Storage usage
+
+The images live in the file store `AppKitContentImages.StoreName`, so `IAppKitStorageUsage` from
+`SjolystInnovation.AppKit.Storage` measures them, together with any other store you name:
+
+```csharp
+var usage = await storageUsage.GetAsync([AppKitContentImages.StoreName]);
+```
