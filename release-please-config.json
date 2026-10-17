@@ -7,7 +7,6 @@
       "release-type": "simple",
       "component": "SjolystInnovation.AppKit.AdminStats",
       "initial-version": "0.1.0",
-      "release-as": "1.0.0",
       "extra-files": [
         "SjolystInnovation.AppKit.AdminStats.csproj"
       ],
@@ -59,7 +58,6 @@
       "release-type": "simple",
       "component": "SjolystInnovation.AppKit.Auth",
       "initial-version": "0.1.0",
-      "release-as": "1.0.0",
       "extra-files": [
         "SjolystInnovation.AppKit.Auth.csproj"
       ],
@@ -111,7 +109,6 @@
       "release-type": "simple",
       "component": "SjolystInnovation.AppKit.Email",
       "initial-version": "0.1.0",
-      "release-as": "1.0.0",
       "extra-files": [
         "SjolystInnovation.AppKit.Email.csproj"
       ],
@@ -163,7 +160,6 @@
       "release-type": "simple",
       "component": "SjolystInnovation.AppKit.Hosting",
       "initial-version": "0.1.0",
-      "release-as": "1.0.0",
       "extra-files": [
         "SjolystInnovation.AppKit.Hosting.csproj"
       ],
@@ -215,7 +211,6 @@
       "release-type": "simple",
       "component": "SjolystInnovation.AppKit.SiteSettings",
       "initial-version": "0.1.0",
-      "release-as": "1.0.0",
       "extra-files": [
         "SjolystInnovation.AppKit.SiteSettings.csproj"
       ],
@@ -267,7 +262,6 @@
       "release-type": "simple",
       "component": "SjolystInnovation.AppKit.Storage",
       "initial-version": "0.1.0",
-      "release-as": "1.0.0",
       "extra-files": [
         "SjolystInnovation.AppKit.Storage.csproj"
       ],
@@ -319,7 +313,6 @@
       "release-type": "simple",
       "component": "SjolystInnovation.AppKit.Storage.Images",
       "initial-version": "0.1.0",
-      "release-as": "1.0.0",
       "extra-files": [
         "SjolystInnovation.AppKit.Storage.Images.csproj"
       ],
@@ -371,7 +364,6 @@
       "release-type": "simple",
       "component": "SjolystInnovation.AppKit.Vipps",
       "initial-version": "0.1.0",
-      "release-as": "1.0.0",
       "extra-files": [
         "SjolystInnovation.AppKit.Vipps.csproj"
       ],
