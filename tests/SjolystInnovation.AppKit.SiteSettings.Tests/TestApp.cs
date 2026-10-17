@@ -40,8 +40,23 @@ public class TestDbContext(DbContextOptions<TestDbContext> options) : DbContext(
 {
     public DbSet<TestSettings> AppSettings => Set<TestSettings>();
     public DbSet<LegalPage> LegalPages => Set<LegalPage>();
+    public DbSet<PageSections> PageSections => Set<PageSections>();
 
-    protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.AddAppKitLegalPages();
+    protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.AddAppKitLegalPages().AddAppKitPageSections();
+}
+
+/// <summary>An app whose existing table holds one page of sections per language, with no key column.</summary>
+public class SinglePageDbContext(DbContextOptions<SinglePageDbContext> options) : DbContext(options)
+{
+    public DbSet<TestSettings> AppSettings => Set<TestSettings>();
+    public DbSet<LegalPage> LegalPages => Set<LegalPage>();
+    public DbSet<PageSections> PageSections => Set<PageSections>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.AddAppKitLegalPages().AddAppKitPageSections(o =>
+    {
+        o.TableName = "HomePageContents";
+        o.KeyColumn = false;
+    });
 }
 
 /// <summary>Signs a request in with the roles in <c>X-Test-Roles</c>.</summary>
@@ -68,7 +83,13 @@ public sealed class TestApp : IAsyncDisposable
 
     public IServiceProvider Services => _host.Services;
 
-    public static async Task<TestApp> StartAsync(Action<AppKitSiteSettingsOptions>? configure = null, Action<AppKitLegalPagesOptions>? legal = null)
+    public static Task<TestApp> StartAsync(Action<AppKitSiteSettingsOptions>? configure = null, Action<AppKitLegalPagesOptions>? legal = null,
+        Action<AppKitPageSectionsOptions>? sections = null) =>
+        StartAsync<TestDbContext>(configure, legal, sections);
+
+    public static async Task<TestApp> StartAsync<TContext>(Action<AppKitSiteSettingsOptions>? configure = null, Action<AppKitLegalPagesOptions>? legal = null,
+        Action<AppKitPageSectionsOptions>? sections = null)
+        where TContext : DbContext
     {
         var app = new TestApp();
         await app._connection.OpenAsync();
@@ -77,7 +98,7 @@ public sealed class TestApp : IAsyncDisposable
                 .UseTestServer()
                 .ConfigureServices(s =>
                 {
-                    s.AddDbContext<TestDbContext>(o => o.UseSqlite(app._connection));
+                    s.AddDbContext<TContext>(o => o.UseSqlite(app._connection));
                     s.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthHandler>("Test", _ => { });
                     s.AddAuthorization(o =>
                     {
@@ -94,13 +115,14 @@ public sealed class TestApp : IAsyncDisposable
                     web.UseAuthorization();
                     web.UseEndpoints(e =>
                     {
-                        e.MapAppKitSiteSettings<TestDbContext, TestSettings>(configure: configure);
-                        e.MapAppKitLegalPages<TestDbContext>(configure: legal);
+                        e.MapAppKitSiteSettings<TContext, TestSettings>(configure: configure);
+                        e.MapAppKitLegalPages<TContext>(configure: legal);
+                        e.MapAppKitPageSections<TContext>(configure: sections);
                     });
                 }))
             .Build();
         using (var scope = app._host.Services.CreateScope())
-            await scope.ServiceProvider.GetRequiredService<TestDbContext>().Database.EnsureCreatedAsync();
+            await scope.ServiceProvider.GetRequiredService<TContext>().Database.EnsureCreatedAsync();
         await app._host.StartAsync();
         app.Client = app._host.GetTestClient();
         return app;
