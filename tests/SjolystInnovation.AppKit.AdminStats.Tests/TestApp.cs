@@ -31,11 +31,14 @@ internal sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOption
 
 /// <summary>
 /// A test server with the history of <see cref="ShapeSnapshot"/> on SQLite in memory, with the clock at
-/// <see cref="TestDb.Now"/>. The hosted service is left out unless <c>runService</c> is set.
+/// <see cref="TestDb.Now"/>. The hosted service is left out unless <c>runService</c> is set. With the
+/// service running, the database is a temporary file, because the service and the test use it from
+/// several threads at once and one in-memory connection is not safe for that.
 /// </summary>
 public sealed class TestApp : IAsyncDisposable
 {
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
+    private string? _file;
     private IHost _host = default!;
 
     public FakeTimeProvider Time { get; } = new(TestDb.Now);
@@ -51,13 +54,22 @@ public sealed class TestApp : IAsyncDisposable
         IEnumerable<ShapeSnapshot>? seed = null)
     {
         var app = new TestApp();
-        await app._connection.OpenAsync();
+        if (runService)
+            app._file = Path.Combine(Path.GetTempPath(), $"appkit-adminstats-app-{Guid.NewGuid():N}.db");
+        else
+            await app._connection.OpenAsync();
         app._host = new HostBuilder()
             .ConfigureWebHost(web => web
                 .UseTestServer()
                 .ConfigureServices(s =>
                 {
-                    s.AddDbContext<TestDbContext>(o => o.UseSqlite((DbConnection)app._connection));
+                    s.AddDbContext<TestDbContext>(o =>
+                    {
+                        if (app._file is null)
+                            o.UseSqlite((DbConnection)app._connection);
+                        else
+                            o.UseSqlite($"Data Source={app._file};Pooling=False");
+                    });
                     s.AddSingleton<TimeProvider>(app.Time);
                     s.AddAppKitDailyStats<TestDbContext, ShapeSnapshot>(o =>
                     {
@@ -125,5 +137,7 @@ public sealed class TestApp : IAsyncDisposable
         await _host.StopAsync();
         _host.Dispose();
         await _connection.DisposeAsync();
+        if (_file is not null && File.Exists(_file))
+            File.Delete(_file);
     }
 }
