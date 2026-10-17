@@ -37,11 +37,13 @@ public class BrandingTests
     private static async Task<JsonElement> JsonAsync(HttpResponseMessage response) =>
         JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
 
-    private const string ImageRule = "The image must be a PNG, JPEG, WebP, GIF or ICO file of at most 2 MB.";
+    private const string InvalidImage = "Invalid file format. Upload a PNG, JPEG, WebP, GIF or ICO image.";
+    private const string ImageTooLarge = "The file is too large. Upload a file of 2 MB or less.";
 
-    // The refusal has one field, the English rule as its message, the given code, and no limits.
-    private static async Task AssertRefusedAsync(HttpResponseMessage response, string field, string code, string message = ImageRule)
+    // The refusal has one field, the code's English message unless one is given, the given code, and no limits.
+    private static async Task AssertRefusedAsync(HttpResponseMessage response, string field, string code, string? message = null)
     {
+        message ??= code == "imageTooLarge" ? ImageTooLarge : InvalidImage;
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var json = await JsonAsync(response);
         Assert.Equal(field, Assert.Single(json.GetProperty("errors").EnumerateObject()).Name);

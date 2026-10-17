@@ -64,7 +64,8 @@ internal static class BrandingHandlers<TContext, TSettings>
         return TypedResults.Ok(new BrandingInfo(s.LogoData, s.LogoContentType, s.IconData, s.IconContentType));
     }
 
-    private const string ImageRule = "The image must be a PNG, JPEG, WebP, GIF or ICO file of at most 2 MB.";
+    private const string InvalidImageMessage = "Invalid file format. Upload a PNG, JPEG, WebP, GIF or ICO image.";
+    private const string ImageTooLargeMessage = "The file is too large. Upload a file of 2 MB or less.";
 
     // Return a validation problem keyed by the part, like the settings errors, so the app can show the reason.
     private static ValidationProblem Refused(string field, string code, string message)
@@ -79,14 +80,14 @@ internal static class BrandingHandlers<TContext, TSettings>
         string field, IFormFile file, CancellationToken cancellationToken)
     {
         if (file.Length > MaxImageBytes)
-            return (default, Refused(field, SiteSettingsErrorCodes.ImageTooLarge, ImageRule));
+            return (default, Refused(field, SiteSettingsErrorCodes.ImageTooLarge, ImageTooLargeMessage));
         using var ms = new MemoryStream();
         await file.CopyToAsync(ms, cancellationToken);
         var bytes = ms.ToArray();
         // An empty file has no signature, so this refuses it.
         return ImageSignature.ContentType(bytes) is { } contentType
             ? ((Convert.ToBase64String(bytes), contentType), null)
-            : (default, Refused(field, SiteSettingsErrorCodes.InvalidImage, ImageRule));
+            : (default, Refused(field, SiteSettingsErrorCodes.InvalidImage, InvalidImageMessage));
     }
 }
 
