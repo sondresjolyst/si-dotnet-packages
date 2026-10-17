@@ -203,6 +203,7 @@ app.MapAppKitUserAdmin<User, ApplicationDbContext>("/api/users", o =>
 | Route | Answer |
 | --- | --- |
 | `GET` | Users by email with their roles. `?includeDeleted=true` adds deleted users. |
+| `GET roles` | `Roles` as a JSON array of names, in the order you set them, for example `["Default", "Admin"]`. |
 | `POST {id}/roles` with `role` | `200`. A role outside `Roles` gives `400`, a missing or deleted user `404`. |
 | `DELETE {id}/roles/{role}` | `204`. Taking your own admin role gives `400`. Taking it from the last active admin gives `409`. |
 | `POST invite` with `email`, `firstName`, `lastName`, `role` | `200`. Creates the account without a password, with a confirmed email, and emails a code that lasts `InviteLifetime`, seven days by default. The invitee sets a password with it on `reset-password`. An email that already has an account gives `409`. |
