@@ -57,3 +57,18 @@ var stats = await emailStats.GetAsync(days: 30);
 `IEmailStats.GetAsync` reads Brevo's aggregated report for the last `days` days, today included. The
 report counts requests, delivered, hard and soft bounces, spam reports, blocked, and invalid. If
 Brevo cannot be read, `GetAsync` throws.
+
+`MapAppKitEmailStats` maps the stats for an admin page, behind the `Admin` policy by default:
+
+```csharp
+app.MapAppKitEmailStats();                                          // GET /api/admin/email-stats
+app.MapAppKitEmailStats("/admin/mail", o => o.Policy = "Support");  // another route and policy
+```
+
+| Request | Answer |
+| --- | --- |
+| `GET` or `GET ?days=7` | `200 { days, requests, delivered, hardBounces, softBounces, spamReports, blocked, invalid }`. `days` defaults to 30. |
+| `days` below 1 | `400`, a validation problem on `days`. |
+| Brevo cannot be read | `502`, a problem with the `detail` `Failed to fetch email stats from Brevo.` The endpoint logs the error. |
+
+The endpoint needs ASP.NET Core, so the package references the `Microsoft.AspNetCore.App` framework.
