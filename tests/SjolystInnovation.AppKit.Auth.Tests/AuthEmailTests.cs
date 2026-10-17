@@ -27,7 +27,7 @@ public class AuthEmailTests
     private static readonly EmailBrand Brand = new("Pyttogpanne")
     {
         LegalName = "Pyttogpanne AS",
-        OrgNumber = "Org.nr. 945 678 901",
+        OrgNumber = "945678901",
         Address = "Torget 2, 5014 Bergen",
         Email = "post@pyttogpanne.example",
     };
@@ -74,7 +74,7 @@ public class AuthEmailTests
         Assert.Equal("Password reset code", email.Subject);
         Assert.Contains(">AB12CD</div>", email.HtmlBody);
         Assert.Contains(">Pyttogpanne</div>", email.HtmlBody);
-        Assert.Contains("Pyttogpanne AS<br>Org.nr. 945 678 901<br>Torget 2, 5014 Bergen<br>post@pyttogpanne.example", email.HtmlBody);
+        Assert.Contains("Pyttogpanne AS<br>Org. no. 945 678 901<br>Torget 2, 5014 Bergen<br>post@pyttogpanne.example", email.HtmlBody);
         Assert.Contains(">Reset your password</h1>", email.HtmlBody);
         Assert.Contains(">Hi Kari,</p>", email.HtmlBody);
         Assert.Contains("reset your password at Pyttogpanne.", email.HtmlBody);
@@ -198,9 +198,46 @@ public class AuthEmailTests
     [Fact]
     public async Task Blank_brand_lines_are_left_out_and_the_footer_falls_back_to_the_name()
     {
-        var email = await Reset(brand: new EmailBrand("Garge") { OrgNumber = "Org. no. 912 345 678", Email = "" });
+        var email = await Reset(brand: new EmailBrand("Garge") { OrgNumber = "912 345 678", Email = "" });
         Assert.Contains("line-height:1.5\">Org. no. 912 345 678</div>", email.HtmlBody);
         Assert.Contains("because of your account at Garge.", email.HtmlBody);
+    }
+
+    [Theory]
+    [InlineData(EmailLanguage.Norwegian, false, "Org.nr. 923 202 374")]
+    [InlineData(EmailLanguage.Norwegian, true, "Org.nr. 923 202 374 MVA")]
+    [InlineData(EmailLanguage.English, false, "Org. no. 923 202 374")]
+    [InlineData(EmailLanguage.English, true, "Org. no. 923 202 374 VAT")]
+    public async Task The_org_number_line_follows_the_email_language_and_the_VAT_flag(EmailLanguage language, bool vat, string line)
+    {
+        var brand = Brand with { OrgNumber = "923202374", VatRegistered = vat };
+        var email = await Reset(o => o.Language = language, brand: brand);
+        Assert.Contains($"Pyttogpanne AS<br>{line}<br>Torget 2, 5014 Bergen<br>post@pyttogpanne.example", email.HtmlBody);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task A_blank_org_number_leaves_the_line_out_even_when_VAT_registered(string? number)
+    {
+        var email = await Reset(o => o.Language = EmailLanguage.Norwegian, brand: Brand with { OrgNumber = number, VatRegistered = true });
+        Assert.Contains("Pyttogpanne AS<br>Torget 2, 5014 Bergen<br>post@pyttogpanne.example", email.HtmlBody);
+        Assert.DoesNotContain("Org.nr.", email.HtmlBody);
+        Assert.DoesNotContain("MVA", email.HtmlBody);
+    }
+
+    [Theory]
+    [InlineData("923202374", "923 202 374")]
+    [InlineData(" 923 202 374 ", "923 202 374")]
+    [InlineData("9232 02374", "923 202 374")]
+    [InlineData("12345678", "12345678")]
+    [InlineData(" 92320237X ", "92320237X")]
+    [InlineData("9232023741", "9232023741")]
+    public void Nine_digits_are_grouped_in_threes_and_anything_else_is_shown_trimmed(string number, string shown)
+    {
+        var brand = new EmailBrand("X") { OrgNumber = number };
+        Assert.Equal($"Org. no. {shown}", AuthEmailRenderer.OrgNumberLine(brand, AuthEmailRenderer.Words(EmailLanguage.English)));
     }
 
     [Fact]

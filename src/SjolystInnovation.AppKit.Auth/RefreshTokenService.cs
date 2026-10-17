@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 namespace SjolystInnovation.AppKit.Auth;
 
 /// <summary>Issues and rotates refresh tokens.</summary>
-public interface IRefreshTokenService
+internal interface IRefreshTokenService
 {
     /// <summary>
     /// Adds a new refresh token for the user and returns the raw token. Deletes live tokens over
@@ -36,7 +36,7 @@ public interface IRefreshTokenService
 }
 
 /// <summary>The outcome of a refresh token rotation.</summary>
-public enum RotationStatus
+internal enum RotationStatus
 {
     /// <summary>The token was swapped. <see cref="RotationResult.RefreshToken"/> holds the new one.</summary>
     Rotated,
@@ -49,7 +49,7 @@ public enum RotationStatus
 }
 
 /// <summary>The result of a rotation, with the new raw token when it succeeded.</summary>
-public sealed record RotationResult(RotationStatus Status, string? RefreshToken = null);
+internal sealed record RotationResult(RotationStatus Status, string? RefreshToken = null);
 
 internal static partial class Log
 {

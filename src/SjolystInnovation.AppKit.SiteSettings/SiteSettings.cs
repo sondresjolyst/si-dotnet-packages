@@ -17,7 +17,12 @@ public interface ICompanySettings
     /// <summary>The row key. Always 1.</summary>
     int Id { get; set; }
 
-    /// <summary>The address the contact form sends its messages to. Not shown publicly.</summary>
+    /// <summary>
+    /// The private address that the app's contact form sends enquiries to. An admin sets it in the
+    /// settings, and it is required. It stays private: <c>GET company</c> never shows it, only
+    /// <c>GET settings</c> behind the admin policy does. The package sends no email itself, so your contact
+    /// form reads it from the row.
+    /// </summary>
     string ContactRecipientEmail { get; set; }
 
     /// <summary>The company name shown on the site.</summary>
