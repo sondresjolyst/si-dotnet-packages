@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Vipps-v0.3.0...SjolystInnovation.AppKit.Vipps-v1.0.0) (2026-10-17)
+
+
+### Documentation
+
+* rewrite the Hosting, Vipps and AdminStats READMEs for nuget.org ([#70](https://github.com/sondresjolyst/si-dotnet-packages/issues/70)) ([55dd038](https://github.com/sondresjolyst/si-dotnet-packages/commit/55dd03875742f0ceee65be6ad70f13a84f5ae608))
+
 ## [0.3.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Vipps-v0.2.0...SjolystInnovation.AppKit.Vipps-v0.3.0) (2026-10-16)
 
 
