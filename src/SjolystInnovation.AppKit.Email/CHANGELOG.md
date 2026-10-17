@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Email-v0.2.0...SjolystInnovation.AppKit.Email-v1.0.0) (2026-10-17)
+
+
+### Features
+
+* **email:** add MapAppKitEmailStats for the admin email stats ([#65](https://github.com/sondresjolyst/si-dotnet-packages/issues/65)) ([e9c1bad](https://github.com/sondresjolyst/si-dotnet-packages/commit/e9c1bad70657b598b793fbd82fe48e29eab0b089))
+
 ## [0.2.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Email-v0.1.0...SjolystInnovation.AppKit.Email-v0.2.0) (2026-10-16)
 
 

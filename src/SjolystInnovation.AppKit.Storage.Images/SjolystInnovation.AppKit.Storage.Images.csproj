@@ -2,7 +2,7 @@
   <PropertyGroup>
     <PackageId>SjolystInnovation.AppKit.Storage.Images</PackageId>
     <!-- x-release-please-start-version -->
-    <Version>0.1.0</Version>
+    <Version>1.0.0</Version>
     <!-- x-release-please-end -->
     <Description>Content images for ASP.NET Core apps: uploads with resized WebP variants, EXIF orientation, recorded dimensions, cache-friendly serving, and cleanup of images that nothing references, on the existing ContentImages tables.</Description>
     <PackageTags>images;webp;skiasharp;uploads;entity-framework-core;minimal-api</PackageTags>

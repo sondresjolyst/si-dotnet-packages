@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Storage-v0.1.0...SjolystInnovation.AppKit.Storage-v1.0.0) (2026-10-17)
+
+
+### Features
+
+* **storage:** add IAppKitStorageUsage to measure file stores and their disk ([#66](https://github.com/sondresjolyst/si-dotnet-packages/issues/66)) ([c2d290d](https://github.com/sondresjolyst/si-dotnet-packages/commit/c2d290d03ec17ef08b579bfd79d5aa2f13c5789f))
+
 ## 0.1.0 (2026-10-16)
 
 

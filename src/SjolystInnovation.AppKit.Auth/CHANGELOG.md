@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.0.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v0.9.0...SjolystInnovation.AppKit.Auth-v1.0.0) (2026-10-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* **auth:** add a stable code to every error of the auth, account and user admin endpoints ([#63](https://github.com/sondresjolyst/si-dotnet-packages/issues/63))
+* **auth:** format the org number line of the auth emails in the email's language ([#62](https://github.com/sondresjolyst/si-dotnet-packages/issues/62))
+* **auth:** make the refresh token service and the reset code helpers internal ([#61](https://github.com/sondresjolyst/si-dotnet-packages/issues/61))
+
+### Features
+
+* **auth:** add a stable code to every error of the auth, account and user admin endpoints ([#63](https://github.com/sondresjolyst/si-dotnet-packages/issues/63)) ([d7b2e8d](https://github.com/sondresjolyst/si-dotnet-packages/commit/d7b2e8d43a9ed1a526665b945accf1cd7eb49698))
+* **auth:** add GET roles to MapAppKitUserAdmin ([#64](https://github.com/sondresjolyst/si-dotnet-packages/issues/64)) ([1ec7e51](https://github.com/sondresjolyst/si-dotnet-packages/commit/1ec7e51c46819e5ed5ae335dc8ab55c528e92bdc))
+* **auth:** format the org number line of the auth emails in the email's language ([#62](https://github.com/sondresjolyst/si-dotnet-packages/issues/62)) ([6ce6cfb](https://github.com/sondresjolyst/si-dotnet-packages/commit/6ce6cfb9a7935236c2db2c747c1b90a365dbcdc4))
+
+
+### Code Refactoring
+
+* **auth:** make the refresh token service and the reset code helpers internal ([#61](https://github.com/sondresjolyst/si-dotnet-packages/issues/61)) ([a28d0c7](https://github.com/sondresjolyst/si-dotnet-packages/commit/a28d0c775d023a58a4386a602885a8b22c10497c))
+
 ## [0.9.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v0.8.0...SjolystInnovation.AppKit.Auth-v0.9.0) (2026-10-16)
 
 
