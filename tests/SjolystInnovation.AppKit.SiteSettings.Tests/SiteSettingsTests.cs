@@ -267,6 +267,82 @@ public class SiteSettingsTests
         Assert.Equal("Required.", Assert.Single(errors.GetProperty("PublicEmail").EnumerateArray()).GetString());
     }
 
+    // Error codes
+
+    [Theory]
+    [InlineData("contactRecipientEmail", "", "ContactRecipientEmail", "required", "Required.")]
+    [InlineData("contactRecipientEmail", "nope", "ContactRecipientEmail", "invalidEmail", "Not a valid email address.")]
+    [InlineData("companyName", " ", "CompanyName", "required", "Required.")]
+    [InlineData("streetAddress", "", "StreetAddress", "required", "Required.")]
+    [InlineData("publicEmail", "", "PublicEmail", "required", "Required.")]
+    [InlineData("publicEmail", "nope", "PublicEmail", "invalidEmail", "Not a valid email address.")]
+    [InlineData("orgNumber", "923 202 375", "OrgNumber", "invalidOrgNumber", "Not a valid organisation number. It has nine digits and ends in a check digit.")]
+    [InlineData("postalCode", "434", "PostalCode", "invalidPostalCode", "A Norwegian postal code is four digits.")]
+    [InlineData("addressLocality", "", "AddressLocality", "placeRequired", "A postal code needs the place name that goes with it.")]
+    public async Task Each_field_error_has_a_stable_code_next_to_its_message(string field, string value, string key, string code, string message)
+    {
+        await using var app = await TestApp.StartAsync();
+
+        var json = await JsonAsync(await app.SendAsync(HttpMethod.Put, "/api/settings", JsonContent.Create(Body(b => b[field] = value))));
+
+        Assert.Equal(message, Assert.Single(json.GetProperty("errors").GetProperty(key).EnumerateArray()).GetString());
+        Assert.Equal(key, Assert.Single(json.GetProperty("codes").EnumerateObject()).Name);
+        Assert.Equal(code, Assert.Single(json.GetProperty("codes").GetProperty(key).EnumerateArray()).GetString());
+        Assert.Empty(json.GetProperty("limits").EnumerateObject());
+    }
+
+    [Fact]
+    public async Task Vat_registration_without_an_organisation_number_has_its_own_code()
+    {
+        await using var app = await TestApp.StartAsync();
+
+        var json = await JsonAsync(await app.SendAsync(HttpMethod.Put, "/api/settings", JsonContent.Create(Body(b => { b["orgNumber"] = " "; b["vatRegistered"] = true; }))));
+
+        Assert.Equal("orgNumberRequiredForVat", Assert.Single(json.GetProperty("codes").GetProperty("OrgNumber").EnumerateArray()).GetString());
+        Assert.Equal("An organisation number is required when the business is VAT registered.", json.GetProperty("errors").GetProperty("OrgNumber")[0].GetString());
+    }
+
+    [Theory]
+    [InlineData("companyName", "CompanyName", 100)]
+    [InlineData("companyLegalName", "CompanyLegalName", 200)]
+    [InlineData("streetAddress", "StreetAddress", 200)]
+    [InlineData("addressLocality", "AddressLocality", 100)]
+    [InlineData("addressRegion", "AddressRegion", 100)]
+    [InlineData("publicPhone", "PublicPhone", 40)]
+    public async Task Text_over_its_limit_has_the_code_too_long_and_names_the_limit(string field, string key, int max)
+    {
+        await using var app = await TestApp.StartAsync();
+
+        var json = await JsonAsync(await app.SendAsync(HttpMethod.Put, "/api/settings", JsonContent.Create(Body(b => b[field] = new string('x', max + 1)))));
+
+        Assert.Equal($"At most {max} characters.", json.GetProperty("errors").GetProperty(key)[0].GetString());
+        Assert.Equal("tooLong", Assert.Single(json.GetProperty("codes").GetProperty(key).EnumerateArray()).GetString());
+        var limit = Assert.Single(json.GetProperty("limits").EnumerateObject());
+        Assert.Equal(key, limit.Name);
+        Assert.Equal(max, limit.Value.GetInt32());
+    }
+
+    [Fact]
+    public async Task Codes_and_limits_cover_every_bad_field_and_only_the_first_rule_per_field()
+    {
+        await using var app = await TestApp.StartAsync();
+
+        var json = await JsonAsync(await app.SendAsync(HttpMethod.Put, "/api/settings", JsonContent.Create(Body(b =>
+        {
+            b["companyName"] = "";
+            b["companyLegalName"] = new string('x', 201);
+            b["orgNumber"] = "123";
+        }))));
+
+        Assert.Equal(
+            json.GetProperty("errors").EnumerateObject().Select(p => p.Name).Order(),
+            json.GetProperty("codes").EnumerateObject().Select(p => p.Name).Order());
+        Assert.Equal("required", Assert.Single(json.GetProperty("codes").GetProperty("CompanyName").EnumerateArray()).GetString());
+        Assert.Equal("tooLong", json.GetProperty("codes").GetProperty("CompanyLegalName")[0].GetString());
+        Assert.Equal("invalidOrgNumber", json.GetProperty("codes").GetProperty("OrgNumber")[0].GetString());
+        Assert.Equal(200, Assert.Single(json.GetProperty("limits").EnumerateObject()).Value.GetInt32());
+    }
+
     // Helpers
 
     [Theory]

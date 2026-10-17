@@ -205,9 +205,13 @@ internal static class SiteSettingsHandlers<TContext, TSettings>
 
     public static async Task<IResult> UpdateAsync(SiteSettingsBody body, HttpContext http, AppKitSiteSettingsOptions options)
     {
-        var errors = SiteSettingsValidation.Validate(body);
-        if (errors.Count > 0)
-            return TypedResults.ValidationProblem(errors);
+        var problem = SiteSettingsValidation.Validate(body);
+        if (problem.Errors.Count > 0)
+            return TypedResults.ValidationProblem(problem.Errors, extensions: new Dictionary<string, object?>
+            {
+                ["codes"] = problem.Codes,
+                ["limits"] = problem.Limits,
+            });
 
         var (db, s) = await FindOrAddAsync(http);
         var previous = ToBody(s);
@@ -235,37 +239,82 @@ internal static class SiteSettingsHandlers<TContext, TSettings>
         s.StreetAddress, s.PostalCode, s.AddressLocality, s.AddressRegion, s.PublicEmail, s.PublicPhone);
 }
 
+/// <summary>
+/// The stable codes for the field errors of <c>PUT settings</c>. The validation problem holds them in its
+/// <c>codes</c> extension, keyed by field like <c>errors</c>, for example
+/// <c>{"codes": {"OrgNumber": ["invalidOrgNumber"]}}</c>. A client shows its own text for a code it knows and
+/// the English message from <c>errors</c> for one it does not.
+/// </summary>
+public static class SiteSettingsErrorCodes
+{
+    /// <summary>The field is blank and must have a value.</summary>
+    public const string Required = "required";
+
+    /// <summary>The text is longer than its limit. The <c>limits</c> extension holds the limit for the field.</summary>
+    public const string TooLong = "tooLong";
+
+    /// <summary>The value is not a plain email address of at most 200 characters.</summary>
+    public const string InvalidEmail = "invalidEmail";
+
+    /// <summary>The organisation number is blank while the business is VAT registered.</summary>
+    public const string OrgNumberRequiredForVat = "orgNumberRequiredForVat";
+
+    /// <summary>The organisation number is not nine digits with a correct check digit.</summary>
+    public const string InvalidOrgNumber = "invalidOrgNumber";
+
+    /// <summary>The postal code is not four digits.</summary>
+    public const string InvalidPostalCode = "invalidPostalCode";
+
+    /// <summary>The place name is blank while a postal code is given.</summary>
+    public const string PlaceRequired = "placeRequired";
+}
+
+internal sealed record SiteSettingsProblem(
+    Dictionary<string, string[]> Errors,
+    Dictionary<string, string[]> Codes,
+    Dictionary<string, int> Limits);
+
 internal static class SiteSettingsValidation
 {
-    public static Dictionary<string, string[]> Validate(SiteSettingsBody body)
+    private sealed record Rule(string Code, string Message, int? Limit = null);
+
+    private static readonly Rule Required = new(SiteSettingsErrorCodes.Required, "Required.");
+    private static readonly Rule InvalidEmail = new(SiteSettingsErrorCodes.InvalidEmail, "Not a valid email address.");
+    private static Rule TooLong(int max) => new(SiteSettingsErrorCodes.TooLong, $"At most {max} characters.", max);
+
+    public static SiteSettingsProblem Validate(SiteSettingsBody body)
     {
-        var errors = new Dictionary<string, string[]>();
-        void Check(string field, bool ok, string message)
+        var problem = new SiteSettingsProblem([], [], []);
+        void Check(string field, bool ok, Rule rule)
         {
-            if (!ok && !errors.ContainsKey(field))
-                errors[field] = [message];
+            if (ok || problem.Errors.ContainsKey(field))
+                return;
+            problem.Errors[field] = [rule.Message];
+            problem.Codes[field] = [rule.Code];
+            if (rule.Limit is { } limit)
+                problem.Limits[field] = limit;
         }
         static bool Blank(string? value) => string.IsNullOrWhiteSpace(value);
         static bool Fits(string? value, int max) => (value?.Trim().Length ?? 0) <= max;
 
-        Check("ContactRecipientEmail", !Blank(body.ContactRecipientEmail), "Required.");
-        Check("ContactRecipientEmail", IsEmail(body.ContactRecipientEmail) && Fits(body.ContactRecipientEmail, 200), "Not a valid email address.");
-        Check("CompanyName", !Blank(body.CompanyName), "Required.");
-        Check("CompanyName", Fits(body.CompanyName, 100), "At most 100 characters.");
-        Check("CompanyLegalName", Fits(body.CompanyLegalName, 200), "At most 200 characters.");
-        Check("OrgNumber", !body.VatRegistered || !Blank(body.OrgNumber), "An organisation number is required when the business is VAT registered.");
-        Check("OrgNumber", Blank(body.OrgNumber) || NorwegianOrgNumber.IsValid(body.OrgNumber!), "Not a valid organisation number. It has nine digits and ends in a check digit.");
-        Check("StreetAddress", !Blank(body.StreetAddress), "Required.");
-        Check("StreetAddress", Fits(body.StreetAddress, 200), "At most 200 characters.");
-        Check("PostalCode", Blank(body.PostalCode) || PostalAddress.IsPostalCode(body.PostalCode!), "A Norwegian postal code is four digits.");
-        Check("AddressLocality", Blank(body.PostalCode) || !Blank(body.AddressLocality), "A postal code needs the place name that goes with it.");
-        Check("AddressLocality", Fits(body.AddressLocality, 100), "At most 100 characters.");
-        Check("AddressRegion", Fits(body.AddressRegion, 100), "At most 100 characters.");
-        Check("PublicEmail", !Blank(body.PublicEmail), "Required.");
-        Check("PublicEmail", IsEmail(body.PublicEmail) && Fits(body.PublicEmail, 200), "Not a valid email address.");
-        Check("PublicPhone", !Blank(body.PublicPhone), "Required.");
-        Check("PublicPhone", Fits(body.PublicPhone, 40), "At most 40 characters.");
-        return errors;
+        Check("ContactRecipientEmail", !Blank(body.ContactRecipientEmail), Required);
+        Check("ContactRecipientEmail", IsEmail(body.ContactRecipientEmail) && Fits(body.ContactRecipientEmail, 200), InvalidEmail);
+        Check("CompanyName", !Blank(body.CompanyName), Required);
+        Check("CompanyName", Fits(body.CompanyName, 100), TooLong(100));
+        Check("CompanyLegalName", Fits(body.CompanyLegalName, 200), TooLong(200));
+        Check("OrgNumber", !body.VatRegistered || !Blank(body.OrgNumber), new(SiteSettingsErrorCodes.OrgNumberRequiredForVat, "An organisation number is required when the business is VAT registered."));
+        Check("OrgNumber", Blank(body.OrgNumber) || NorwegianOrgNumber.IsValid(body.OrgNumber!), new(SiteSettingsErrorCodes.InvalidOrgNumber, "Not a valid organisation number. It has nine digits and ends in a check digit."));
+        Check("StreetAddress", !Blank(body.StreetAddress), Required);
+        Check("StreetAddress", Fits(body.StreetAddress, 200), TooLong(200));
+        Check("PostalCode", Blank(body.PostalCode) || PostalAddress.IsPostalCode(body.PostalCode!), new(SiteSettingsErrorCodes.InvalidPostalCode, "A Norwegian postal code is four digits."));
+        Check("AddressLocality", Blank(body.PostalCode) || !Blank(body.AddressLocality), new(SiteSettingsErrorCodes.PlaceRequired, "A postal code needs the place name that goes with it."));
+        Check("AddressLocality", Fits(body.AddressLocality, 100), TooLong(100));
+        Check("AddressRegion", Fits(body.AddressRegion, 100), TooLong(100));
+        Check("PublicEmail", !Blank(body.PublicEmail), Required);
+        Check("PublicEmail", IsEmail(body.PublicEmail) && Fits(body.PublicEmail, 200), InvalidEmail);
+        Check("PublicPhone", !Blank(body.PublicPhone), Required);
+        Check("PublicPhone", Fits(body.PublicPhone, 40), TooLong(40));
+        return problem;
     }
 
     private static bool IsEmail(string? value) =>
