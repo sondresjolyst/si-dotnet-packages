@@ -4,8 +4,8 @@
     <!-- x-release-please-start-version -->
     <Version>0.4.0</Version>
     <!-- x-release-please-end -->
-    <Description>Admin-managed company details, site branding and legal pages for ASP.NET Core apps: settings, public company info, logo and icon uploads and editable terms, privacy and cookie pages per language, with Norwegian organisation number and postal code checks.</Description>
-    <PackageTags>settings;company-info;branding;legal-pages;organisasjonsnummer;minimal-api</PackageTags>
+    <Description>Admin-managed company details, site branding and legal pages for ASP.NET Core apps: settings, public company info, logo and icon uploads and editable terms, privacy and cookie pages and page sections per language, with Norwegian organisation number and postal code checks.</Description>
+    <PackageTags>settings;company-info;branding;legal-pages;page-sections;cms;organisasjonsnummer;minimal-api</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>

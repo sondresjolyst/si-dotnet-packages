@@ -49,16 +49,7 @@ public sealed class AppKitLegalPagesOptions
     /// Finds the supported locale a tag asks for. It tries an exact match first, then the tag's primary
     /// language, with <c>nb</c> and <c>nn</c> read as <c>no</c>. Anything else, or no tag, gets the fallback.
     /// </summary>
-    internal string Normalize(string? locale)
-    {
-        var tag = locale?.Trim() ?? "";
-        var primary = tag.Split('-')[0];
-        if (primary.Equals("nb", StringComparison.OrdinalIgnoreCase) || primary.Equals("nn", StringComparison.OrdinalIgnoreCase))
-            primary = "no";
-        return (Locales.FirstOrDefault(l => l.Equals(tag, StringComparison.OrdinalIgnoreCase))
-            ?? Locales.FirstOrDefault(l => l.Equals(primary, StringComparison.OrdinalIgnoreCase))
-            ?? Locales[0]).ToLowerInvariant();
-    }
+    internal string Normalize(string? locale) => LocaleTags.Match(Locales, Locales[0], locale);
 }
 
 /// <summary>A legal page as the endpoints return it.</summary>

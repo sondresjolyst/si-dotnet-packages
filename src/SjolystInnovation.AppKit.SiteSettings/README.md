@@ -1,9 +1,10 @@
 # SjolystInnovation.AppKit.SiteSettings
 
-This package handles admin-managed company details, site branding, and legal pages for ASP.NET Core
-apps. Your app keeps one settings row of its own, and this package maps the endpoints that read and
-change the shared part of it: the public company info, the admin settings, and the logo and icon. The
-terms, privacy, and cookie pages are Markdown that an admin edits per language.
+This package handles admin-managed company details, site branding, legal pages, and page sections for
+ASP.NET Core apps. Your app keeps one settings row of its own, and this package maps the endpoints that
+read and change the shared part of it: the public company info, the admin settings, and the logo and
+icon. The terms, privacy, and cookie pages are Markdown that an admin edits per language. The sections
+of pages such as the home page are a JSON array that an admin edits per language.
 
 ```sh
 dotnet add package SjolystInnovation.AppKit.SiteSettings
@@ -141,3 +142,54 @@ await app.Services.SeedAppKitLegalPagesAsync<ApplicationDbContext>(
 
 The requested language matches a supported one exactly, then by its primary language, so `en-GB`
 reads `en`. `nb` and `nn` read as `no`. Keys and languages are stored in lowercase.
+
+## Page sections
+
+A page such as the home page is a list of sections that an admin edits per language. The package
+stores the sections as the JSON array the admin's editor sends and serves it back as it is. It never
+reads the sections, so your frontend owns their shape.
+
+Your app's `DbContext` maps the `PageSections` table with `AddAppKitPageSections`, and the endpoints
+are mapped with `MapAppKitPageSections`.
+
+```csharp
+protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.AddAppKitPageSections();
+
+app.MapAppKitPageSections<ApplicationDbContext>("/api/content", o =>
+{
+    o.Locales = ["no", "en"];
+    o.OnSaved = saved => revalidator.RevalidateAsync(saved.Key, saved.Locale);
+});
+```
+
+| Route | Who | Answer |
+| --- | --- | --- |
+| `GET {key}?locale=` | Everyone | The sections as `application/json`, in the requested language or else in `DefaultLocale`. `Last-Modified` is when the served sections were saved. An empty array, without `Last-Modified`, while the page has none. `404` for a page that is not in `Keys`. |
+| `PUT {key}?locale=` with a JSON array | `Policy` | Saves the array as it is sent and answers with it. Without `?locale=` it saves `DefaultLocale`. A body that is not an array, or a language that is not in `Locales`, answers `400` with the reason as `detail`. |
+
+| Option | Default | |
+| --- | --- | --- |
+| `Keys` | `home` | The pages there are. |
+| `Locales` | `no` | The languages a page can be written in. |
+| `DefaultLocale` | The first of `Locales` | The language a page falls back to, and the one a save without `?locale=` writes. |
+| `Policy` | `Admin` | What saving requires. |
+| `OnSaved` | None | Runs after a save with the key, the language, the sections, and the request. Use it to revalidate the pages that show them. |
+
+Reading matches the requested language the same way the legal pages do, so `en-GB` reads `en` and an
+unknown language reads `DefaultLocale`. Saving takes only a language that is in `Locales`. Keys and
+languages are stored in lower case.
+
+### An existing table
+
+An app that already keeps one page of sections per language can map its table instead. Set
+`TableName` to the table and `KeyColumn` to `false`. The table then has the columns `Id`, `Locale`
+(at most 10 characters), `SectionsJson`, and `UpdatedAt`, with a unique index on `Locale`. A table
+without a key column holds one page, so `Keys` must have exactly one key.
+
+```csharp
+modelBuilder.AddAppKitPageSections(o =>
+{
+    o.TableName = "HomePageContents";
+    o.KeyColumn = false;
+});
+```
