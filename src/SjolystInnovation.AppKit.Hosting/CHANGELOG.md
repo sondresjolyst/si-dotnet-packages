@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Hosting-v0.2.0...SjolystInnovation.AppKit.Hosting-v0.3.0) (2026-10-17)
+
+
+### Features
+
+* **hosting:** add UseAppKitRequestLogging with log sanitizing ([#54](https://github.com/sondresjolyst/si-dotnet-packages/issues/54)) ([1d7f9bb](https://github.com/sondresjolyst/si-dotnet-packages/commit/1d7f9bb60e11189f4d316d4da6927636cc11349e))
+
 ## [0.2.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Hosting-v0.1.0...SjolystInnovation.AppKit.Hosting-v0.2.0) (2026-10-16)
 
 

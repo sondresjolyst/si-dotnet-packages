@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.SiteSettings-v0.3.0...SjolystInnovation.AppKit.SiteSettings-v0.4.0) (2026-10-17)
+
+
+### Features
+
+* **site-settings:** return a stable code for each settings field error ([#50](https://github.com/sondresjolyst/si-dotnet-packages/issues/50)) ([100f2b4](https://github.com/sondresjolyst/si-dotnet-packages/commit/100f2b4d4b237ae646588ea3fc349c948b408dbb))
+
+
+### Bug Fixes
+
+* **site-settings:** make the public phone optional ([#53](https://github.com/sondresjolyst/si-dotnet-packages/issues/53)) ([b4ae830](https://github.com/sondresjolyst/si-dotnet-packages/commit/b4ae8300b13834b196e35308292777a411502b80))
+
 ## [0.3.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.SiteSettings-v0.2.0...SjolystInnovation.AppKit.SiteSettings-v0.3.0) (2026-10-16)
 
 

@@ -1,9 +1,9 @@
 {
   "src/SjolystInnovation.AppKit.Vipps": "0.3.0",
   "src/SjolystInnovation.AppKit.Auth": "0.9.0",
-  "src/SjolystInnovation.AppKit.Hosting": "0.2.0",
+  "src/SjolystInnovation.AppKit.Hosting": "0.3.0",
   "src/SjolystInnovation.AppKit.Email": "0.2.0",
-  "src/SjolystInnovation.AppKit.SiteSettings": "0.3.0",
+  "src/SjolystInnovation.AppKit.SiteSettings": "0.4.0",
   "src/SjolystInnovation.AppKit.AdminStats": "0.1.0",
   "src/SjolystInnovation.AppKit.Storage": "0.1.0",
   "src/SjolystInnovation.AppKit.Storage.Images": "0.1.0"
