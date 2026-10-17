@@ -1,30 +1,54 @@
 # si-dotnet-packages
 
-This repository holds the shared .NET packages for the Sjølyst Innovation apps. They are published on
-NuGet under the Apache-2.0 license. They are the .NET side of `@sjolystinnovation/app-kit`, with one
-package per area. Each package is named `SjolystInnovation.AppKit.<Area>` and has a namespace of the
-same name.
+This repository holds the shared .NET packages for the Sjølyst Innovation apps. They are the .NET side
+of the `@sjolystinnovation/app-kit` npm package, with one package per area. Each package is named
+`SjolystInnovation.AppKit.<Area>`, has a namespace of the same name, targets .NET 10, and is published
+on NuGet under the Apache-2.0 license.
+
+## Packages
 
 | Package | What it does |
 | --- | --- |
-| [SjolystInnovation.AppKit.AdminStats](src/SjolystInnovation.AppKit.AdminStats/README.md) | Daily admin statistics on your app's own snapshot table: one frozen row per completed UTC day, missed days rebuilt from a past-day sampler, and a history endpoint with today's live counts. |
-| [SjolystInnovation.AppKit.Auth](src/SjolystInnovation.AppKit.Auth/README.md) | JWT access tokens and bearer validation, rotating refresh tokens with reuse detection and cleanup, Identity defaults, and password reset and email verification codes for ASP.NET Core Identity apps. |
-| [SjolystInnovation.AppKit.Email](src/SjolystInnovation.AppKit.Email/README.md) | Transactional email through Brevo, with reply-to, attachments, a send result instead of exceptions, and delivery statistics. |
-| [SjolystInnovation.AppKit.Hosting](src/SjolystInnovation.AppKit.Hosting/README.md) | Forwarded headers from trusted proxies only, per-IP rate limiting, security headers, HTTPS, health checks, request logging without secrets, and migrations on start for ASP.NET Core APIs behind an ingress. |
-| [SjolystInnovation.AppKit.SiteSettings](src/SjolystInnovation.AppKit.SiteSettings/README.md) | Admin-managed company details, site branding, legal pages, and page sections: settings, public company info, logo and icon uploads, editable terms, privacy, and cookie pages, and the home page sections per language, with Norwegian organization number and postal code checks. |
-| [SjolystInnovation.AppKit.Storage](src/SjolystInnovation.AppKit.Storage/README.md) | Uploaded files on local disk: named stores that tell the file type from its first bytes, refuse oversized and unknown files, and serve files with a correctly encoded `Content-Disposition`. |
-| [SjolystInnovation.AppKit.Storage.Images](src/SjolystInnovation.AppKit.Storage.Images/README.md) | Content images on the existing `ContentImages` tables: uploads with resized WebP renditions, EXIF orientation, recorded dimensions, cache-friendly serving, and cleanup of images that nothing references. |
-| [SjolystInnovation.AppKit.Vipps](src/SjolystInnovation.AppKit.Vipps/README.md) | A client for the Vipps MobilePay Recurring, ePayment, Userinfo, and Webhooks APIs, with a signed webhook endpoint that skips redelivered events, webhook registration at startup, and Norwegian phone number checks. |
+| [SjolystInnovation.AppKit.AdminStats](src/SjolystInnovation.AppKit.AdminStats/README.md) | Daily admin statistics in your app's own snapshot table, with a history endpoint that adds today's live counts. |
+| [SjolystInnovation.AppKit.Auth](src/SjolystInnovation.AppKit.Auth/README.md) | JWT access tokens, rotating refresh tokens, Identity defaults, reset and verification codes, user administration, and account deletion, with stable error codes. |
+| [SjolystInnovation.AppKit.Email](src/SjolystInnovation.AppKit.Email/README.md) | Transactional email and delivery statistics through Brevo, with a send result instead of exceptions. |
+| [SjolystInnovation.AppKit.Hosting](src/SjolystInnovation.AppKit.Hosting/README.md) | Trusted proxies, rate limiting, security headers, HTTPS, health checks, request logging without secrets, and migrations on start. |
+| [SjolystInnovation.AppKit.SiteSettings](src/SjolystInnovation.AppKit.SiteSettings/README.md) | Admin-managed company details, branding, legal pages, and page sections, with stable error codes. |
+| [SjolystInnovation.AppKit.Storage](src/SjolystInnovation.AppKit.Storage/README.md) | Uploaded files on local disk, checked by their first bytes and served with a safe `Content-Disposition`, and the disk use of the stores. |
+| [SjolystInnovation.AppKit.Storage.Images](src/SjolystInnovation.AppKit.Storage.Images/README.md) | Content images with resized WebP renditions, EXIF orientation, cache-friendly serving, and orphan cleanup. |
+| [SjolystInnovation.AppKit.Vipps](src/SjolystInnovation.AppKit.Vipps/README.md) | A Vipps MobilePay client with signed webhook endpoints, webhook registration, and phone number checks. |
 
-```sh
-dotnet add package SjolystInnovation.AppKit.AdminStats
-dotnet add package SjolystInnovation.AppKit.Auth
-dotnet add package SjolystInnovation.AppKit.Email
-dotnet add package SjolystInnovation.AppKit.Hosting
-dotnet add package SjolystInnovation.AppKit.SiteSettings
-dotnet add package SjolystInnovation.AppKit.Storage
-dotnet add package SjolystInnovation.AppKit.Storage.Images
-dotnet add package SjolystInnovation.AppKit.Vipps
-```
+## Get started
+
+1. Add the packages your app needs:
+
+   ```sh
+   dotnet add package SjolystInnovation.AppKit.Hosting
+   dotnet add package SjolystInnovation.AppKit.Auth
+   ```
+
+2. Register the services and map the endpoints in `Program.cs`. Each package follows the same pattern:
+   `AddAppKit*` registers services, `MapAppKit*` maps endpoints, `UseAppKit*` adds middleware, and an
+   `AddAppKit*` extension on `ModelBuilder` maps the package's tables in your own `DbContext`.
+
+   ```csharp
+   using SjolystInnovation.AppKit.Hosting;
+
+   var builder = WebApplication.CreateBuilder(args);
+   builder.Services.AddAppKitRateLimiting(builder.Configuration.GetSection("RateLimiting"));
+
+   var app = builder.Build();
+   app.UseAppKitForwardedHeaders();
+   app.UseAppKitSecurityHeaders();
+   app.UseAppKitRequestLogging();
+   app.UseAppKitRateLimiting();
+   app.MapGet("/api/hello", () => "Hello");
+   app.Run();
+   ```
+
+3. Add a migration for the tables of the packages that store data. Your app keeps its own migrations.
+
+Each package README has a complete `Program.cs` example, the options with their defaults, and the
+endpoints it maps.
 
 To work on the packages, see the [contributing guide](CONTRIBUTING.md).

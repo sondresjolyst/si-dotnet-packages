@@ -24,6 +24,10 @@ public class LegalPage
 }
 
 /// <summary>The starting text of a legal page, written while the page has none.</summary>
+/// <param name="Key">The page key, for example <c>terms</c>.</param>
+/// <param name="Locale">The language of the text, for example <c>no</c>.</param>
+/// <param name="Title">The page title.</param>
+/// <param name="BodyMarkdown">The page body as Markdown.</param>
 public sealed record LegalPageSeed(string Key, string Locale, string Title, string BodyMarkdown);
 
 /// <summary>
@@ -53,9 +57,16 @@ public sealed class AppKitLegalPagesOptions
 }
 
 /// <summary>A legal page as the endpoints return it.</summary>
+/// <param name="Key">The page key, in lowercase.</param>
+/// <param name="Locale">The language of the page, in lowercase.</param>
+/// <param name="Title">The page title.</param>
+/// <param name="BodyMarkdown">The page body as Markdown.</param>
+/// <param name="UpdatedAt">When the page was last saved, in UTC.</param>
 public sealed record LegalPageInfo(string Key, string Locale, string Title, string BodyMarkdown, DateTime UpdatedAt);
 
 /// <summary>The text an admin saves for a legal page.</summary>
+/// <param name="Title">The page title. Required, at most 200 characters.</param>
+/// <param name="BodyMarkdown">The page body as Markdown. Required.</param>
 public sealed record LegalPageBody(string? Title, string? BodyMarkdown);
 
 /// <summary>Maps, seeds, and configures the legal pages.</summary>
