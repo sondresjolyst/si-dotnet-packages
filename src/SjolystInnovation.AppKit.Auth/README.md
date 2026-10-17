@@ -1,8 +1,8 @@
 # SjolystInnovation.AppKit.Auth
 
 This package provides Identity defaults, access tokens and their validation, rotating refresh tokens,
-and email codes for an ASP.NET Core Identity app. Your app can map the package's endpoints and send its
-emails, or keep its own endpoints, messages, and emails and call these services from them.
+and email codes for an ASP.NET Core Identity app. Your app maps the package's endpoints and can send
+its emails, or keep its own emails.
 
 ```sh
 dotnet add package SjolystInnovation.AppKit.Auth
@@ -272,72 +272,34 @@ may act, except that only the user changes their own password.
 
 A missing or deleted account gives `404`, and someone else's account gives `403`.
 
-## Signing in
+## Refresh tokens
 
-```csharp
-var roles = await users.GetRolesAsync(user);
-var token = jwt.Build(user, roles);
-var refreshToken = await refreshTokens.IssueAsync(user.Id);
-await db.SaveChangesAsync();
-```
+The sign-in endpoints issue, rotate, and revoke the refresh tokens. The service behind them is
+internal, so the rules below hold for every app.
 
-`IssueAsync` deletes the oldest live tokens over the cap. Deleting rather than revoking keeps an
-evicted device from looking like a replay.
-
-## Refreshing
-
-```csharp
-var userId = jwt.ReadUserIdFromExpired(request.Token);
-if (userId == null) return BadRequest();
-var user = await users.FindByIdAsync(userId);
-if (user == null) return Unauthorized();
-
-var result = await refreshTokens.RotateAsync(user.Id, request.RefreshToken);
-if (result.Status != RotationStatus.Rotated) return Unauthorized();
-return Ok(new { token = jwt.Build(user, await users.GetRolesAsync(user)), refreshToken = result.RefreshToken });
-```
-
-`RotateAsync` saves and commits on its own. A token that was already used gives `Replayed` and
-revokes every live token of the user, so a stolen token stops working for everyone holding one.
-
-## Signing out
-
-```csharp
-await refreshTokens.RevokeAsync(request.RefreshToken);
-return NoContent();
-```
-
-`RevokeAsync` deletes the token while it is live, so a stale tab that sends it later gets a plain
-refusal instead of setting off replay detection. A token that was already used stays, so presenting
-it still revokes every session of the user.
+- Signing in deletes the oldest live tokens over `MaxLiveRefreshTokens`. Deleting rather than revoking
+  keeps an evicted device from looking like a replay.
+- A refresh swaps the token for a new one in one transaction. A token that was already used revokes
+  every live token of the user, so a stolen token stops working for everyone holding one.
+- Signing out deletes the token while it is live, so a stale tab that sends it later gets a plain
+  refusal instead of setting off replay detection. A token that was already used stays, so presenting
+  it still revokes every session of the user.
+- A password reset deletes every live token of the user, so each device signs in again.
 
 ## Password reset
 
 Your user class implements `IPasswordResetUser` with `PasswordResetCodeHash`,
-`PasswordResetCodeExpiration`, and `PasswordResetAttempts`.
-
-```csharp
-var code = PasswordResetCodes.Issue(user);        // valid for 30 minutes
-await users.UpdateAsync(user);
-// email the code
-
-switch (PasswordResetCodes.Check(user, dto.Code))
-{
-    case CodeCheck.TooManyAttempts: return TooManyRequests();
-    case CodeCheck.Invalid: await users.UpdateAsync(user); return BadRequest();
-}
-// reset the password with UserManager, then
-PasswordResetCodes.Complete(user);                // also clears the lockout
-await users.UpdateAsync(user);
-await refreshTokens.RevokeAllForUserAsync(user.Id); // every device signs in again
-```
+`PasswordResetCodeExpiration`, and `PasswordResetAttempts`. The `request-password-reset` and
+`reset-password` endpoints and the invite use them. A reset code lasts 30 minutes, and a correct code
+also clears the lockout.
 
 ## Email verification
 
 To add email verification, give the user three columns by implementing `IEmailVerificationUser`:
 `EmailVerificationCodeHash`, `EmailVerificationCodeExpiration`, and `EmailVerificationAttempts`. Add a
 migration for them. Then send a code at registration and from a resend endpoint, with your own email
-text or `IVerificationEmails<TUser>`, and check it from a verify endpoint.
+text or `IVerificationEmails<TUser>`, and check it from a verify endpoint. These helpers stay public
+because the package maps no registration or verify endpoint.
 
 ```csharp
 var code = EmailVerificationCodes.Issue(user);    // valid for 1 hour
@@ -349,6 +311,6 @@ if (check == CodeCheck.Valid) EmailVerificationCodes.Complete(user);
 await users.UpdateAsync(user);
 ```
 
-`Check` gives `AlreadyVerified` for a confirmed email. Both code types stop with `TooManyAttempts`
-after 5 wrong codes, until a new code is issued. The helpers change the user object only, so save
+`Check` gives `AlreadyVerified` for a confirmed email. Verification and reset codes both stop with
+`TooManyAttempts` after 5 wrong codes, until a new code is issued. The helpers change the user object only, so save
 it after each call.

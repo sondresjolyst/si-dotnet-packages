@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Identity;
 namespace SjolystInnovation.AppKit.Auth;
 
 /// <summary>Creates and checks short codes that a user types in from an email.</summary>
-public static class VerificationCodes
+internal static class VerificationCodes
 {
     private const string Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
@@ -42,7 +42,7 @@ public enum CodeCheck
     /// <summary>The code is wrong or expired. This counts as an attempt.</summary>
     Invalid,
 
-    /// <summary><see cref="VerificationCodes.MaxAttempts"/> wrong codes have been tried.</summary>
+    /// <summary>Five wrong codes have been tried. A new code has to be issued.</summary>
     TooManyAttempts,
 
     /// <summary>The email is already confirmed.</summary>
@@ -64,7 +64,7 @@ public interface IPasswordResetUser
 /// Resets passwords with a code sent by email. The helpers change only the user object. The caller
 /// saves it.
 /// </summary>
-public static class PasswordResetCodes
+internal static class PasswordResetCodes
 {
     /// <summary>How long a reset code lasts by default. 30 minutes.</summary>
     public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(30);

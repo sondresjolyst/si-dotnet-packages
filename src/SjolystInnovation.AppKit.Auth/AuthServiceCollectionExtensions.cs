@@ -10,7 +10,7 @@ namespace SjolystInnovation.AppKit.Auth;
 public static class AuthServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers <see cref="IJwtTokenService"/> and <see cref="IRefreshTokenService"/>, with
+    /// Registers <see cref="IJwtTokenService"/> and the refresh token service that the sign-in endpoints use, with
     /// <see cref="AppKitAuthOptions"/> bound from <paramref name="jwtSection"/>, and a hosted service that
     /// deletes expired refresh tokens at startup and daily. The app fails to start when the key is
     /// shorter than 32 bytes, or when a lifetime or the token cap is not positive.
