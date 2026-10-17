@@ -287,6 +287,7 @@ public sealed class AccountTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal("Another change to the accounts happened at the same time. Try again.", (await JsonAsync(response)).GetProperty("message").GetString());
+        Assert.Equal(AuthErrorCodes.AccountChangeConflict, await ErrorJson.CodeAsync(response));
         Assert.False(Load("u1").IsDeleted);
         Assert.Empty(Handled);
     }
@@ -441,11 +442,11 @@ public sealed class AccountTests : IAsyncDisposable
     }
 
     [Theory]
-    [InlineData(null, "Hansen", "FirstName")]
-    [InlineData("Ola", " ", "LastName")]
-    [InlineData("Ola", "x51", "LastName")]
-    [InlineData("x51", "Hansen", "FirstName")]
-    public async Task A_bad_name_is_a_validation_problem(string? first, string? last, string field)
+    [InlineData(null, "Hansen", "FirstName", "required", null)]
+    [InlineData("Ola", " ", "LastName", "required", null)]
+    [InlineData("Ola", "x51", "LastName", "tooLong", 50)]
+    [InlineData("x51", "Hansen", "FirstName", "tooLong", 50)]
+    public async Task A_bad_name_is_a_validation_problem(string? first, string? last, string field, string code, int? limit)
     {
         await StartAsync();
         await UserAsync("u1");
@@ -455,6 +456,9 @@ public sealed class AccountTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal([field], (await JsonAsync(response)).GetProperty("errors").EnumerateObject().Select(p => p.Name));
+        Assert.Equal([$"{field}={code}"], await ErrorJson.FieldCodesAsync(response));
+        Assert.Equal(limit is null ? [] : [$"{field}={limit}"], await ErrorJson.LimitsAsync(response));
+        Assert.Equal([limit is null ? "Required." : "At most 50 characters."], await ErrorJson.MessagesAsync(response, field));
         Assert.Equal("Kari", Load("u1").FirstName);
     }
 
@@ -483,7 +487,7 @@ public sealed class AccountTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task A_wrong_current_password_is_a_validation_problem_on_the_new_one()
+    public async Task A_wrong_current_password_is_a_validation_problem_on_the_current_one()
     {
         await StartAsync();
         await UserAsync("u1");
@@ -491,7 +495,21 @@ public sealed class AccountTests : IAsyncDisposable
         var response = await SendAsync(HttpMethod.Put, "/api/users/u1/password", new { currentPassword = "Wrong1234", newPassword = "NewPassword2" });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(["NewPassword"], (await JsonAsync(response)).GetProperty("errors").EnumerateObject().Select(p => p.Name));
+        Assert.Equal(["CurrentPassword=wrongPassword"], await ErrorJson.FieldCodesAsync(response));
+        Assert.Equal(["Incorrect password."], await ErrorJson.MessagesAsync(response, "CurrentPassword"));
+    }
+
+    [Fact]
+    public async Task A_weak_new_password_is_a_validation_problem_with_a_code_per_rule()
+    {
+        await StartAsync();
+        await UserAsync("u1");
+
+        var response = await SendAsync(HttpMethod.Put, "/api/users/u1/password", new { currentPassword = "Password1", newPassword = "abc" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(["NewPassword=passwordTooShort,passwordRequiresDigit,passwordRequiresUpper"], await ErrorJson.FieldCodesAsync(response));
+        Assert.Equal(["NewPassword=8"], await ErrorJson.LimitsAsync(response));
     }
 
     [Fact]
@@ -514,6 +532,7 @@ public sealed class AccountTests : IAsyncDisposable
         var response = await SendAsync(HttpMethod.Put, "/api/users/u1/password", new { });
 
         Assert.Equal(["CurrentPassword", "NewPassword"], (await JsonAsync(response)).GetProperty("errors").EnumerateObject().Select(p => p.Name).Order());
+        Assert.Equal(["CurrentPassword=required", "NewPassword=required"], await ErrorJson.FieldCodesAsync(response));
     }
 
     [Fact]
@@ -584,6 +603,7 @@ public sealed class AccountTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.StartsWith("The last admin account cannot be deleted", (await JsonAsync(response)).GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Equal(AuthErrorCodes.LastAdmin, await ErrorJson.CodeAsync(response));
         Assert.False(Load("last").IsDeleted);
     }
 }
