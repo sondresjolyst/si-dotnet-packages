@@ -31,7 +31,7 @@ app.MapAppKitSiteSettings<ApplicationDbContext, AppSettings>("/api", o => o.Poli
 | --- | --- | --- |
 | `GET company` | Everyone | The name, legal name, organization number, VAT status, the address as one line and as parts, and the public email and phone. While the legal name is blank, the company name stands in for it. The contact recipient stays private. |
 | `GET settings` | `Policy` | The company fields as stored. |
-| `PUT settings` | `Policy` | Saves the company fields, trimmed, and creates the row on the first write. A bad field gives a validation problem keyed by field. |
+| `PUT settings` | `Policy` | Saves the company fields, trimmed, and creates the row on the first write. A bad field gives a validation problem keyed by field, with a code for each error. See [Error codes](#error-codes). |
 | `GET branding` | Everyone | `logoData`, `logoContentType`, `iconData`, and `iconContentType`, base64 and `null` while unset. |
 | `PUT branding` | `Policy` | A form with an optional `logo` and `icon` file, or `removeLogo` and `removeIcon` set to `true`. A part that is not sent stays as it is. |
 
@@ -78,6 +78,34 @@ app.MapAppKitSiteSettings<ApplicationDbContext, AppSettings>("/api", o =>
 
 `NorwegianOrgNumber.IsValid`, `PostalAddress.IsPostalCode`, and `PostalAddress.Format` are public for your
 app's own use, such as invoices and structured data.
+
+## Error codes
+
+A bad field in `PUT settings` answers a validation problem. Next to the English messages in `errors`, it
+has two extensions keyed by the same fields. `codes` holds a stable code for each message, so a client can
+show its own text in its own language. `limits` holds the character limit for each field whose code is
+`tooLong`, and is empty otherwise.
+
+```json
+{
+  "errors": { "OrgNumber": ["Not a valid organisation number. It has nine digits and ends in a check digit."], "CompanyName": ["At most 100 characters."] },
+  "codes": { "OrgNumber": ["invalidOrgNumber"], "CompanyName": ["tooLong"] },
+  "limits": { "CompanyName": 100 }
+}
+```
+
+| Code | Meaning |
+| --- | --- |
+| `required` | The field is blank and must have a value. |
+| `tooLong` | The text is longer than the limit in `limits`. |
+| `invalidEmail` | Not a plain email address of at most 200 characters. |
+| `orgNumberRequiredForVat` | The organisation number is blank while the business is VAT registered. |
+| `invalidOrgNumber` | The organisation number is not nine digits with a correct check digit. |
+| `invalidPostalCode` | The postal code is not four digits. |
+| `placeRequired` | A postal code is given without its place name. |
+
+The codes are also constants on `SiteSettingsErrorCodes`. New codes may come in a minor version, so a
+client shows the message from `errors` for a code it does not know.
 
 ## Legal pages
 
