@@ -207,7 +207,7 @@ public class AuthEmailTests
     [InlineData(EmailLanguage.Norwegian, false, "Org.nr. 923 202 374")]
     [InlineData(EmailLanguage.Norwegian, true, "Org.nr. 923 202 374 MVA")]
     [InlineData(EmailLanguage.English, false, "Org. no. 923 202 374")]
-    [InlineData(EmailLanguage.English, true, "Org. no. 923 202 374 VAT")]
+    [InlineData(EmailLanguage.English, true, "Org. no. 923 202 374 MVA")]
     public async Task The_org_number_line_follows_the_email_language_and_the_VAT_flag(EmailLanguage language, bool vat, string line)
     {
         var brand = Brand with { OrgNumber = "923202374", VatRegistered = vat };

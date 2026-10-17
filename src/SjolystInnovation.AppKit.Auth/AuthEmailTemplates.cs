@@ -25,8 +25,9 @@ public sealed record EmailBrand(string Name)
     public string? OrgNumber { get; init; }
 
     /// <summary>
-    /// Whether the company is registered for VAT. Adds <c>MVA</c> in Norwegian or <c>VAT</c> in English after
-    /// the organization number. Without a number it shows nothing.
+    /// Whether the company is registered for VAT. Adds <c>MVA</c> after the organization number in every
+    /// language, as Norwegian bookkeeping rules require for a registered business. Without a number it
+    /// shows nothing.
     /// </summary>
     public bool VatRegistered { get; init; }
 
@@ -201,7 +202,7 @@ internal static class AuthEmailRenderer
     private static readonly AuthEmailWords English = new(
         "Hi,", "Hi {0},", "Your code", "The code expires in {0}.", "Button not working? Copy this link:",
         "You got this email because of your account at {0}.",
-        "Org. no.", "VAT",
+        "Org. no.", "MVA",
         ("minute", "minutes"), ("hour", "hours"), ("day", "days"),
         new Dictionary<AuthEmailKind, AuthEmailText>
         {
