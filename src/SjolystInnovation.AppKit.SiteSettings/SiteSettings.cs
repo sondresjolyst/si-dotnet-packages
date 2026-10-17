@@ -1,6 +1,7 @@
 using System.Net.Mail;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -207,11 +208,7 @@ internal static class SiteSettingsHandlers<TContext, TSettings>
     {
         var problem = SiteSettingsValidation.Validate(body);
         if (problem.Errors.Count > 0)
-            return TypedResults.ValidationProblem(problem.Errors, extensions: new Dictionary<string, object?>
-            {
-                ["codes"] = problem.Codes,
-                ["limits"] = problem.Limits,
-            });
+            return problem.ToResult();
 
         var (db, s) = await FindOrAddAsync(http);
         var previous = ToBody(s);
@@ -240,10 +237,10 @@ internal static class SiteSettingsHandlers<TContext, TSettings>
 }
 
 /// <summary>
-/// The stable codes for the field errors of <c>PUT settings</c>. The validation problem holds them in its
-/// <c>codes</c> extension, keyed by field like <c>errors</c>, for example
-/// <c>{"codes": {"OrgNumber": ["invalidOrgNumber"]}}</c>. A client shows its own text for a code it knows and
-/// the English message from <c>errors</c> for one it does not.
+/// The stable codes for the field errors of <c>PUT settings</c>, <c>PUT branding</c>, and saving a legal page.
+/// The validation problem holds them in its <c>codes</c> extension, keyed by field like <c>errors</c>, for
+/// example <c>{"codes": {"OrgNumber": ["invalidOrgNumber"]}}</c>. A client shows its own text for a code it
+/// knows and the English message from <c>errors</c> for one it does not.
 /// </summary>
 public static class SiteSettingsErrorCodes
 {
@@ -267,12 +264,47 @@ public static class SiteSettingsErrorCodes
 
     /// <summary>The place name is blank while a postal code is given.</summary>
     public const string PlaceRequired = "placeRequired";
+
+    /// <summary>
+    /// The branding file is not a PNG, JPEG, WebP, GIF or ICO image, judged by its bytes. An empty file is
+    /// not an image either.
+    /// </summary>
+    public const string InvalidImage = "invalidImage";
+
+    /// <summary>The branding file is larger than 2 MB.</summary>
+    public const string ImageTooLarge = "imageTooLarge";
+
+    /// <summary>The branding was not sent as a form. The error is keyed by <c>Logo</c>.</summary>
+    public const string NotAForm = "notAForm";
 }
 
+/// <summary>The field errors of one request, with a code for each and the limit for each <c>tooLong</c>.</summary>
 internal sealed record SiteSettingsProblem(
     Dictionary<string, string[]> Errors,
     Dictionary<string, string[]> Codes,
-    Dictionary<string, int> Limits);
+    Dictionary<string, int> Limits)
+{
+    public SiteSettingsProblem() : this([], [], [])
+    {
+    }
+
+    /// <summary>Gives the field its one error, with the limit when the code is <c>tooLong</c>.</summary>
+    public void Set(string field, string code, string message, int? limit = null)
+    {
+        Errors[field] = [message];
+        Codes[field] = [code];
+        if (limit is { } max)
+            Limits[field] = max;
+    }
+
+    /// <summary>A validation problem with the English messages in <c>errors</c> and the <c>codes</c> and <c>limits</c> extensions.</summary>
+    public ValidationProblem ToResult() =>
+        TypedResults.ValidationProblem(Errors, extensions: new Dictionary<string, object?>
+        {
+            ["codes"] = Codes,
+            ["limits"] = Limits,
+        });
+}
 
 internal static class SiteSettingsValidation
 {
@@ -284,15 +316,11 @@ internal static class SiteSettingsValidation
 
     public static SiteSettingsProblem Validate(SiteSettingsBody body)
     {
-        var problem = new SiteSettingsProblem([], [], []);
+        var problem = new SiteSettingsProblem();
         void Check(string field, bool ok, Rule rule)
         {
-            if (ok || problem.Errors.ContainsKey(field))
-                return;
-            problem.Errors[field] = [rule.Message];
-            problem.Codes[field] = [rule.Code];
-            if (rule.Limit is { } limit)
-                problem.Limits[field] = limit;
+            if (!ok && !problem.Errors.ContainsKey(field))
+                problem.Set(field, rule.Code, rule.Message, rule.Limit);
         }
         static bool Blank(string? value) => string.IsNullOrWhiteSpace(value);
         static bool Fits(string? value, int max) => (value?.Trim().Length ?? 0) <= max;
