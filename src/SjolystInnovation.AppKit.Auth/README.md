@@ -160,10 +160,28 @@ public sealed class EmailBrandFromSettings(ApplicationDbContext db) : IEmailBran
     public async Task<EmailBrand> GetBrandAsync(CancellationToken cancellationToken)
     {
         var s = await db.AppSettings.SingleAsync(cancellationToken);
-        return new EmailBrand(s.CompanyName) { LegalName = s.LegalName, OrgNumber = $"Org.nr. {s.OrgNumber}", Address = s.Address, Email = s.PublicEmail };
+        return new EmailBrand(s.CompanyName)
+        {
+            LegalName = s.LegalName,
+            OrgNumber = s.OrgNumber,
+            VatRegistered = s.VatRegistered,
+            Address = s.Address,
+            Email = s.PublicEmail,
+        };
     }
 }
 ```
+
+The header lists the legal name, the organization number line, the address, and the email, and leaves
+out blank ones. Pass the organization number as stored. The email writes the line in its language:
+
+| `OrgNumber` | `VatRegistered` | Norwegian | English |
+| --- | --- | --- | --- |
+| `923202374` | `false` | `Org.nr. 923 202 374` | `Org. no. 923 202 374` |
+| `923202374` | `true` | `Org.nr. 923 202 374 MVA` | `Org. no. 923 202 374 VAT` |
+| blank | either | no line | no line |
+
+Nine digits, with or without spaces, are grouped in threes. Anything else is shown trimmed as given.
 
 | Option | Default | |
 | --- | --- | --- |
