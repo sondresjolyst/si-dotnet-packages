@@ -161,7 +161,7 @@ internal static partial class VippsWebhookEndpoint<TContext>
     // Keep this format as it is. Apps that moved here keep their processed keys, so a changed key, for
     // example one with the charge's transactionId, would let a redelivery of an old event through.
     // The time is in UTC ticks, so the key does not depend on the server's time zone. On a server that
-    // runs in UTC, as the containers do, that equals the ticks garge-api used before.
+    // runs in UTC, as containers usually do, that equals the ticks of a key an app built from the local time.
     internal static string RecurringKey(VippsRecurringEvent e) =>
         !string.IsNullOrEmpty(e.EventId) ? e.EventId : $"{e.AgreementId}:{e.EventType}:{e.ChargeId}:{UtcTicks(e.Occurred)}";
 
