@@ -1,8 +1,8 @@
 # SjolystInnovation.AppKit.Hosting
 
 This package holds startup pieces for an ASP.NET Core API behind an ingress: the client IP taken only
-from trusted proxies, per-IP rate limiting on that IP, security headers, HTTPS, health probes, and
-migrations on start. You can adopt each piece on its own.
+from trusted proxies, per-IP rate limiting on that IP, security headers, HTTPS, health probes, request
+logging without secrets, and migrations on start. You can adopt each piece on its own.
 
 ```sh
 dotnet add package SjolystInnovation.AppKit.Hosting
@@ -24,6 +24,7 @@ app.UseAppKitSecurityHeaders();
 app.UseAppKitHttps();
 
 app.UseRouting();
+app.UseAppKitRequestLogging();
 app.UseCors("AllowAllOrigins");
 app.UseAuthentication();
 app.UseAuthorization();
@@ -90,6 +91,42 @@ response.
 Outside Development, `UseAppKitHttps` sends HSTS and redirects plain HTTP to HTTPS. Paths under
 `/health` are never redirected, because probes reach the pod over plain HTTP. Call it after
 `UseAppKitForwardedHeaders`, so a request the ingress received over HTTPS is not redirected.
+
+## Request logging
+
+`UseAppKitRequestLogging` logs each request so you can follow traffic without leaking secrets. It writes
+`Incoming Request {@LogData}` at Information with the method and path, and `Header {@LogData}` at Debug
+for each request header. It never reads the request body.
+
+- Headers in `SensitiveHeaders` are left out.
+- The query string is left out, because it can carry a token, such as the `access_token` that SignalR
+  sends. If you turn on `LogQueryString`, the value of each parameter whose name contains an entry of
+  `SensitiveQueryParameters` is replaced with `[Redacted]`.
+- A path segment or query value that looks like an email address is replaced with `[Redacted]`.
+- Line breaks are removed from every logged value, so a request cannot forge a log line.
+- Paths under `SkippedPaths` are not logged at all.
+
+```csharp
+app.UseAppKitRequestLogging(o =>
+{
+    o.SkippedPaths.Add("/metrics");
+    o.SensitiveHeaders.Add("X-Tenant-Secret");
+});
+```
+
+| Option | Default | |
+| --- | --- | --- |
+| `SkippedPaths` | `/health` | Path prefixes that are not logged, matched by whole segments and ignoring case. Each entry starts with `/`, or the app fails to start. |
+| `SensitiveHeaders` | `Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization`, `X-Api-Key`, `Idempotency-Key` | Headers that are never logged, ignoring case. |
+| `LogQueryString` | `false` | Whether the query string is logged, redacted, with the path. |
+| `SensitiveQueryParameters` | `token`, `password`, `secret`, `code`, `key`, `signature`, `sig`, `email` | Parts of parameter names whose values are redacted, ignoring case. `token` also covers `access_token` and `refresh_token`. |
+
+ASP.NET Core logs its own `Request starting` record at Information under
+`Microsoft.AspNetCore.Hosting.Diagnostics`, and that record has the full URL with the query string. If a
+query can carry a token, raise that category to `Warning`.
+
+`LogSanitizer.Sanitize` removes line breaks from a value, and `LogSanitizer.LooksLikeEmail` checks the
+shape of an email address. Use them when your own log messages include values from a request.
 
 ## Health checks
 
