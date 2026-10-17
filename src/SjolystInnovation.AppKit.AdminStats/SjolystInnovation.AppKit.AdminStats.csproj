@@ -2,9 +2,9 @@
   <PropertyGroup>
     <PackageId>SjolystInnovation.AppKit.AdminStats</PackageId>
     <!-- x-release-please-start-version -->
-    <Version>0.1.0</Version>
+    <Version>1.0.0</Version>
     <!-- x-release-please-end -->
-    <Description>Daily admin statistics for ASP.NET Core apps, stored as one frozen row per completed UTC day in your own table and served with today&apos;s live counts.</Description>
+    <Description>Daily admin statistics for ASP.NET Core apps: one frozen row of counts per completed UTC day in your app's own snapshot table, missed days rebuilt from a past-day sampler, idempotent inserts, and a history endpoint that adds today's live counts.</Description>
     <PackageTags>admin;statistics;dashboard;entity-framework-core;minimal-api</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>

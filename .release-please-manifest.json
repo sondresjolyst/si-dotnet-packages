@@ -1,10 +1,10 @@
 {
-  "src/SjolystInnovation.AppKit.Vipps": "0.3.0",
+  "src/SjolystInnovation.AppKit.Vipps": "1.0.0",
   "src/SjolystInnovation.AppKit.Auth": "1.0.0",
-  "src/SjolystInnovation.AppKit.Hosting": "0.3.0",
+  "src/SjolystInnovation.AppKit.Hosting": "1.0.0",
   "src/SjolystInnovation.AppKit.Email": "1.0.0",
   "src/SjolystInnovation.AppKit.SiteSettings": "1.0.0",
-  "src/SjolystInnovation.AppKit.AdminStats": "0.1.0",
+  "src/SjolystInnovation.AppKit.AdminStats": "1.0.0",
   "src/SjolystInnovation.AppKit.Storage": "1.0.0",
   "src/SjolystInnovation.AppKit.Storage.Images": "1.0.0"
 }
