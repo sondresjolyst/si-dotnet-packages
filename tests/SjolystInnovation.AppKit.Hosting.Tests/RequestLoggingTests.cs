@@ -219,11 +219,65 @@ public sealed class RequestLoggingTests
     public async Task A_default_sensitive_header_can_be_logged_after_removing_it()
     {
         var logs = new FakeLogCollector();
-        await using var app = await StartAsync(logs, o => o.SensitiveHeaders.Remove("Idempotency-Key"));
+        await using var app = await StartAsync(logs, o =>
+        {
+            o.SensitiveHeaders.Remove("Idempotency-Key");
+            o.SensitiveHeaderParts.Remove("key");
+        });
 
         await app.SendAsync("/api/x", headers: new() { ["Idempotency-Key"] = "k-1" });
 
         Assert.Contains(Records(logs), r => r.Message == "Header { Key = Idempotency-Key, Value = k-1 }");
+    }
+
+    [Fact]
+    public async Task Headers_whose_names_hold_a_sensitive_part_are_logged_redacted()
+    {
+        var logs = new FakeLogCollector();
+        await using var app = await StartAsync(logs);
+
+        await app.SendAsync("/api/x", headers: new()
+        {
+            ["X-Vipps-Signature"] = "sig-secret",
+            ["X-CSRF-TOKEN"] = "csrf-secret",
+            ["X-Session-Id"] = "session-secret",
+            ["X-Auth-Request-User"] = "auth-secret",
+            ["X-Client-Password"] = "password-secret",
+            ["X-Xsrf"] = "xsrf-secret",
+            ["X-Csrf-Guard"] = "guard-secret",
+            ["X-Webhook-Secret"] = "webhook-secret",
+            ["X-Cookie-Id"] = "cookie-secret",
+            ["X-Note"] = "plain",
+        });
+
+        var messages = Records(logs).Select(r => r.Message).ToList();
+        Assert.DoesNotContain("secret", AllText(logs), StringComparison.Ordinal);
+        Assert.Contains("Header { Key = X-Vipps-Signature, Value = [Redacted] }", messages);
+        Assert.Contains("Header { Key = X-CSRF-TOKEN, Value = [Redacted] }", messages);
+        Assert.Contains("Header { Key = X-Note, Value = plain }", messages);
+    }
+
+    [Fact]
+    public async Task A_header_value_that_looks_like_an_email_is_redacted()
+    {
+        var logs = new FakeLogCollector();
+        await using var app = await StartAsync(logs);
+
+        await app.SendAsync("/api/x", headers: new() { ["X-Forwarded-User"] = "ola@example.com" });
+
+        Assert.Contains(Records(logs), r => r.Message == "Header { Key = X-Forwarded-User, Value = [Redacted] }");
+        Assert.DoesNotContain("ola@example.com", AllText(logs), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task More_header_name_parts_can_be_marked_sensitive()
+    {
+        var logs = new FakeLogCollector();
+        await using var app = await StartAsync(logs, o => o.SensitiveHeaderParts.Add("tenant"));
+
+        await app.SendAsync("/api/x", headers: new() { ["X-TENANT-Id"] = "tenant-value" });
+
+        Assert.Contains(Records(logs), r => r.Message == "Header { Key = X-TENANT-Id, Value = [Redacted] }");
     }
 
     [Fact]

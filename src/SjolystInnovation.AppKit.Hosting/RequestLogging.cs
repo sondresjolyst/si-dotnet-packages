@@ -31,6 +31,27 @@ public sealed class AppKitRequestLoggingOptions
     };
 
     /// <summary>
+    /// The parts of header names whose values are redacted, ignoring case. A header whose name contains an
+    /// entry is logged with <see cref="LogSanitizer.Redacted"/> as its value, so a custom header such as
+    /// <c>X-Vipps-Signature</c> or <c>X-CSRF-Token</c> never reaches the logs. Defaults to <c>token</c>,
+    /// <c>auth</c>, <c>secret</c>, <c>session</c>, <c>signature</c>, <c>csrf</c>, <c>xsrf</c>, <c>cookie</c>,
+    /// <c>key</c>, and <c>password</c>. A header value that looks like an email address is redacted too.
+    /// </summary>
+    public ISet<string> SensitiveHeaderParts { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "token",
+        "auth",
+        "secret",
+        "session",
+        "signature",
+        "csrf",
+        "xsrf",
+        "cookie",
+        "key",
+        "password",
+    };
+
+    /// <summary>
     /// Whether the query string is logged with the path. Defaults to false, because a query can carry a token,
     /// such as the <c>access_token</c> that SignalR sends.
     /// </summary>
@@ -74,6 +95,7 @@ public static partial class RequestLoggingExtensions
         var skipped = options.SkippedPaths.Select(p => new PathString(p)).ToArray();
         var sensitiveHeaders = new HashSet<string>(options.SensitiveHeaders, StringComparer.OrdinalIgnoreCase);
         var sensitiveQuery = options.SensitiveQueryParameters.ToArray();
+        var sensitiveHeaderParts = options.SensitiveHeaderParts.ToArray();
         var logger = app.ApplicationServices.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(RequestLoggingExtensions).FullName!);
 
         return app.Use(async (context, next) =>
@@ -100,7 +122,9 @@ public static partial class RequestLoggingExtensions
                 {
                     if (sensitiveHeaders.Contains(header.Key))
                         continue;
-                    object logData = new { header.Key, Value = LogSanitizer.Sanitize(header.Value.ToString()) };
+                    var value = header.Value.ToString();
+                    var redact = sensitiveHeaderParts.Any(part => header.Key.Contains(part, StringComparison.OrdinalIgnoreCase)) || LogSanitizer.LooksLikeEmail(value);
+                    object logData = new { header.Key, Value = redact ? LogSanitizer.Redacted : LogSanitizer.Sanitize(value) };
                     Log.Header(logger, logData);
                 }
             }

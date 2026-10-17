@@ -99,10 +99,12 @@ Outside Development, `UseAppKitHttps` sends HSTS and redirects plain HTTP to HTT
 for each request header. It never reads the request body.
 
 - Headers in `SensitiveHeaders` are left out.
+- A header whose name contains an entry of `SensitiveHeaderParts` is logged with `[Redacted]` as its value.
+  That covers custom headers such as `X-Vipps-Signature` or `X-CSRF-Token`.
 - The query string is left out, because it can carry a token, such as the `access_token` that SignalR
   sends. If you turn on `LogQueryString`, the value of each parameter whose name contains an entry of
   `SensitiveQueryParameters` is replaced with `[Redacted]`.
-- A path segment or query value that looks like an email address is replaced with `[Redacted]`.
+- A path segment, query value or header value that looks like an email address is replaced with `[Redacted]`.
 - Line breaks are removed from every logged value, so a request cannot forge a log line.
 - Paths under `SkippedPaths` are not logged at all.
 
@@ -118,6 +120,7 @@ app.UseAppKitRequestLogging(o =>
 | --- | --- | --- |
 | `SkippedPaths` | `/health` | Path prefixes that are not logged, matched by whole segments and ignoring case. Each entry starts with `/`, or the app fails to start. |
 | `SensitiveHeaders` | `Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization`, `X-Api-Key`, `Idempotency-Key` | Headers that are never logged, ignoring case. |
+| `SensitiveHeaderParts` | `token`, `auth`, `secret`, `session`, `signature`, `csrf`, `xsrf`, `cookie`, `key`, `password` | Parts of header names whose values are redacted, ignoring case. |
 | `LogQueryString` | `false` | Whether the query string is logged, redacted, with the path. |
 | `SensitiveQueryParameters` | `token`, `password`, `secret`, `code`, `key`, `signature`, `sig`, `email` | Parts of parameter names whose values are redacted, ignoring case. `token` also covers `access_token` and `refresh_token`. |
 
