@@ -4,7 +4,7 @@
     <!-- x-release-please-start-version -->
     <Version>0.3.0</Version>
     <!-- x-release-please-end -->
-    <Description>A client for the Vipps MobilePay Recurring, ePayment, Userinfo and Webhooks APIs, with signed webhook endpoints that dedupe events, webhook registration at startup and Norwegian phone number checks.</Description>
+    <Description>A client for the Vipps MobilePay Recurring, ePayment, Userinfo, and Webhooks APIs, with signed webhook endpoints that skip redelivered events, webhook registration at startup, and Norwegian phone number checks.</Description>
     <PackageTags>vipps;mobilepay;payments;recurring;epayment;webhooks</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>

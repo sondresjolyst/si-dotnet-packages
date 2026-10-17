@@ -193,4 +193,6 @@ public sealed record VippsWebhook
 }
 
 /// <summary>A newly registered webhook, with the secret that signs its requests.</summary>
+/// <param name="Id">The webhook id at Vipps.</param>
+/// <param name="Secret">The secret that signs the webhook's requests. Vipps returns it only once.</param>
 public sealed record VippsRegisteredWebhook(string Id, string Secret);
