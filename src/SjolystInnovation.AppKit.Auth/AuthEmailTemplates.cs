@@ -140,7 +140,7 @@ internal sealed class AuthEmails<TUser>(IEmailSender sender, IEmailBrand brands,
     private async Task SendAsync(TUser user, string code, AuthEmailKind kind, CancellationToken cancellationToken)
     {
         var expires = user.PasswordResetCodeExpiration
-            ?? throw new InvalidOperationException("The user has no reset code. Issue one with PasswordResetCodes.Issue first.");
+            ?? throw new InvalidOperationException("The user has no reset code. Issue one through the reset or invite endpoints first.");
         var brand = await brands.GetBrandAsync(cancellationToken);
         var email = AuthEmailRenderer.Render(kind, options.Value, brand, user.FirstName, user.Email!, code,
             expires - time.GetUtcNow().UtcDateTime, options.Value.SetPasswordUrl);
