@@ -172,6 +172,32 @@ public class SiteSettingsTests
     }
 
     [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task The_public_phone_is_optional(string? phone)
+    {
+        await using var app = await TestApp.StartAsync();
+
+        var response = await app.SendAsync(HttpMethod.Put, "/api/settings", JsonContent.Create(Body(b => b["publicPhone"] = phone)));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("", (await app.RowAsync())!.PublicPhone);
+        Assert.Equal("", (await JsonAsync(await app.SendAsync(HttpMethod.Get, "/api/company", roles: null))).GetProperty("phone").GetString());
+    }
+
+    [Fact]
+    public async Task A_given_public_phone_over_40_characters_is_still_refused()
+    {
+        await using var app = await TestApp.StartAsync();
+
+        var response = await app.SendAsync(HttpMethod.Put, "/api/settings", JsonContent.Create(Body(b => b["publicPhone"] = "+47 " + new string('1', 37))));
+
+        Assert.Equal(["PublicPhone"], await ErrorsAsync(response));
+        Assert.Null(await app.RowAsync());
+    }
+
+    [Theory]
     [InlineData("contactRecipientEmail", "", "ContactRecipientEmail")]
     [InlineData("contactRecipientEmail", "not-an-email", "ContactRecipientEmail")]
     [InlineData("contactRecipientEmail", "a@b.no x", "ContactRecipientEmail")]
@@ -181,7 +207,6 @@ public class SiteSettingsTests
     [InlineData("streetAddress", "", "StreetAddress")]
     [InlineData("publicEmail", "", "PublicEmail")]
     [InlineData("publicEmail", "nope", "PublicEmail")]
-    [InlineData("publicPhone", "", "PublicPhone")]
     [InlineData("orgNumber", "923 202 375", "OrgNumber")]
     [InlineData("orgNumber", "12345678", "OrgNumber")]
     [InlineData("orgNumber", "92320237A", "OrgNumber")]

@@ -46,7 +46,7 @@ public interface ICompanySettings
     /// <summary>The public contact email address.</summary>
     string PublicEmail { get; set; }
 
-    /// <summary>The public phone number.</summary>
+    /// <summary>The public phone number. Optional. While blank, the public info has an empty phone.</summary>
     string PublicPhone { get; set; }
 }
 
@@ -225,7 +225,7 @@ internal static class SiteSettingsHandlers<TContext, TSettings>
         s.AddressLocality = (body.AddressLocality ?? "").Trim();
         s.AddressRegion = (body.AddressRegion ?? "").Trim();
         s.PublicEmail = body.PublicEmail!.Trim();
-        s.PublicPhone = body.PublicPhone!.Trim();
+        s.PublicPhone = (body.PublicPhone ?? "").Trim();
         if (options.OnSaving is { } onSaving)
             await onSaving(new SiteSettingsSaving(s, previous, http));
         await db.SaveChangesAsync(http.RequestAborted);
@@ -312,7 +312,6 @@ internal static class SiteSettingsValidation
         Check("AddressRegion", Fits(body.AddressRegion, 100), TooLong(100));
         Check("PublicEmail", !Blank(body.PublicEmail), Required);
         Check("PublicEmail", IsEmail(body.PublicEmail) && Fits(body.PublicEmail, 200), InvalidEmail);
-        Check("PublicPhone", !Blank(body.PublicPhone), Required);
         Check("PublicPhone", Fits(body.PublicPhone, 40), TooLong(40));
         return problem;
     }
