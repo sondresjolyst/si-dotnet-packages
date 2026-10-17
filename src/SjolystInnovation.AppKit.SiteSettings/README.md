@@ -205,8 +205,8 @@ extensions keyed by the same fields:
 | `invalidOrgNumber` | The organization number is not nine digits with a correct check digit. |
 | `invalidPostalCode` | The postal code is not four digits. |
 | `placeRequired` | A postal code is given without its place name. |
-| `invalidImage` | The logo or icon is not a PNG, JPEG, WebP, GIF, or ICO file, judged by its bytes. An empty file counts as not an image. |
-| `imageTooLarge` | The logo or icon is larger than 2 MB. |
+| `invalidImage` | The logo or icon is not a PNG, JPEG, WebP, GIF, or ICO file, judged by its bytes. An empty file counts as not an image. The English message is `Invalid file format. Upload a PNG, JPEG, WebP, GIF or ICO image.` |
+| `imageTooLarge` | The logo or icon is larger than 2 MB. The English message is `The file is too large. Upload a file of 2 MB or less.` |
 | `notAForm` | `PUT branding` got a body that is not a form. The error is keyed by `Logo`. |
 
 Saving a legal page uses `required` for a blank `Title` or `BodyMarkdown`, and `tooLong` for a
