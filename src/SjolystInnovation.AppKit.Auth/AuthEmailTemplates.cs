@@ -16,8 +16,19 @@ public sealed record EmailBrand(string Name)
     /// <summary>The legal company name, shown in the header. The footer uses it instead of the brand name when set.</summary>
     public string? LegalName { get; init; }
 
-    /// <summary>The organization number line, shown exactly as given, for example <c>Org.nr. 912 345 678 MVA</c>.</summary>
+    /// <summary>
+    /// The organization number, for example <c>923202374</c> or <c>923 202 374</c>. The header shows it in
+    /// the email's language, as <c>Org.nr. 923 202 374</c> in Norwegian and <c>Org. no. 923 202 374</c> in
+    /// English. Nine digits are grouped in threes, and anything else is shown trimmed as given. A blank
+    /// number leaves the line out.
+    /// </summary>
     public string? OrgNumber { get; init; }
+
+    /// <summary>
+    /// Whether the company is registered for VAT. Adds <c>MVA</c> in Norwegian or <c>VAT</c> in English after
+    /// the organization number. Without a number it shows nothing.
+    /// </summary>
+    public bool VatRegistered { get; init; }
 
     /// <summary>The postal address, shown in the header.</summary>
     public string? Address { get; init; }
@@ -176,6 +187,7 @@ internal sealed record AuthEmailText(string Badge, string Subject, string Headin
 /// <summary>The words shared by every email kind in one language.</summary>
 internal sealed record AuthEmailWords(
     string Hello, string HelloName, string CodeLabel, string Expiry, string Fallback, string Footer,
+    string OrgNumberLabel, string Vat,
     (string One, string Many) Minutes, (string One, string Many) Hours, (string One, string Many) Days,
     IReadOnlyDictionary<AuthEmailKind, AuthEmailText> Kinds);
 
@@ -186,6 +198,7 @@ internal static class AuthEmailRenderer
     private static readonly AuthEmailWords English = new(
         "Hi,", "Hi {0},", "Your code", "The code expires in {0}.", "Button not working? Copy this link:",
         "You got this email because of your account at {0}.",
+        "Org. no.", "VAT",
         ("minute", "minutes"), ("hour", "hours"), ("day", "days"),
         new Dictionary<AuthEmailKind, AuthEmailText>
         {
@@ -203,6 +216,7 @@ internal static class AuthEmailRenderer
     private static readonly AuthEmailWords Norwegian = new(
         "Hei,", "Hei {0},", "Koden din", "Koden utløper om {0}.", "Virker ikke knappen? Kopier denne lenken:",
         "Du får denne e-posten fordi du har en konto hos {0}.",
+        "Org.nr.", "MVA",
         ("minutt", "minutter"), ("time", "timer"), ("dag", "dager"),
         new Dictionary<AuthEmailKind, AuthEmailText>
         {
@@ -256,14 +270,31 @@ internal static class AuthEmailRenderer
         return $"{count.ToString(CultureInfo.InvariantCulture)} {(count == 1 ? unit.One : unit.Many)}";
     }
 
+    internal static AuthEmailWords Words(EmailLanguage language) => language == EmailLanguage.Norwegian ? Norwegian : English;
+
+    /// <summary>
+    /// Formats the organization number line in the email's language, or returns null for a blank number.
+    /// Nine digits, with or without spaces, are grouped in threes.
+    /// </summary>
+    internal static string? OrgNumberLine(EmailBrand brand, AuthEmailWords words)
+    {
+        var number = brand.OrgNumber?.Trim();
+        if (string.IsNullOrEmpty(number))
+            return null;
+        var digits = number.Replace(" ", "", StringComparison.Ordinal);
+        if (digits.Length == 9 && digits.All(char.IsAsciiDigit))
+            number = $"{digits[..3]} {digits[3..6]} {digits[6..]}";
+        return brand.VatRegistered ? $"{words.OrgNumberLabel} {number} {words.Vat}" : $"{words.OrgNumberLabel} {number}";
+    }
+
     internal static EmailMessage Render(AuthEmailKind kind, AppKitAuthEmailOptions options, EmailBrand brand,
         string? firstName, string to, string code, TimeSpan lifetime, string page)
     {
-        var words = options.Language == EmailLanguage.Norwegian ? Norwegian : English;
+        var words = Words(options.Language);
         var text = words.Kinds[kind];
         var link = Link(page, to, code);
         var hello = string.IsNullOrWhiteSpace(firstName) ? words.Hello : F(words.HelloName, H(firstName));
-        var brandLines = string.Join("<br>", new[] { brand.LegalName, brand.OrgNumber, brand.Address, brand.Email }
+        var brandLines = string.Join("<br>", new[] { brand.LegalName, OrgNumberLine(brand, words), brand.Address, brand.Email }
             .Where(l => !string.IsNullOrWhiteSpace(l)).Select(H));
         var header = options.HeaderColor;
         var accent = options.AccentColor;
