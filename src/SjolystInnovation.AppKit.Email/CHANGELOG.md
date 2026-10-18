@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Email-v1.0.0...SjolystInnovation.AppKit.Email-v1.0.1) (2026-10-18)
+
+
+### Bug Fixes
+
+* **email:** refuse more days than the provider reports on as a validation problem in MapAppKitEmailStats ([#82](https://github.com/sondresjolyst/si-dotnet-packages/issues/82)) ([05b1e9f](https://github.com/sondresjolyst/si-dotnet-packages/commit/05b1e9fc4144d6f94084f24944aac82bfa7290bb)), closes [#81](https://github.com/sondresjolyst/si-dotnet-packages/issues/81)
+
 ## [1.0.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Email-v0.2.0...SjolystInnovation.AppKit.Email-v1.0.0) (2026-10-17)
 
 
