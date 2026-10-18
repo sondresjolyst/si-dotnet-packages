@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Hosting-v1.0.1...SjolystInnovation.AppKit.Hosting-v1.0.2) (2026-10-18)
+
+
+### Bug Fixes
+
+* **hosting:** give a minimal API binding failure a problem details body in every environment ([#84](https://github.com/sondresjolyst/si-dotnet-packages/issues/84)) ([979d8ce](https://github.com/sondresjolyst/si-dotnet-packages/commit/979d8ceb390144eaae95490ad80a9e2917777156)), closes [#83](https://github.com/sondresjolyst/si-dotnet-packages/issues/83)
+
 ## [1.0.1](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Hosting-v1.0.0...SjolystInnovation.AppKit.Hosting-v1.0.1) (2026-10-18)
 
 

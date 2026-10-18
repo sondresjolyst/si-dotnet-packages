@@ -2,7 +2,7 @@
   <PropertyGroup>
     <PackageId>SjolystInnovation.AppKit.Hosting</PackageId>
     <!-- x-release-please-start-version -->
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <!-- x-release-please-end -->
     <Description>Forwarded headers from trusted proxies only, per-IP rate limiting, security headers, HTTPS, 400 for unreadable request bodies, health checks, request logging without secrets, and migrations on start for ASP.NET Core APIs behind an ingress.</Description>
     <PackageTags>forwarded-headers;rate-limiting;security-headers;health-checks;request-logging;migrations;aspnetcore</PackageTags>
