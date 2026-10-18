@@ -159,12 +159,19 @@ problem details body, never with a 500.
   has it.
 - A `BadHttpRequestException` gets its own status code instead of reaching the exception handler. The
   endpoints above throw one, and Kestrel throws one with `413` for a body over the size limit.
+- A request that routing turns away gets a problem body too. Routing answers `415` before the endpoint
+  runs when no endpoint on the route accepts the content type, such as `text/plain`, a form, or a body
+  with no content type sent to a minimal API endpoint that takes JSON. It answers `405` when no
+  endpoint on the route takes the method, and keeps its `Allow` header. Without the call, both
+  responses are empty. Routing picks these answers before authorization runs, so a signed-out caller
+  gets them too. Routing logs them itself as the endpoint it ran, such as
+  `415 HTTP Unsupported Media Type`.
 
 The problem body has a title but no detail, so the client shows its own message. The reason is logged
 at Information. A `JsonException` that an endpoint throws itself is left to the exception handler,
 because it can come from a reply the API read from another service. A response the endpoint writes
-itself is left alone, also an empty `400`. A body with a content type the endpoint does not accept gets
-`415` from routing before the endpoint runs, and that response has no body.
+itself is left alone, also an empty `400`, `405` or `415`. An MVC controller writes its own problem for
+a content type it does not accept, and that is left alone.
 
 Call it after `UseAuthorization` and `UseAppKitRateLimiting`, so a caller without access still gets
 `401` or `403`, and a limited caller gets `429` before the body is read. Call it before you map any
