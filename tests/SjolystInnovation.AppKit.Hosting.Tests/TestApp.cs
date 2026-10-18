@@ -19,12 +19,16 @@ internal sealed class TestApp : IAsyncDisposable
 
     public IServiceProvider Services => _host.Services;
 
+    /// <summary>A client whose request bodies reach endpoints the way a real server delivers them.</summary>
+    public HttpClient CreateClient() => _host.GetTestClient();
+
     public static async Task<TestApp> StartAsync(
         Action<IApplicationBuilder> pipeline,
         Action<IServiceCollection>? services = null,
         Dictionary<string, string?>? config = null,
         string environment = "Production",
-        Action<IEndpointRouteBuilder>? endpoints = null)
+        Action<IEndpointRouteBuilder>? endpoints = null,
+        Action<IApplicationBuilder>? afterRouting = null)
     {
         var host = new HostBuilder()
             .ConfigureWebHost(web => web
@@ -40,6 +44,7 @@ internal sealed class TestApp : IAsyncDisposable
                 {
                     pipeline(app);
                     app.UseRouting();
+                    afterRouting?.Invoke(app);
                     app.UseEndpoints(e => endpoints?.Invoke(e));
                     app.Run(c => c.Response.WriteAsync($"{c.Connection.RemoteIpAddress}|{c.Request.Scheme}"));
                 }))
