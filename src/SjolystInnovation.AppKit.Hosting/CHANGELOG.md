@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Hosting-v1.0.0...SjolystInnovation.AppKit.Hosting-v1.0.1) (2026-10-18)
+
+
+### Bug Fixes
+
+* **hosting:** answer unreadable JSON request bodies with 400 instead of 500 ([#79](https://github.com/sondresjolyst/si-dotnet-packages/issues/79)) ([2505d79](https://github.com/sondresjolyst/si-dotnet-packages/commit/2505d798805b9efbb1cc6b0e8c87e5b403663f1c)), closes [#76](https://github.com/sondresjolyst/si-dotnet-packages/issues/76)
+
 ## [1.0.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Hosting-v0.3.0...SjolystInnovation.AppKit.Hosting-v1.0.0) (2026-10-17)
 
 
