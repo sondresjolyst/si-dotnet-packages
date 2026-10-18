@@ -34,13 +34,15 @@ public sealed class BrevoClientTests : IDisposable
 
     public void Dispose() => _brevo.Dispose();
 
-    private BrevoClient Client(string baseUrl = "https://api.brevo.com/v3/") =>
+    private BrevoClient Client(string baseUrl = "https://api.brevo.com/v3/", string? tag = null, bool sandbox = false) =>
         new(new HttpClient(_brevo), Options.Create(new BrevoOptions
         {
             ApiKey = "xkeysib-test",
             SenderEmail = "post@example.invalid",
             SenderName = "Garge",
             BaseUrl = baseUrl,
+            Tag = tag,
+            Sandbox = sandbox,
         }), _logger);
 
     private JsonElement SentBody() => JsonDocument.Parse(Assert.Single(_brevo.Sent).Body).RootElement;
@@ -65,6 +67,50 @@ public sealed class BrevoClientTests : IDisposable
         Assert.False(body.TryGetProperty("replyTo", out _));
         Assert.False(body.TryGetProperty("attachment", out _));
         Assert.False(body.GetProperty("to")[0].TryGetProperty("name", out _));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public async Task Without_a_tag_or_sandbox_the_body_is_unchanged(string? tag)
+    {
+        await Client(tag: tag).SendAsync(new EmailMessage("kari@example.invalid", "S", "B"));
+
+        var (request, body) = Assert.Single(_brevo.Sent);
+        Assert.Equal(
+            """{"sender":{"email":"post@example.invalid","name":"Garge"},"to":[{"email":"kari@example.invalid"}],"subject":"S","htmlContent":"B"}""",
+            body);
+        Assert.False(request.Headers.Contains("X-Sib-Sandbox"));
+    }
+
+    [Fact]
+    public async Task Sends_the_tag_in_tags()
+    {
+        await Client(tag: "garge").SendAsync(new EmailMessage("kari@example.invalid", "S", "B"));
+
+        var body = SentBody();
+        Assert.Equal("garge", Assert.Single(body.GetProperty("tags").EnumerateArray()).GetString());
+        Assert.False(body.TryGetProperty("headers", out _));
+    }
+
+    [Fact]
+    public async Task Sandbox_sends_the_drop_header_in_the_body()
+    {
+        await Client(sandbox: true).SendAsync(new EmailMessage("kari@example.invalid", "S", "B"));
+
+        var (request, body) = Assert.Single(_brevo.Sent);
+        Assert.Contains(""","headers":{"X-Sib-Sandbox":"drop"}}""", body, StringComparison.Ordinal);
+        Assert.False(SentBody().TryGetProperty("tags", out _));
+        Assert.False(request.Headers.Contains("X-Sib-Sandbox"));
+    }
+
+    [Fact]
+    public async Task Sends_the_tag_and_sandbox_together()
+    {
+        await Client(tag: "garge", sandbox: true).SendAsync(new EmailMessage("kari@example.invalid", "S", "B"));
+
+        Assert.EndsWith(""","tags":["garge"],"headers":{"X-Sib-Sandbox":"drop"}}""", Assert.Single(_brevo.Sent).Body, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -208,6 +254,30 @@ public sealed class BrevoClientTests : IDisposable
         Assert.EndsWith("days=30", _brevo.Sent[0].Request.RequestUri!.ToString(), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("garge", "days=7&tag=garge")]
+    [InlineData("nord & sør/2", "days=7&tag=nord%20%26%20s%C3%B8r%2F2")]
+    public async Task Counts_only_the_tag_when_set(string tag, string query)
+    {
+        _brevo.Respond = _ => Json(HttpStatusCode.OK, "{}");
+
+        await Client(tag: tag).GetAsync(7);
+
+        Assert.Equal($"https://api.brevo.com/v3/smtp/statistics/aggregatedReport?{query}", Assert.Single(_brevo.Sent).Request.RequestUri!.AbsoluteUri);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(" ")]
+    public async Task Counts_the_whole_account_without_a_tag(string? tag)
+    {
+        _brevo.Respond = _ => Json(HttpStatusCode.OK, "{}");
+
+        await Client(tag: tag, sandbox: true).GetAsync(7);
+
+        Assert.Equal("https://api.brevo.com/v3/smtp/statistics/aggregatedReport?days=7", Assert.Single(_brevo.Sent).Request.RequestUri!.AbsoluteUri);
+    }
+
     [Fact]
     public async Task Counts_that_cannot_be_read_throw()
     {
@@ -275,6 +345,23 @@ public sealed class BrevoClientTests : IDisposable
     public void The_api_root_defaults_to_brevo()
     {
         Assert.Equal("https://api.brevo.com/v3/", new BrevoOptions().BaseUrl);
+    }
+
+    [Fact]
+    public void Tag_and_sandbox_are_off_by_default_and_bind_from_the_section()
+    {
+        Assert.Equal((null, false), (new BrevoOptions().Tag, new BrevoOptions().Sandbox));
+
+        var settings = Settings();
+        settings["BrevoSettings:Tag"] = "garge";
+        settings["BrevoSettings:Sandbox"] = "true";
+        var config = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
+        var services = new ServiceCollection().AddLogging();
+        services.AddAppKitBrevo(config.GetSection("BrevoSettings"));
+        using var provider = services.BuildServiceProvider();
+
+        var options = provider.GetRequiredService<IOptions<BrevoOptions>>().Value;
+        Assert.Equal(("garge", true), (options.Tag, options.Sandbox));
     }
 
     [Theory]
