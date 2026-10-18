@@ -20,9 +20,9 @@ public static partial class EmailStatsEndpointExtensions
     /// Maps <c>GET</c> on <paramref name="pattern"/>, behind <see cref="AppKitEmailStatsEndpointOptions.Policy"/>.
     /// It answers <see cref="EmailStats"/> from <see cref="IEmailStats"/> for the last <c>days</c> days,
     /// today included, as <c>{ days, requests, delivered, hardBounces, softBounces, spamReports, blocked, invalid }</c>.
-    /// The optional <c>days</c> query parameter defaults to 30. A value below 1 answers a validation problem
-    /// on <c>days</c>. When the provider cannot be read, the endpoint logs the error and answers <c>502</c> with
-    /// a problem whose <c>detail</c> is <c>Failed to fetch email stats from Brevo.</c>
+    /// The optional <c>days</c> query parameter defaults to 30. A value below 1, or above
+    /// <see cref="IEmailStats.MaxDays"/>, answers a validation problem on <c>days</c>. When the provider cannot be
+    /// read, the endpoint logs the error and answers <c>502</c> with a problem whose <c>detail</c> is <c>Failed to fetch email stats from Brevo.</c>
     /// </summary>
     /// <param name="endpoints">The endpoint route builder.</param>
     /// <param name="pattern">The route. Defaults to <c>/api/admin/email-stats</c>.</param>
@@ -42,9 +42,12 @@ public static partial class EmailStatsEndpointExtensions
         {
             if (days < 1)
                 return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["days"] = ["Must be at least 1."] });
+            var stats = http.RequestServices.GetRequiredService<IEmailStats>();
+            if (days > stats.MaxDays)
+                return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["days"] = [$"Must be at most {stats.MaxDays}."] });
             try
             {
-                return (IResult)TypedResults.Ok(await http.RequestServices.GetRequiredService<IEmailStats>().GetAsync(days, http.RequestAborted));
+                return (IResult)TypedResults.Ok(await stats.GetAsync(days, http.RequestAborted));
             }
             catch (Exception e) when (e is not OperationCanceledException || !http.RequestAborted.IsCancellationRequested)
             {

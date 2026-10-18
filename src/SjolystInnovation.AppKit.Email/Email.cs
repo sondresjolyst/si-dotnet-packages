@@ -49,6 +49,12 @@ public interface IEmailSender
 /// <summary>Reads delivery statistics.</summary>
 public interface IEmailStats
 {
-    /// <summary>Gets the counts for the last <paramref name="days"/> days. Throws when <paramref name="days"/> is below 1 or the provider cannot be read.</summary>
+    /// <summary>The most days the provider reports on. Defaults to <see cref="int.MaxValue"/>, no limit.</summary>
+    int MaxDays => int.MaxValue;
+
+    /// <summary>
+    /// Gets the counts for the last <paramref name="days"/> days. Throws when <paramref name="days"/> is below 1
+    /// or above <see cref="MaxDays"/>, or the provider cannot be read.
+    /// </summary>
     Task<EmailStats> GetAsync(int days = 30, CancellationToken cancellationToken = default);
 }
