@@ -24,6 +24,8 @@ public static partial class BadRequestsExtensions
     /// status code, such as 400 for a body that is not valid JSON or 413 for a body over the size limit,
     /// instead of reaching the exception handler as a 500. Minimal API endpoints throw one in every
     /// environment when they cannot bind a parameter, so these failures get a problem details body too.
+    /// When routing answers a request with 415 because no endpoint accepts its content type, or with 405
+    /// because no endpoint takes its method, that response gets a problem details body as well.
     /// Only requests that matched an endpoint are checked, so call it after <c>UseRouting</c>, after
     /// <c>UseAuthorization</c> so a caller without access still gets 401 or 403, and before mapping
     /// endpoints.
@@ -39,9 +41,17 @@ public static partial class BadRequestsExtensions
             routeHandler.Value.ThrowOnBadRequest = true;
         return app.Use(async (context, next) =>
         {
+            var endpoint = context.GetEndpoint();
+            if (RoutingRejectionStatus(endpoint) is { } rejection)
+            {
+                await next(context);
+                if (!context.Response.HasStarted && context.Response.StatusCode == rejection)
+                    await WriteProblemAsync(context, rejection);
+                return;
+            }
             try
             {
-                if (context.GetEndpoint() is not null && IsUtf8Json(context.Request.ContentType)
+                if (endpoint is not null && IsUtf8Json(context.Request.ContentType)
                     && !await IsValidUtf8Async(context.Request, context.RequestAborted))
                 {
                     Log.InvalidUtf8(logger);
@@ -58,6 +68,26 @@ public static partial class BadRequestsExtensions
             }
         });
     }
+
+    /// <summary>
+    /// The status code of an endpoint that routing selects when a request matched a route but not its
+    /// content type or method, or null for any other endpoint. Routing answers these with an empty body.
+    /// They are plain endpoints with no metadata, named by AcceptsMatcherPolicy and HttpMethodMatcherPolicy.
+    /// </summary>
+    internal static int? RoutingRejectionStatus(Endpoint? endpoint)
+    {
+        if (endpoint is null or RouteEndpoint || endpoint.Metadata.Count != 0)
+            return null;
+        return endpoint.DisplayName switch
+        {
+            Http415EndpointDisplayName => StatusCodes.Status415UnsupportedMediaType,
+            Http405EndpointDisplayName => StatusCodes.Status405MethodNotAllowed,
+            _ => null,
+        };
+    }
+
+    internal const string Http415EndpointDisplayName = "415 HTTP Unsupported Media Type";
+    internal const string Http405EndpointDisplayName = "405 HTTP Method Not Supported";
 
     /// <summary>Whether the content type is JSON in UTF-8, which is JSON with no charset or a UTF-8 one.</summary>
     internal static bool IsUtf8Json(string? contentType)

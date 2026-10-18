@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -14,6 +15,15 @@ using Xunit;
 namespace SjolystInnovation.AppKit.Hosting.Tests;
 
 public sealed record NameBody(string Name);
+
+/// <summary>A controller next to the minimal API endpoints, to show MVC keeps its own answers.</summary>
+[ApiController]
+[Route("mvc")]
+public sealed class NameController : ControllerBase
+{
+    [HttpPut]
+    public ActionResult<string> Put(NameBody body) => Ok(body.Name);
+}
 
 /// <summary>Answers every exception with 500, as the apps' own exception handlers do for anything they do not know.</summary>
 internal sealed class EverythingIs500 : IExceptionHandler
@@ -30,6 +40,7 @@ public sealed class BadRequestsTests
     private static readonly byte[] InvalidUtf8InString = [.. "{\"name\":\""u8.ToArray(), 0xFF, 0xFE, .. "\"}"u8.ToArray()];
     private static readonly byte[] InvalidUtf8InName = [.. "{\"name\":\"x\",\""u8.ToArray(), 0xC3, 0x28, .. "\":1}"u8.ToArray()];
     private static readonly byte[] Malformed = "{\"name\":"u8.ToArray();
+    private const string MvcTitle = "Not a type this controller reads";
 
     private sealed class Calls
     {
@@ -50,6 +61,8 @@ public sealed class BadRequestsTests
                 if (problemDetails)
                     s.AddProblemDetails();
                 s.AddExceptionHandler<EverythingIs500>();
+                s.AddControllers().AddApplicationPart(typeof(NameController).Assembly)
+                    .ConfigureApiBehaviorOptions(o => o.ClientErrorMapping[StatusCodes.Status415UnsupportedMediaType].Title = MvcTitle);
                 if (logs is not null)
                     s.AddLogging(b => b.AddProvider(new FakeLoggerProvider(logs)));
             },
@@ -74,6 +87,7 @@ public sealed class BadRequestsTests
                     await request.Body.CopyToAsync(copy);
                     return Results.Text(Convert.ToHexString(copy.ToArray()));
                 });
+                e.MapControllers();
                 endpoints?.Invoke(e);
             },
             afterRouting: a => a.UseAppKitBadRequests());
@@ -323,6 +337,159 @@ public sealed class BadRequestsTests
         var response = await app.CreateClient().GetAsync("/throws");
 
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+    }
+
+    public static TheoryData<string, string> EnvironmentsAndOtherTypes()
+    {
+        var data = new TheoryData<string, string>();
+        foreach (var environment in new[] { "Production", "Development" })
+            foreach (var contentType in new[] { "text/plain", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x" })
+                data.Add(environment, contentType);
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(EnvironmentsAndOtherTypes))]
+    public async Task A_content_type_routing_does_not_accept_gets_a_415_problem(string environment, string contentType)
+    {
+        var calls = new Calls();
+        await using var app = await StartAsync(environment, calls: calls);
+
+        foreach (var path in new[] { "/record", "/element" })
+            await AssertProblemAsync(await app.CreateClient().PutAsync(path, Body("{\"name\":\"x\"}"u8.ToArray(), contentType)), HttpStatusCode.UnsupportedMediaType);
+
+        Assert.Equal(0, calls.Count);
+    }
+
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Development")]
+    public async Task A_json_body_to_a_form_endpoint_gets_a_415_problem(string environment)
+    {
+        await using var app = await StartAsync(environment, endpoints: e => e.MapPost("/form", ([FromForm] string name) => Results.Text(name)).DisableAntiforgery());
+
+        var json = await app.CreateClient().PostAsync("/form", Body("{\"name\":\"x\"}"u8.ToArray()));
+        var form = await app.CreateClient().PostAsync("/form", new FormUrlEncodedContent([new("name", "x")]));
+
+        await AssertProblemAsync(json, HttpStatusCode.UnsupportedMediaType);
+        Assert.Equal("x", await form.Content.ReadAsStringAsync());
+    }
+
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Development")]
+    public async Task A_body_without_a_content_type_gets_a_problem(string environment)
+    {
+        var calls = new Calls();
+        await using var app = await StartAsync(environment, calls: calls);
+
+        foreach (var path in new[] { "/record", "/element" })
+        {
+            await AssertProblemAsync(await app.CreateClient().PutAsync(path, new ByteArrayContent("{\"name\":\"x\"}"u8.ToArray())), HttpStatusCode.UnsupportedMediaType);
+            await AssertProblemAsync(await app.CreateClient().PutAsync(path, null), HttpStatusCode.BadRequest);
+        }
+        Assert.Equal(0, calls.Count);
+    }
+
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Development")]
+    public async Task A_method_routing_does_not_take_gets_a_405_problem_with_its_allow_header(string environment)
+    {
+        await using var app = await StartAsync(environment);
+
+        foreach (var path in new[] { "/record", "/mvc" })
+        {
+            var response = await app.CreateClient().DeleteAsync(path);
+
+            await AssertProblemAsync(response, HttpStatusCode.MethodNotAllowed);
+            Assert.Equal(["PUT"], response.Content.Headers.Allow);
+        }
+    }
+
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Development")]
+    public async Task A_415_or_405_the_endpoint_answers_itself_is_left_alone(string environment)
+    {
+        await using var app = await StartAsync(environment, endpoints: e =>
+        {
+            e.MapPut("/own-415", (NameBody body) => Results.StatusCode(StatusCodes.Status415UnsupportedMediaType));
+            e.MapPut("/own-405", (NameBody body) => Results.StatusCode(StatusCodes.Status405MethodNotAllowed));
+        });
+
+        foreach (var (path, status) in new[] { ("/own-415", HttpStatusCode.UnsupportedMediaType), ("/own-405", HttpStatusCode.MethodNotAllowed) })
+        {
+            var response = await app.CreateClient().PutAsync(path, Body("{\"name\":\"x\"}"u8.ToArray()));
+
+            Assert.Equal(status, response.StatusCode);
+            Assert.Null(response.Content.Headers.ContentType);
+            Assert.Equal("", await response.Content.ReadAsStringAsync());
+        }
+    }
+
+    [Fact]
+    public async Task A_routing_rejection_that_a_later_middleware_answers_is_left_alone()
+    {
+        await using var app = await TestApp.StartAsync(_ => { }, afterRouting: a =>
+        {
+            a.UseAppKitBadRequests();
+            a.Use(async (context, next) =>
+            {
+                if (context.Request.Headers["X-Answer"] == "body")
+                {
+                    context.Response.StatusCode = StatusCodes.Status415UnsupportedMediaType;
+                    await context.Response.WriteAsync("own");
+                    return;
+                }
+                if (context.Request.Headers["X-Answer"] == "status")
+                {
+                    context.Response.StatusCode = StatusCodes.Status418ImATeapot;
+                    return;
+                }
+                await next(context);
+            });
+        }, endpoints: e => e.MapPut("/record", (NameBody body) => Results.Text(body.Name)));
+        var client = app.CreateClient();
+
+        HttpRequestMessage Request(string answer) => new(HttpMethod.Put, "/record") { Content = Body("x"u8.ToArray(), "text/plain"), Headers = { { "X-Answer", answer } } };
+        var body = await client.SendAsync(Request("body"));
+        var status = await client.SendAsync(Request("status"));
+
+        Assert.Equal(HttpStatusCode.UnsupportedMediaType, body.StatusCode);
+        Assert.Equal("own", await body.Content.ReadAsStringAsync());
+        Assert.Equal((HttpStatusCode)StatusCodes.Status418ImATeapot, status.StatusCode);
+        Assert.Equal("", await status.Content.ReadAsStringAsync());
+    }
+
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Development")]
+    public async Task A_controller_keeps_its_own_answers(string environment)
+    {
+        await using var app = await StartAsync(environment);
+
+        var json = await app.CreateClient().PutAsync("/mvc", Body("{\"name\":\"x\"}"u8.ToArray()));
+        var text = await app.CreateClient().PutAsync("/mvc", Body("x"u8.ToArray(), "text/plain"));
+
+        Assert.Equal("x", await json.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.UnsupportedMediaType, text.StatusCode);
+        var problem = JsonDocument.Parse(await text.Content.ReadAsStringAsync()).RootElement;
+        Assert.Equal(MvcTitle, problem.GetProperty("title").GetString());
+    }
+
+    [Fact]
+    public void Only_the_endpoints_routing_rejects_with_count_as_rejections()
+    {
+        static Endpoint Plain(string name, params object[] metadata) => new(_ => Task.CompletedTask, new EndpointMetadataCollection(metadata), name);
+        var pattern = Microsoft.AspNetCore.Routing.Patterns.RoutePatternFactory.Parse("/x");
+
+        Assert.Equal(415, BadRequestsExtensions.RoutingRejectionStatus(Plain("415 HTTP Unsupported Media Type")));
+        Assert.Equal(405, BadRequestsExtensions.RoutingRejectionStatus(Plain("405 HTTP Method Not Supported")));
+        Assert.Null(BadRequestsExtensions.RoutingRejectionStatus(null));
+        Assert.Null(BadRequestsExtensions.RoutingRejectionStatus(Plain("404 Not Found")));
+        Assert.Null(BadRequestsExtensions.RoutingRejectionStatus(Plain("415 HTTP Unsupported Media Type", new object())));
+        Assert.Null(BadRequestsExtensions.RoutingRejectionStatus(new RouteEndpoint(_ => Task.CompletedTask, pattern, 0, EndpointMetadataCollection.Empty, "415 HTTP Unsupported Media Type")));
     }
 
     [Fact]
