@@ -123,8 +123,8 @@ public sealed record VippsCreatePaymentRequest
     public required string Description { get; init; }
     /// <summary>The receipt lines.</summary>
     public required IReadOnlyList<VippsReceiptLine> ReceiptLines { get; init; }
-    /// <summary>The profile data to ask for. Defaults to <c>name address email phoneNumber</c>.</summary>
-    public string Scope { get; init; } = "name address email phoneNumber";
+    /// <summary>The profile data to ask for. Defaults to <c>name address email phoneNumber</c>. Set it to <c>null</c> or empty to send no profile, so the user sees no consent screen.</summary>
+    public string? Scope { get; init; } = "name address email phoneNumber";
 }
 
 /// <summary>The response to a new payment.</summary>

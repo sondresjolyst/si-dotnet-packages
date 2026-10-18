@@ -56,6 +56,8 @@ app.MapPost("/api/shop/orders/{id:int}/pay", async (int id, AppDbContext db, IVi
     order.IsTest = payment.IsTest;
     await db.SaveChangesAsync(cancellationToken);
     return Results.Ok(new { payment.RedirectUrl });
+
+Payments ask Vipps for `name address email phoneNumber` by default. Set `Scope` to the data you need, or to `null` to send no `profile` and skip the Vipps consent screen.
 });
 
 app.MapAppKitVippsWebhook<AppDbContext>("shop");
