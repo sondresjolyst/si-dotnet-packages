@@ -303,6 +303,7 @@ internal sealed partial class VippsClient : IVippsClient
             CapturedAmountInOre = dto.Aggregate?.CapturedAmount?.Value ?? 0,
             RefundedAmountInOre = dto.Aggregate?.RefundedAmount?.Value ?? 0,
             CancelledAmountInOre = dto.Aggregate?.CancelledAmount?.Value ?? 0,
+            CaptureGuaranteedUntil = dto.CaptureGuaranteedUntil,
         };
     }
 
@@ -402,6 +403,8 @@ internal sealed partial class VippsClient : IVippsClient
         public string? State { get; set; }
         public ProfileDto? Profile { get; set; }
         public AggregateDto? Aggregate { get; set; }
+        [JsonConverter(typeof(VippsUtcDateTimeOffsetConverter))]
+        public DateTimeOffset? CaptureGuaranteedUntil { get; set; }
     }
 
     private sealed class AggregateDto

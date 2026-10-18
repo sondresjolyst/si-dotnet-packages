@@ -153,6 +153,8 @@ the setting never sends it to the wrong one.
 | `GetUserInfoAsync` | Userinfo, for the profile a user shared |
 | `RegisterWebhookAsync`, `ListWebhooksAsync`, `DeleteWebhookAsync` | Webhooks v1 |
 
+`GetPaymentAsync` and the authorized event carry `CaptureGuaranteedUntil`, the last moment a capture is guaranteed.
+
 Amounts are in øre. Every call sends the access token, the subscription key, the merchant serial
 number, and the `Vipps-System-*` headers. A call that changes an agreement, a charge, or a payment
 takes an idempotency key. `RegisterWebhookAsync` makes its own. The client keeps an access token per
