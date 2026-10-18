@@ -53,6 +53,8 @@ public sealed record ContactRequest(string Email, string Message);
 | `SenderEmail` | None | The From address. Brevo must know it as a sender. Required. |
 | `SenderName` | None | The From name. Required. |
 | `BaseUrl` | `https://api.brevo.com/v3/` | The API root. Point it at a fake Brevo in tests. |
+| `Tag` | None | Sent in `tags` on each email, and the statistics count only emails with it. Useful when several apps share one Brevo account. |
+| `Sandbox` | `false` | When true, each email carries the `X-Sib-Sandbox: drop` header. Brevo accepts it but neither delivers nor logs it. |
 
 If the key, the sender address, or the sender name is missing, or the API root is not an absolute
 URL, the app fails to start. The error names the setting by its full path, such as
@@ -89,9 +91,10 @@ var stats = await emailStats.GetAsync(days: 30);
 
 `IEmailStats.GetAsync` reads Brevo's aggregated report for the last `days` days, today included. The
 `EmailStats` it returns counts requests, delivered, hard and soft bounces, spam reports, blocked, and
-invalid. Brevo reports on at most 90 days, which `IEmailStats.MaxDays` gives. If `days` is below 1 or
-above `MaxDays`, or Brevo cannot be read, `GetAsync` throws. Another provider can implement `IEmailStats`
-and set `MaxDays` to its own limit. It defaults to no limit.
+invalid. If `Tag` is set, it counts only emails with that tag. Brevo reports on at most 90 days, which
+`IEmailStats.MaxDays` gives. If `days` is below 1 or above `MaxDays`, or Brevo cannot be read,
+`GetAsync` throws. Another provider can implement `IEmailStats` and set `MaxDays` to its own limit. It
+defaults to no limit.
 
 `MapAppKitEmailStats` maps the stats for an admin page, behind the `Admin` policy by default:
 

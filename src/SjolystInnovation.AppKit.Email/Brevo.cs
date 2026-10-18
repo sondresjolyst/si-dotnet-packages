@@ -23,6 +23,18 @@ public sealed class BrevoOptions
 
     /// <summary>The API root URL. Defaults to Brevo's own, <c>https://api.brevo.com/v3/</c>.</summary>
     public string BaseUrl { get; set; } = "https://api.brevo.com/v3/";
+
+    /// <summary>
+    /// A tag for this app's emails. When set, each email is sent with it in <c>tags</c>, and the statistics
+    /// count only emails with it. When blank, emails go untagged and the statistics count the whole account.
+    /// </summary>
+    public string? Tag { get; set; }
+
+    /// <summary>
+    /// When true, each email is sent with the <c>X-Sib-Sandbox: drop</c> header, so Brevo accepts it
+    /// without delivering it or logging it. Defaults to false.
+    /// </summary>
+    public bool Sandbox { get; set; }
 }
 
 /// <summary>Registers the Brevo email services.</summary>
@@ -58,6 +70,9 @@ internal sealed partial class BrevoClient(HttpClient http, IOptions<BrevoOptions
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
+    // Brevo reads the sandbox switch from the email headers in the body, not from the HTTP request.
+    private static readonly Dictionary<string, string> SandboxHeaders = new() { ["X-Sib-Sandbox"] = "drop" };
+
     private readonly BrevoOptions _options = options.Value;
 
     public async Task<EmailResult> SendAsync(EmailMessage message, CancellationToken cancellationToken = default)
@@ -72,7 +87,9 @@ internal sealed partial class BrevoClient(HttpClient http, IOptions<BrevoOptions
             message.Subject,
             message.HtmlBody,
             string.IsNullOrWhiteSpace(message.ReplyTo) ? null : new Address(message.ReplyTo, null),
-            message.Attachments.Count == 0 ? null : message.Attachments.Select(a => new Attachment(a.Name, Convert.ToBase64String(a.Content))).ToList());
+            message.Attachments.Count == 0 ? null : message.Attachments.Select(a => new Attachment(a.Name, Convert.ToBase64String(a.Content))).ToList(),
+            string.IsNullOrWhiteSpace(_options.Tag) ? null : [_options.Tag],
+            _options.Sandbox ? SandboxHeaders : null);
 
         try
         {
@@ -105,7 +122,8 @@ internal sealed partial class BrevoClient(HttpClient http, IOptions<BrevoOptions
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(days, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(days, MaxDays);
-        using var request = Request(HttpMethod.Get, $"smtp/statistics/aggregatedReport?days={days}");
+        var query = string.IsNullOrWhiteSpace(_options.Tag) ? $"days={days}" : $"days={days}&tag={Uri.EscapeDataString(_options.Tag)}";
+        using var request = Request(HttpMethod.Get, $"smtp/statistics/aggregatedReport?{query}");
         using var response = await http.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
         var report = await response.Content.ReadFromJsonAsync<AggregatedReport>(Json, cancellationToken) ?? new AggregatedReport();
@@ -140,7 +158,8 @@ internal sealed partial class BrevoClient(HttpClient http, IOptions<BrevoOptions
     private sealed record Address(string Email, string? Name);
     private sealed record Attachment(string Name, string Content);
     private sealed record SendRequest(Address Sender, IReadOnlyList<Address> To, string Subject, string HtmlContent, Address? ReplyTo,
-        [property: JsonPropertyName("attachment")] IReadOnlyList<Attachment>? Attachments);
+        [property: JsonPropertyName("attachment")] IReadOnlyList<Attachment>? Attachments, IReadOnlyList<string>? Tags,
+        IReadOnlyDictionary<string, string>? Headers);
     private sealed record SendResponse(string? MessageId);
     private sealed record ErrorResponse(string? Code, string? Message);
 
