@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Vipps-v1.0.0...SjolystInnovation.AppKit.Vipps-v1.1.0) (2026-10-18)
+
+
+### Features
+
+* **vipps:** read captureGuaranteedUntil on ePayments and authorized events ([#89](https://github.com/sondresjolyst/si-dotnet-packages/issues/89)) ([821d760](https://github.com/sondresjolyst/si-dotnet-packages/commit/821d7603ca0351150307aeac8d24cb21d82c8e58))
+
 ## [1.0.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Vipps-v0.3.0...SjolystInnovation.AppKit.Vipps-v1.0.0) (2026-10-17)
 
 
