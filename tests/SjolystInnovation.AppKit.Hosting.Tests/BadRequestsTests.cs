@@ -119,27 +119,90 @@ public sealed class BadRequestsTests
 
     [Theory]
     [MemberData(nameof(EnvironmentsAndEndpoints))]
-    public async Task Malformed_json_gets_400_in_every_environment(string environment, string path)
+    public async Task Malformed_json_gets_a_problem_in_every_environment(string environment, string path)
     {
-        await using var app = await StartAsync(environment);
+        var calls = new Calls();
+        await using var app = await StartAsync(environment, calls: calls);
 
         var response = await app.CreateClient().PutAsync(path, Body(Malformed));
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await AssertProblemAsync(response, HttpStatusCode.BadRequest);
+        Assert.Equal(0, calls.Count);
     }
 
     [Theory]
-    [InlineData(0)]
-    [InlineData(BadRequestsExtensions.ChunkSize - 11)]
-    [InlineData(BadRequestsExtensions.ChunkSize - 10)]
-    [InlineData(BadRequestsExtensions.ChunkSize - 9)]
-    [InlineData(3 * BadRequestsExtensions.ChunkSize)]
-    public async Task A_valid_body_reaches_the_endpoint_from_the_start(int padding)
+    [MemberData(nameof(EnvironmentsAndEndpoints))]
+    public async Task A_missing_required_body_gets_a_problem_in_every_environment(string environment, string path)
+    {
+        var calls = new Calls();
+        await using var app = await StartAsync(environment, calls: calls);
+
+        var response = await app.CreateClient().PutAsync(path, Body([]));
+
+        await AssertProblemAsync(response, HttpStatusCode.BadRequest);
+        Assert.Equal(0, calls.Count);
+    }
+
+    [Fact]
+    public async Task An_endpoint_in_a_group_gets_a_problem_for_malformed_json()
+    {
+        await using var app = await StartAsync(endpoints: e => e.MapGroup("/api").MapPut("/record", (NameBody body) => Results.Text(body.Name)));
+
+        var response = await app.CreateClient().PutAsync("/api/record", Body(Malformed));
+
+        await AssertProblemAsync(response, HttpStatusCode.BadRequest);
+    }
+
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Development")]
+    public async Task A_query_value_that_cannot_be_parsed_gets_a_problem(string environment)
+    {
+        await using var app = await StartAsync(environment, endpoints: e => e.MapGet("/days", (int days) => Results.Text($"{days}")));
+
+        await AssertProblemAsync(await app.CreateClient().GetAsync("/days?days=many"), HttpStatusCode.BadRequest);
+        Assert.Equal("7", await app.CreateClient().GetStringAsync("/days?days=7"));
+    }
+
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Development")]
+    public async Task A_400_the_endpoint_answers_itself_is_left_alone(string environment)
+    {
+        await using var app = await StartAsync(environment, endpoints: e =>
+        {
+            e.MapPut("/own", (NameBody body) => Results.BadRequest(new { message = $"No {body.Name}." }));
+            e.MapPut("/own-empty", (NameBody body) => Results.BadRequest());
+        });
+
+        var own = await app.CreateClient().PutAsync("/own", Body("{\"name\":\"x\"}"u8.ToArray()));
+        var empty = await app.CreateClient().PutAsync("/own-empty", Body("{\"name\":\"x\"}"u8.ToArray()));
+
+        Assert.Equal(HttpStatusCode.BadRequest, own.StatusCode);
+        Assert.Equal("application/json", own.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("{\"message\":\"No x.\"}", await own.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.BadRequest, empty.StatusCode);
+        Assert.Null(empty.Content.Headers.ContentType);
+        Assert.Equal("", await empty.Content.ReadAsStringAsync());
+    }
+
+    public static TheoryData<string, int> EnvironmentsAndPaddings()
+    {
+        var data = new TheoryData<string, int>();
+        foreach (var environment in new[] { "Production", "Development" })
+            foreach (var padding in new[] { 0, BadRequestsExtensions.ChunkSize - 11, BadRequestsExtensions.ChunkSize - 10, BadRequestsExtensions.ChunkSize - 9, 3 * BadRequestsExtensions.ChunkSize })
+                data.Add(environment, padding);
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(EnvironmentsAndPaddings))]
+    public async Task A_valid_body_reaches_the_endpoint_from_the_start(string environment, int padding)
     {
         // The padding moves a three byte character across the end of the first chunk.
         var name = new string('a', padding) + "€ Mårvegen";
         var calls = new Calls();
-        await using var app = await StartAsync(calls: calls);
+        await using var app = await StartAsync(environment, calls: calls);
 
         foreach (var path in new[] { "/record", "/element" })
         {
@@ -216,11 +279,13 @@ public sealed class BadRequestsTests
         Assert.False(response.Headers.Contains("X-Partial"));
     }
 
-    [Fact]
-    public async Task Each_refusal_is_logged_with_its_reason()
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Development")]
+    public async Task Each_refusal_is_logged_with_its_reason(string environment)
     {
         var logs = new FakeLogCollector();
-        await using var app = await StartAsync("Development", logs: logs);
+        await using var app = await StartAsync(environment, logs: logs);
 
         await app.CreateClient().PutAsync("/record", Body(InvalidUtf8InString));
         await app.CreateClient().PutAsync("/record", Body(Malformed));

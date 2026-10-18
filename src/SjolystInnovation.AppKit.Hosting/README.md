@@ -152,19 +152,25 @@ problem details body, never with a 500.
   UTF-8, so this covers `application/json` and types like `application/merge-patch+json` with no
   charset or a UTF-8 one. Without the check, an endpoint that binds a `JsonElement` throws when it
   reads a string, and the exception handler answers `500`.
-- A `BadHttpRequestException` gets its own status code instead of reaching the exception handler. In
-  Development, ASP.NET Core throws one for a body that is not valid JSON, so the exception handler would
-  answer `500` where production answers `400`. Kestrel throws one with `413` for a body over the size
-  limit.
+- A minimal API endpoint that cannot bind a parameter gets `400` with a problem body in every
+  environment. That covers a body that is not valid JSON, a missing required body, and a query or route
+  value that does not parse. Outside Development, ASP.NET Core answers these with an empty `400` by
+  default, so the call sets `RouteHandlerOptions.ThrowOnBadRequest` to `true`, as Development already
+  has it.
+- A `BadHttpRequestException` gets its own status code instead of reaching the exception handler. The
+  endpoints above throw one, and Kestrel throws one with `413` for a body over the size limit.
 
 The problem body has a title but no detail, so the client shows its own message. The reason is logged
 at Information. A `JsonException` that an endpoint throws itself is left to the exception handler,
-because it can come from a reply the API read from another service.
+because it can come from a reply the API read from another service. A response the endpoint writes
+itself is left alone, also an empty `400`. A body with a content type the endpoint does not accept gets
+`415` from routing before the endpoint runs, and that response has no body.
 
 Call it after `UseAuthorization` and `UseAppKitRateLimiting`, so a caller without access still gets
-`401` or `403`, and a limited caller gets `429` before the body is read. Only requests that matched an
-endpoint are checked. The check reads the body once and rewinds it, so the endpoint reads it from the
-start.
+`401` or `403`, and a limited caller gets `429` before the body is read. Call it before you map any
+endpoint, because an endpoint reads `ThrowOnBadRequest` when it is mapped. Only requests that matched
+an endpoint are checked. The check reads the body once and rewinds it, so the endpoint reads it from
+the start.
 
 ## Request logging
 
