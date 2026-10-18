@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Email-v1.0.1...SjolystInnovation.AppKit.Email-v1.1.0) (2026-10-18)
+
+
+### Features
+
+* **email:** add Tag and Sandbox options to Brevo ([#93](https://github.com/sondresjolyst/si-dotnet-packages/issues/93)) ([8cbc157](https://github.com/sondresjolyst/si-dotnet-packages/commit/8cbc1578b3a6e815928b2c621cbe70032b320ab5))
+
 ## [1.0.1](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Email-v1.0.0...SjolystInnovation.AppKit.Email-v1.0.1) (2026-10-18)
 
 
