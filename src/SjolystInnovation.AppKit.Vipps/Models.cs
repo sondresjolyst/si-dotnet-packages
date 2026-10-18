@@ -153,6 +153,9 @@ public sealed record VippsPayment
     public int RefundedAmountInOre { get; init; }
     /// <summary>The canceled amount in øre.</summary>
     public int CancelledAmountInOre { get; init; }
+    /// <summary>The last moment a capture of the reservation is guaranteed. A time without an offset counts as UTC. Null when Vipps does not send it.</summary>
+    [JsonConverter(typeof(VippsUtcDateTimeOffsetConverter))]
+    public DateTimeOffset? CaptureGuaranteedUntil { get; init; }
 }
 
 /// <summary>An address from a Vipps profile.</summary>

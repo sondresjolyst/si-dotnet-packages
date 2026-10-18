@@ -32,6 +32,9 @@ public sealed record VippsPaymentEvent
     public bool Success { get; init; }
     /// <summary>The user's profile id, on an <c>AUTHORIZED</c> event when the payment asked for a profile.</summary>
     public string? Sub { get; init; }
+    /// <summary>The last moment a capture of the reservation is guaranteed. A time without an offset counts as UTC. Null when Vipps does not send it.</summary>
+    [JsonConverter(typeof(VippsUtcDateTimeOffsetConverter))]
+    public DateTimeOffset? CaptureGuaranteedUntil { get; init; }
 }
 
 /// <summary>A Recurring agreement or charge webhook event.</summary>

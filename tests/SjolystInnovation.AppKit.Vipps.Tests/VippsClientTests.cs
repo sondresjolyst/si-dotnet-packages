@@ -332,6 +332,32 @@ public class VippsClientTests
     }
 
     [Fact]
+    public async Task GetPayment_ReadsCaptureGuaranteedUntil_AsUtcWhenItHasNoOffset()
+    {
+        var (client, vipps, _, _, _) = Create();
+        vipps.Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get"
+            ? (HttpStatusCode.OK, """{"access_token":"t","expires_in":3600}""")
+            : (HttpStatusCode.OK, """{"reference":"order-42","state":"AUTHORIZED","captureGuaranteedUntil":"2026-10-25T12:00:00"}""");
+
+        var payment = await client.GetPaymentAsync("order-42");
+
+        Assert.Equal(new DateTimeOffset(2026, 10, 25, 12, 0, 0, TimeSpan.Zero), payment.CaptureGuaranteedUntil);
+    }
+
+    [Fact]
+    public async Task GetPayment_LeavesCaptureGuaranteedUntilNull_WhenVippsLeavesItOut()
+    {
+        var (client, vipps, _, _, _) = Create();
+        vipps.Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get"
+            ? (HttpStatusCode.OK, """{"access_token":"t","expires_in":3600}""")
+            : (HttpStatusCode.OK, """{"reference":"order-42","state":"AUTHORIZED"}""");
+
+        var payment = await client.GetPaymentAsync("order-42");
+
+        Assert.Null(payment.CaptureGuaranteedUntil);
+    }
+
+    [Fact]
     public async Task EveryRequest_CarriesTheEnvironmentsCredentialsAndTheSystemHeaders()
     {
         var (client, vipps, env, _, _) = Create();

@@ -18,8 +18,8 @@ public class VippsWebhookEndpointTests
     private const string Subscription = "/api/subscriptions/webhook";
     private static readonly JsonSerializerOptions CaseInsensitive = new() { PropertyNameCaseInsensitive = true };
 
-    private static string PaymentBody(string? msn = WebhookTestApp.LiveMsn, string psp = "psp-1", string name = "AUTHORIZED", string reference = "order-1") =>
-        JsonSerializer.Serialize(new { msn, reference, pspReference = psp, name, amount = new { value = 10000, currency = "NOK" }, success = true });
+    private static string PaymentBody(string? msn = WebhookTestApp.LiveMsn, string psp = "psp-1", string name = "AUTHORIZED", string reference = "order-1", string? captureGuaranteedUntil = null) =>
+        JsonSerializer.Serialize(new { msn, reference, pspReference = psp, name, amount = new { value = 10000, currency = "NOK" }, success = true, captureGuaranteedUntil });
 
     private static string RecurringBody(string? msn = WebhookTestApp.LiveMsn, string? eventId = null, string? chargeId = null,
         string eventType = VippsEvents.AgreementActivated, DateTime? occurred = null) =>
@@ -46,6 +46,26 @@ public class VippsWebhookEndpointTests
         Assert.Equal(("psp-1", "shop", new DateTime(2026, 10, 15, 12, 0, 0)), (marker.Id, marker.Source, marker.ProcessedAt));
         Assert.Equal(1, await app.AppliedAsync());
         Assert.Equal(1, app.Script.AfterCommits);
+    }
+
+    [Fact]
+    public async Task An_authorized_event_carries_capture_guaranteed_until()
+    {
+        await using var app = await WebhookTestApp.StartAsync();
+
+        await app.PostAsync(Shop, PaymentBody(captureGuaranteedUntil: "2026-10-25T12:00:00+02:00"));
+
+        Assert.Equal(new DateTimeOffset(2026, 10, 25, 10, 0, 0, TimeSpan.Zero), Assert.Single(app.Script.Payments).Event.CaptureGuaranteedUntil?.ToUniversalTime());
+    }
+
+    [Fact]
+    public async Task An_authorized_event_reads_capture_guaranteed_until_without_an_offset_as_utc()
+    {
+        await using var app = await WebhookTestApp.StartAsync();
+
+        await app.PostAsync(Shop, PaymentBody(captureGuaranteedUntil: "2026-10-25T12:00:00"));
+
+        Assert.Equal(new DateTimeOffset(2026, 10, 25, 12, 0, 0, TimeSpan.Zero), Assert.Single(app.Script.Payments).Event.CaptureGuaranteedUntil);
     }
 
     [Fact]
