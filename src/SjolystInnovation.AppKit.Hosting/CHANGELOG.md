@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Hosting-v1.0.2...SjolystInnovation.AppKit.Hosting-v1.0.3) (2026-10-18)
+
+
+### Bug Fixes
+
+* **hosting:** give the empty 415 and 405 answers from routing a problem details body ([#87](https://github.com/sondresjolyst/si-dotnet-packages/issues/87)) ([311347f](https://github.com/sondresjolyst/si-dotnet-packages/commit/311347f775909720887ea368743718e563b33ace)), closes [#85](https://github.com/sondresjolyst/si-dotnet-packages/issues/85)
+
 ## [1.0.2](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Hosting-v1.0.1...SjolystInnovation.AppKit.Hosting-v1.0.2) (2026-10-18)
 
 
