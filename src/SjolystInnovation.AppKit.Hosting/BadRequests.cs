@@ -3,9 +3,11 @@ using System.Text.Unicode;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.Net.Http.Headers;
 
 namespace SjolystInnovation.AppKit.Hosting;
@@ -19,15 +21,22 @@ public static partial class BadRequestsExtensions
     /// <summary>
     /// Answers 400 with a problem details body when a JSON request body is not valid UTF-8, before the
     /// endpoint reads it. A <see cref="BadHttpRequestException"/> from later in the pipeline gets its own
-    /// status code, such as 400 for a body that is not valid JSON in Development or 413 for a body over the
-    /// size limit, instead of reaching the exception handler as a 500. Only requests that matched an
-    /// endpoint are checked, so call it after <c>UseRouting</c>, and after <c>UseAuthorization</c> so a
-    /// caller without access still gets 401 or 403.
+    /// status code, such as 400 for a body that is not valid JSON or 413 for a body over the size limit,
+    /// instead of reaching the exception handler as a 500. Minimal API endpoints throw one in every
+    /// environment when they cannot bind a parameter, so these failures get a problem details body too.
+    /// Only requests that matched an endpoint are checked, so call it after <c>UseRouting</c>, after
+    /// <c>UseAuthorization</c> so a caller without access still gets 401 or 403, and before mapping
+    /// endpoints.
     /// </summary>
     public static IApplicationBuilder UseAppKitBadRequests(this IApplicationBuilder app)
     {
         ArgumentNullException.ThrowIfNull(app);
         var logger = app.ApplicationServices.GetRequiredService<ILoggerFactory>().CreateLogger(LogCategory);
+        // Outside Development a minimal API endpoint answers a parameter it cannot bind with an empty 400.
+        // Throwing instead, as it does in Development, lets the catch below write the problem body.
+        // Endpoints read this option when they are mapped.
+        if (app.ApplicationServices.GetService<IOptions<RouteHandlerOptions>>() is { } routeHandler)
+            routeHandler.Value.ThrowOnBadRequest = true;
         return app.Use(async (context, next) =>
         {
             try
