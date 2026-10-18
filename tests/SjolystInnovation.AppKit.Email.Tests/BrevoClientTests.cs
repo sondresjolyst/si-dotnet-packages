@@ -222,6 +222,28 @@ public sealed class BrevoClientTests : IDisposable
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => Client().GetAsync(0));
     }
 
+    [Fact]
+    public void Brevo_reports_on_at_most_90_days()
+    {
+        Assert.Equal(90, ((IEmailStats)Client()).MaxDays);
+    }
+
+    [Fact]
+    public async Task Counts_for_90_days_are_read()
+    {
+        _brevo.Respond = _ => Json(HttpStatusCode.OK, "{}");
+
+        Assert.Equal(90, (await Client().GetAsync(90)).Days);
+        Assert.EndsWith("days=90", _brevo.Sent[0].Request.RequestUri!.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Counts_for_more_than_90_days_throw_and_ask_nothing()
+    {
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => Client().GetAsync(91));
+        Assert.Empty(_brevo.Sent);
+    }
+
     private static Dictionary<string, string?> Settings(string? apiKey = "k", string? email = "post@example.invalid", string? name = "Garge", string? baseUrl = null)
     {
         var settings = new Dictionary<string, string?>

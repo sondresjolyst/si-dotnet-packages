@@ -35,6 +35,7 @@ public sealed class EmailStatsEndpointTests : IAsyncDisposable
     {
         public List<int> Asked { get; } = [];
         public Exception? Throws { get; set; }
+        public int MaxDays { get; set; } = 90;
 
         public Task<EmailStats> GetAsync(int days = 30, CancellationToken cancellationToken = default)
         {
@@ -42,6 +43,18 @@ public sealed class EmailStatsEndpointTests : IAsyncDisposable
             if (Throws is not null)
                 throw Throws;
             return Task.FromResult(new EmailStats(days, 120, 110, 2, 3, 1, 4, 5));
+        }
+    }
+
+    /// <summary>A provider that leaves <see cref="IEmailStats.MaxDays"/> at its default.</summary>
+    private sealed class UnlimitedStats : IEmailStats
+    {
+        public List<int> Asked { get; } = [];
+
+        public Task<EmailStats> GetAsync(int days = 30, CancellationToken cancellationToken = default)
+        {
+            Asked.Add(days);
+            return Task.FromResult(new EmailStats(days, 0, 0, 0, 0, 0, 0, 0));
         }
     }
 
@@ -59,14 +72,14 @@ public sealed class EmailStatsEndpointTests : IAsyncDisposable
         }
     }
 
-    private async Task StartAsync(Action<IEndpointRouteBuilder>? map = null)
+    private async Task StartAsync(Action<IEndpointRouteBuilder>? map = null, IEmailStats? stats = null)
     {
         _host = new HostBuilder()
             .ConfigureWebHost(web => web
                 .UseTestServer()
                 .ConfigureServices(s =>
                 {
-                    s.AddSingleton<IEmailStats>(_stats);
+                    s.AddSingleton(stats ?? _stats);
                     s.AddLogging(b => b.AddProvider(new FakeLoggerProvider(_logs)));
                     s.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthHandler>("Test", _ => { });
                     s.AddAuthorization(o =>
@@ -134,6 +147,56 @@ public sealed class EmailStatsEndpointTests : IAsyncDisposable
         var errors = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("errors");
         Assert.Equal("Must be at least 1.", errors.GetProperty("days")[0].GetString());
         Assert.Empty(_stats.Asked);
+    }
+
+    [Theory]
+    [InlineData(91)]
+    [InlineData(365)]
+    public async Task More_days_than_the_provider_allows_is_a_validation_problem_and_asks_nothing(int days)
+    {
+        await StartAsync();
+
+        var response = await GetAsync($"/api/admin/email-stats?days={days}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var errors = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("errors");
+        Assert.Equal("Must be at most 90.", errors.GetProperty("days")[0].GetString());
+        Assert.Empty(_stats.Asked);
+    }
+
+    [Fact]
+    public async Task The_limit_comes_from_the_provider()
+    {
+        _stats.MaxDays = 7;
+        await StartAsync();
+
+        Assert.Equal(HttpStatusCode.OK, (await GetAsync("/api/admin/email-stats?days=7")).StatusCode);
+        var response = await GetAsync("/api/admin/email-stats?days=8");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var errors = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("errors");
+        Assert.Equal("Must be at most 7.", errors.GetProperty("days")[0].GetString());
+        Assert.Equal([7], _stats.Asked);
+    }
+
+    [Fact]
+    public async Task The_providers_maximum_is_allowed()
+    {
+        await StartAsync();
+
+        Assert.Equal(HttpStatusCode.OK, (await GetAsync("/api/admin/email-stats?days=90")).StatusCode);
+        Assert.Equal([90], _stats.Asked);
+    }
+
+    [Fact]
+    public async Task A_provider_that_sets_no_limit_takes_any_days()
+    {
+        var unlimited = new UnlimitedStats();
+        await StartAsync(stats: unlimited);
+
+        Assert.Equal(HttpStatusCode.OK, (await GetAsync("/api/admin/email-stats?days=1000")).StatusCode);
+        Assert.Equal(int.MaxValue, ((IEmailStats)unlimited).MaxDays);
+        Assert.Equal([1000], unlimited.Asked);
     }
 
     [Fact]

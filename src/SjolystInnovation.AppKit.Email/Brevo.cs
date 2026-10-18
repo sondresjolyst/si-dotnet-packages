@@ -98,9 +98,13 @@ internal sealed partial class BrevoClient(HttpClient http, IOptions<BrevoOptions
         }
     }
 
+    /// <summary>Brevo's aggregated report covers at most 90 days.</summary>
+    public int MaxDays => 90;
+
     public async Task<EmailStats> GetAsync(int days = 30, CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(days, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(days, MaxDays);
         using var request = Request(HttpMethod.Get, $"smtp/statistics/aggregatedReport?days={days}");
         using var response = await http.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
