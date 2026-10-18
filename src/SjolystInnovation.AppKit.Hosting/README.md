@@ -2,9 +2,9 @@
 
 This package holds the startup pieces for an ASP.NET Core API that runs behind an ingress, such as in
 Kubernetes. It takes the client IP only from trusted proxies, limits requests per client IP, adds
-security headers and HTTPS, maps health probes, logs requests without secrets, and applies migrations
-on start. Use it when you want these defaults in every API without writing them again. You can adopt
-each piece on its own.
+security headers and HTTPS, answers unreadable request bodies with 400, maps health probes, logs
+requests without secrets, and applies migrations on start. Use it when you want these defaults in
+every API without writing them again. You can adopt each piece on its own.
 
 ```sh
 dotnet add package SjolystInnovation.AppKit.Hosting
@@ -44,6 +44,7 @@ app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAppKitRateLimiting();
+app.UseAppKitBadRequests();
 
 app.MapAppKitHealthChecks();
 app.MapGet("/api/products", () => Results.Ok());
@@ -76,6 +77,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 | `AddAppKitRateLimiting`, `UseAppKitRateLimiting` | Limits requests per client IP with rules from configuration. |
 | `UseAppKitSecurityHeaders` | Adds `X-Content-Type-Options` and `X-Frame-Options` to every response. |
 | `UseAppKitHttps` | Sends HSTS and redirects HTTP to HTTPS outside Development. |
+| `UseAppKitBadRequests` | Answers a JSON body that is not valid UTF-8, and any other unreadable request, with a 4xx instead of a 500. |
 | `UseAppKitRequestLogging` | Logs each request without its secrets. |
 | `AddAppKitHealthChecks`, `MapAppKitHealthChecks` | Maps the liveness and readiness probes. |
 | `MigrateAppKitDatabaseAsync` | Applies pending Entity Framework Core migrations on start. |
@@ -140,6 +142,29 @@ response.
 Outside Development, `UseAppKitHttps` sends HSTS and redirects plain HTTP to HTTPS. Paths under
 `/health` are never redirected, because probes reach the pod over plain HTTP. Call it after
 `UseAppKitForwardedHeaders`, so a request that the ingress received over HTTPS is not redirected.
+
+## Bad requests
+
+`UseAppKitBadRequests` makes every endpoint answer a request it cannot read with a client error and a
+problem details body, never with a 500.
+
+- A body with a JSON content type that is not valid UTF-8 gets `400` before the endpoint runs. JSON is
+  UTF-8, so this covers `application/json` and types like `application/merge-patch+json` with no
+  charset or a UTF-8 one. Without the check, an endpoint that binds a `JsonElement` throws when it
+  reads a string, and the exception handler answers `500`.
+- A `BadHttpRequestException` gets its own status code instead of reaching the exception handler. In
+  Development, ASP.NET Core throws one for a body that is not valid JSON, so the exception handler would
+  answer `500` where production answers `400`. Kestrel throws one with `413` for a body over the size
+  limit.
+
+The problem body has a title but no detail, so the client shows its own message. The reason is logged
+at Information. A `JsonException` that an endpoint throws itself is left to the exception handler,
+because it can come from a reply the API read from another service.
+
+Call it after `UseAuthorization` and `UseAppKitRateLimiting`, so a caller without access still gets
+`401` or `403`, and a limited caller gets `429` before the body is read. Only requests that matched an
+endpoint are checked. The check reads the body once and rewinds it, so the endpoint reads it from the
+start.
 
 ## Request logging
 
