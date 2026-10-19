@@ -35,6 +35,8 @@ app.Run();
 | `ExecutablePath` | `PUPPETEER_EXECUTABLE_PATH` | The Chrome or Chromium binary to launch. When blank, PuppeteerSharp downloads a Chromium build on the first render. |
 | `NoSandbox` | true only when `PUPPETEER_NO_SANDBOX` is `1` | Runs Chromium without its sandbox. |
 | `Timeout` | 60 seconds | How long one render may take, launching the browser included. |
+| `AllowJavaScript` | `false` | Runs the scripts in the HTML. |
+| `AllowedOrigins` | None | The origins the page may load assets from, such as `https://cdn.example.com`. |
 
 Set the options in the callback, which runs after the environment variables are read:
 
@@ -42,7 +44,20 @@ Set the options in the callback, which runs after the environment variables are 
 builder.Services.AddAppKitPdf(o => o.Timeout = TimeSpan.FromSeconds(30));
 ```
 
-If the timeout is not positive, the app fails to start.
+If the timeout is not positive, or an allowed origin is not an http or https origin without a path,
+the app fails to start.
+
+## Pass trusted HTML
+
+The renderer runs on your server, so treat the HTML like code. Build it yourself and HTML encode every
+value that comes from a user, such as a name or an address. Two defaults limit what a page can do:
+
+- Scripts do not run, unless `AllowJavaScript` is on.
+- The page loads nothing over the network. Every request, each redirect included, is stopped unless it
+  is a `data:` URL, `about:blank`, or on one of the `AllowedOrigins`, matched on scheme, host, and port.
+  An image or a stylesheet that points at an internal address is never fetched.
+
+Inline your CSS and embed images as `data:` URLs, or allow the one origin that serves them.
 
 ## Render a PDF
 

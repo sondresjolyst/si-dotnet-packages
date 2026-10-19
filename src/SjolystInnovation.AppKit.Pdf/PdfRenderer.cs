@@ -9,7 +9,8 @@ namespace SjolystInnovation.AppKit.Pdf;
 public interface IPdfRenderer
 {
     /// <summary>
-    /// Renders <paramref name="html"/> to the bytes of a PDF. A render that takes longer than the
+    /// Renders <paramref name="html"/> to the bytes of a PDF. Pass HTML your app built, with every value
+    /// from users escaped. Scripts do not run and remote assets do not load unless the options allow them. A render that takes longer than the
     /// configured timeout throws <see cref="TimeoutException"/>. The caller's cancellation throws
     /// <see cref="OperationCanceledException"/>.
     /// </summary>
@@ -53,7 +54,7 @@ internal sealed partial class ChromiumPdfRenderer : IPdfRenderer, IAsyncDisposab
         try
         {
             browser = await GetBrowserAsync(timeout.Token);
-            return await RenderPageAsync(browser, html).WaitAsync(timeout.Token);
+            return await RenderPageAsync(browser, html, _options).WaitAsync(timeout.Token);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -101,9 +102,42 @@ internal sealed partial class ChromiumPdfRenderer : IPdfRenderer, IAsyncDisposab
         return await Puppeteer.LaunchAsync(options);
     }
 
-    private static async Task<byte[]> RenderPageAsync(IBrowser browser, string html)
+    /// <summary>
+    /// True for the URLs a page may load: <c>data:</c> URLs, <c>about:blank</c>, and URLs on an allowed
+    /// origin, matched on scheme, host and port.
+    /// </summary>
+    internal static bool IsAllowed(string url, IEnumerable<string> allowedOrigins)
+    {
+        if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) return true;
+        if (string.Equals(url, "about:blank", StringComparison.OrdinalIgnoreCase)) return true;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var target)) return false;
+        return allowedOrigins.Any(origin =>
+            Uri.TryCreate(origin, UriKind.Absolute, out var allowed)
+            && string.Equals(allowed.Scheme, target.Scheme, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(allowed.IdnHost, target.IdnHost, StringComparison.OrdinalIgnoreCase)
+            && allowed.Port == target.Port);
+    }
+
+    private static async Task<byte[]> RenderPageAsync(IBrowser browser, string html, PdfRendererOptions options)
     {
         await using var page = await browser.NewPageAsync();
+        await page.SetJavaScriptEnabledAsync(options.AllowJavaScript);
+        // Every request the page makes, each redirect included, passes here, so the HTML cannot make the
+        // server fetch an internal URL.
+        var allowed = options.AllowedOrigins.ToArray();
+        await page.SetRequestInterceptionAsync(true);
+        page.Request += async (_, e) =>
+        {
+            try
+            {
+                if (IsAllowed(e.Request.Url, allowed)) await e.Request.ContinueAsync();
+                else await e.Request.AbortAsync();
+            }
+            // The page may be closing. An unhandled exception in this event would end the process.
+            catch (Exception ex) when (ex is PuppeteerException or ObjectDisposedException or InvalidOperationException)
+            {
+            }
+        };
         await page.SetContentAsync(html, new SetContentOptions { WaitUntil = [WaitUntilNavigation.Load] });
         return await page.PdfDataAsync(BuildPdfOptions());
     }

@@ -14,8 +14,8 @@ public sealed class ChromiumPdfRendererTests
     private readonly List<FakeBrowser> _launched = [];
     private readonly List<LaunchOptions> _launchOptions = [];
 
-    private ChromiumPdfRenderer Renderer(TimeSpan? timeout = null, Func<LaunchOptions, Task<IBrowser>>? launch = null) =>
-        new(new PdfRendererOptions { Timeout = timeout ?? TimeSpan.FromSeconds(10) }, _logger, launch ?? Launch);
+    private ChromiumPdfRenderer Renderer(TimeSpan? timeout = null, Func<LaunchOptions, Task<IBrowser>>? launch = null, bool allowJavaScript = false) =>
+        new(new PdfRendererOptions { Timeout = timeout ?? TimeSpan.FromSeconds(10), AllowJavaScript = allowJavaScript }, _logger, launch ?? Launch);
 
     private Task<IBrowser> Launch(LaunchOptions options)
     {
@@ -176,6 +176,57 @@ public sealed class ChromiumPdfRendererTests
 
         Assert.Equal(1, _launched[0].Disposed);
         await Assert.ThrowsAsync<ObjectDisposedException>(() => renderer.RenderAsync("<p>2</p>").WaitAsync(Bound));
+    }
+
+    [Fact]
+    public async Task Render_TurnsScriptsOff_AndInterceptsEveryRequest_BeforeTheContentLoads()
+    {
+        await using var renderer = Renderer();
+
+        await renderer.RenderAsync("<p>x</p>");
+
+        var browser = _launched[0];
+        Assert.Equal([false], browser.JavaScriptEnabled);
+        Assert.Equal([true], browser.Interception);
+        Assert.Equal(1, browser.RequestHandlers);
+    }
+
+    [Fact]
+    public async Task Render_RunsScripts_WhenTheOptionsAllowThem()
+    {
+        await using var renderer = Renderer(allowJavaScript: true);
+
+        await renderer.RenderAsync("<p>x</p>");
+
+        Assert.Equal([true], _launched[0].JavaScriptEnabled);
+    }
+
+    [Theory]
+    [InlineData("data:image/png;base64,AAAA", true)]
+    [InlineData("DATA:text/css,body{}", true)]
+    [InlineData("about:blank", true)]
+    [InlineData("https://cdn.example.com/logo.png", true)]
+    [InlineData("https://CDN.example.com:443/a/b?c=d", true)]
+    [InlineData("http://cdn.example.com/logo.png", false)]
+    [InlineData("http://cdn.example.com:443/logo.png", false)]
+    [InlineData("https://cdn.example.com:8443/logo.png", false)]
+    [InlineData("https://evil.cdn.example.com/logo.png", false)]
+    [InlineData("https://cdn.example.com.evil.net/logo.png", false)]
+    [InlineData("http://127.0.0.1/admin", false)]
+    [InlineData("http://169.254.169.254/latest/meta-data", false)]
+    [InlineData("file:///etc/passwd", false)]
+    [InlineData("about:srcdoc", false)]
+    [InlineData("not a url", false)]
+    public void IsAllowed_LetsThroughDataUrls_AboutBlank_AndExactOriginsOnly(string url, bool allowed)
+    {
+        Assert.Equal(allowed, ChromiumPdfRenderer.IsAllowed(url, ["https://cdn.example.com"]));
+    }
+
+    [Fact]
+    public void IsAllowed_WithNoOrigins_BlocksEveryNetworkUrl()
+    {
+        Assert.False(ChromiumPdfRenderer.IsAllowed("https://cdn.example.com/x", []));
+        Assert.True(ChromiumPdfRenderer.IsAllowed("data:,x", []));
     }
 
     [Fact]

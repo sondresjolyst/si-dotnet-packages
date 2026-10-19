@@ -51,6 +51,40 @@ public sealed class PdfServiceCollectionTests
         Assert.Contains("PdfRendererOptions.Timeout must be positive.", error.Failures);
     }
 
+    [Theory]
+    [InlineData("https://cdn.example.com")]
+    [InlineData("http://127.0.0.1:8080/")]
+    public void AddAppKitPdf_AcceptsAnHttpOrigin(string origin)
+    {
+        using var provider = new ServiceCollection().AddAppKitPdf(o => o.AllowedOrigins.Add(origin)).BuildServiceProvider();
+
+        Assert.Equal([origin], provider.GetRequiredService<IOptions<PdfRendererOptions>>().Value.AllowedOrigins);
+    }
+
+    [Theory]
+    [InlineData("cdn.example.com")]
+    [InlineData("ftp://cdn.example.com")]
+    [InlineData("file:///tmp")]
+    [InlineData("https://cdn.example.com/assets")]
+    [InlineData("https://cdn.example.com/?a=b")]
+    [InlineData("https://user@cdn.example.com")]
+    public void AddAppKitPdf_RefusesAnAllowedOriginThatIsNotAnHttpOrigin(string origin)
+    {
+        using var provider = new ServiceCollection().AddAppKitPdf(o => o.AllowedOrigins.Add(origin)).BuildServiceProvider();
+
+        var error = Assert.Throws<OptionsValidationException>(() => provider.GetRequiredService<IOptions<PdfRendererOptions>>().Value);
+        Assert.Contains(error.Failures, f => f.StartsWith("PdfRendererOptions.AllowedOrigins must hold", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Options_KeepScriptsOff_AndAllowNoOrigins_ByDefault()
+    {
+        var options = new PdfRendererOptions();
+
+        Assert.False(options.AllowJavaScript);
+        Assert.Empty(options.AllowedOrigins);
+    }
+
     [Fact]
     public void ReadEnvironment_TakesTheBinary_AndTurnsTheSandboxOffOnlyForOne()
     {

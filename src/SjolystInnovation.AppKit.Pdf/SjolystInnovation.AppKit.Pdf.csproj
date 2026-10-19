@@ -4,7 +4,7 @@
     <!-- x-release-please-start-version -->
     <Version>1.0.0</Version>
     <!-- x-release-please-end -->
-    <Description>HTML to PDF through headless Chromium with PuppeteerSharp: A4 with backgrounds, one browser reused across calls, the sandbox on by default, and a render timeout.</Description>
+    <Description>HTML to PDF through headless Chromium with PuppeteerSharp: A4 with backgrounds, one browser reused across calls, scripts and network requests off by default, the sandbox on, and a render timeout.</Description>
     <PackageTags>pdf;html-to-pdf;chromium;puppeteer</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>

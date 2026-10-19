@@ -28,6 +28,25 @@ public sealed class PdfRendererOptions
     /// </summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(60);
 
+    /// <summary>
+    /// When true, scripts in the HTML run while the page renders. Defaults to false. Turn it on only for
+    /// HTML your app fully controls.
+    /// </summary>
+    public bool AllowJavaScript { get; set; }
+
+    /// <summary>
+    /// The origins the page may load assets from, such as <c>https://cdn.example.com</c>. A request is
+    /// allowed only when its scheme, host and port match one of them exactly, and each redirect is checked
+    /// the same way. Empty by default, so only <c>data:</c> URLs and <c>about:blank</c> load.
+    /// </summary>
+    public IList<string> AllowedOrigins { get; } = [];
+
+    internal static bool IsValidOrigin(string origin) =>
+        Uri.TryCreate(origin, UriKind.Absolute, out var uri)
+        && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+        && uri.AbsolutePath == "/" && string.IsNullOrEmpty(uri.Query) && string.IsNullOrEmpty(uri.Fragment)
+        && string.IsNullOrEmpty(uri.UserInfo);
+
     internal static void ReadEnvironment(PdfRendererOptions options, Func<string, string?> variable)
     {
         var path = variable(ExecutablePathVariable);

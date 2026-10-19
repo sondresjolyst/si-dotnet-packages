@@ -13,7 +13,7 @@ on NuGet under the Apache-2.0 license.
 | [SjolystInnovation.AppKit.Auth](src/SjolystInnovation.AppKit.Auth/README.md) | JWT access tokens, rotating refresh tokens, Identity defaults, reset and verification codes, user administration, and account deletion, with stable error codes. |
 | [SjolystInnovation.AppKit.Email](src/SjolystInnovation.AppKit.Email/README.md) | Transactional email and delivery statistics through Brevo, with a send result instead of exceptions. |
 | [SjolystInnovation.AppKit.Hosting](src/SjolystInnovation.AppKit.Hosting/README.md) | Trusted proxies, rate limiting, security headers, HTTPS, 400 for unreadable request bodies, health checks, request logging without secrets, and migrations on start. |
-| [SjolystInnovation.AppKit.Pdf](src/SjolystInnovation.AppKit.Pdf/README.md) | HTML to PDF through headless Chromium, with one reused browser, the sandbox on by default, and a render timeout. |
+| [SjolystInnovation.AppKit.Pdf](src/SjolystInnovation.AppKit.Pdf/README.md) | HTML to PDF through headless Chromium, with one reused browser, scripts and network requests off by default, and a render timeout. |
 | [SjolystInnovation.AppKit.SiteSettings](src/SjolystInnovation.AppKit.SiteSettings/README.md) | Admin-managed company details, branding, legal pages, and page sections, with stable error codes. |
 | [SjolystInnovation.AppKit.Storage](src/SjolystInnovation.AppKit.Storage/README.md) | Uploaded files on local disk, checked by their first bytes and served with a safe `Content-Disposition`, and the disk use of the stores. |
 | [SjolystInnovation.AppKit.Storage.Images](src/SjolystInnovation.AppKit.Storage.Images/README.md) | Content images with resized WebP renditions, EXIF orientation, cache-friendly serving, and orphan cleanup. |

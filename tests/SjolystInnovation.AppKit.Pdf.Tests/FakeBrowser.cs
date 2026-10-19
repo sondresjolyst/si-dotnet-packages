@@ -24,6 +24,9 @@ internal sealed class FakeBrowser
     public List<string> Html { get; } = [];
     public List<PdfOptions> PdfOptions { get; } = [];
     public List<SetContentOptions?> ContentOptions { get; } = [];
+    public List<bool> JavaScriptEnabled { get; } = [];
+    public List<bool> Interception { get; } = [];
+    public int RequestHandlers;
 
     /// <summary>Runs when a page loads its content, so a test can make it hang or fail.</summary>
     public Func<Task>? OnSetContent { get; set; }
@@ -66,6 +69,15 @@ internal sealed class FakeBrowser
                     ContentOptions.Add(args.Length > 1 ? args[1] as SetContentOptions : null);
                 }
                 return OnSetContent?.Invoke() ?? Task.CompletedTask;
+            case "SetJavaScriptEnabledAsync":
+                lock (_lock) JavaScriptEnabled.Add((bool)args[0]!);
+                return Task.CompletedTask;
+            case "SetRequestInterceptionAsync":
+                lock (_lock) Interception.Add((bool)args[0]!);
+                return Task.CompletedTask;
+            case "add_Request":
+                Interlocked.Increment(ref RequestHandlers);
+                return null;
             case "PdfDataAsync":
                 lock (_lock) PdfOptions.Add((PdfOptions)args[0]!);
                 return Task.FromResult(Pdf);
