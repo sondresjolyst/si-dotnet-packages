@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -21,6 +22,28 @@ public class LegalPage
     public string BodyMarkdown { get; set; } = string.Empty;
     /// <summary>When the page was last saved, in UTC.</summary>
     public DateTime UpdatedAt { get; set; }
+}
+
+/// <summary>
+/// One saved version of a legal page. Every save that changes the title or body adds one, so the text a
+/// page had on any date can be looked up later. The package never changes or deletes a revision.
+/// </summary>
+public class LegalPageRevision
+{
+    /// <summary>The row id.</summary>
+    public int Id { get; set; }
+    /// <summary>The page key, for example <c>terms</c>.</summary>
+    public required string Key { get; set; }
+    /// <summary>The language of the page, for example <c>no</c>.</summary>
+    public required string Locale { get; set; }
+    /// <summary>The page title as saved.</summary>
+    public required string Title { get; set; }
+    /// <summary>The page body as Markdown, as saved.</summary>
+    public string BodyMarkdown { get; set; } = string.Empty;
+    /// <summary>When this version was saved, in UTC. It equals the page's <see cref="LegalPage.UpdatedAt"/> at that save.</summary>
+    public DateTime SavedAt { get; set; }
+    /// <summary>The user id of the admin who saved this version, or null for seeded text and text saved before history was kept.</summary>
+    public string? SavedBy { get; set; }
 }
 
 /// <summary>The starting text of a legal page, written while the page has none.</summary>
@@ -64,6 +87,22 @@ public sealed class AppKitLegalPagesOptions
 /// <param name="UpdatedAt">When the page was last saved, in UTC.</param>
 public sealed record LegalPageInfo(string Key, string Locale, string Title, string BodyMarkdown, DateTime UpdatedAt);
 
+/// <summary>A saved version of a legal page in the list of versions, without its body.</summary>
+/// <param name="Id">The revision id.</param>
+/// <param name="SavedAt">When the version was saved, in UTC.</param>
+/// <param name="Title">The page title in that version.</param>
+public sealed record LegalPageRevisionSummary(int Id, DateTime SavedAt, string Title);
+
+/// <summary>A saved version of a legal page with its body.</summary>
+/// <param name="Id">The revision id.</param>
+/// <param name="Key">The page key, in lowercase.</param>
+/// <param name="Locale">The language of the page, in lowercase.</param>
+/// <param name="Title">The page title in that version.</param>
+/// <param name="BodyMarkdown">The page body as Markdown in that version.</param>
+/// <param name="SavedAt">When the version was saved, in UTC.</param>
+/// <param name="SavedBy">The user id of the admin who saved it, or null when not known.</param>
+public sealed record LegalPageRevisionInfo(int Id, string Key, string Locale, string Title, string BodyMarkdown, DateTime SavedAt, string? SavedBy);
+
 /// <summary>The text an admin saves for a legal page.</summary>
 /// <param name="Title">The page title. Required, at most 200 characters.</param>
 /// <param name="BodyMarkdown">The page body as Markdown. Required.</param>
@@ -73,7 +112,8 @@ public sealed record LegalPageBody(string? Title, string? BodyMarkdown);
 public static class LegalPagesExtensions
 {
     /// <summary>
-    /// Maps <see cref="LegalPage"/> to the <c>LegalPages</c> table, with one page per key and locale.
+    /// Maps <see cref="LegalPage"/> to the <c>LegalPages</c> table, with one page per key and locale, and
+    /// <see cref="LegalPageRevision"/> to the <c>LegalPageRevisions</c> table.
     /// </summary>
     public static ModelBuilder AddAppKitLegalPages(this ModelBuilder modelBuilder)
     {
@@ -88,13 +128,25 @@ public static class LegalPagesExtensions
             e.Property(p => p.BodyMarkdown).IsRequired();
             e.HasIndex(p => new { p.Key, p.Locale }).IsUnique();
         });
+        modelBuilder.Entity<LegalPageRevision>(e =>
+        {
+            e.ToTable("LegalPageRevisions");
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Key).IsRequired().HasMaxLength(40);
+            e.Property(r => r.Locale).IsRequired().HasMaxLength(10);
+            e.Property(r => r.Title).IsRequired().HasMaxLength(200);
+            e.Property(r => r.BodyMarkdown).IsRequired();
+            e.Property(r => r.SavedBy).HasMaxLength(450);
+            e.HasIndex(r => new { r.Key, r.Locale, r.SavedAt });
+        });
         return modelBuilder;
     }
 
     /// <summary>
     /// Maps the legal page endpoints under <paramref name="prefix"/>. <c>GET {key}</c> is open to everyone
     /// and returns the page in the requested <c>?locale=</c>, or else in the fallback language. <c>GET</c>
-    /// lists every page and <c>PUT {key}/{locale}</c> saves one, both behind
+    /// lists every page, <c>PUT {key}/{locale}</c> saves one, <c>GET {key}/{locale}/revisions</c> lists its
+    /// saved versions and <c>GET {key}/{locale}/revisions/{id}</c> returns one, all behind
     /// <see cref="AppKitLegalPagesOptions.Policy"/>.
     /// </summary>
     public static RouteGroupBuilder MapAppKitLegalPages<TContext>(this IEndpointRouteBuilder endpoints,
@@ -111,13 +163,17 @@ public static class LegalPagesExtensions
         group.MapGet("", (Func<HttpContext, Task<IResult>>)LegalPageHandlers<TContext>.ListAsync).RequireAuthorization(options.Policy);
         group.MapPut("{key}/{locale}", (string key, string locale, LegalPageBody body, HttpContext http) => handlers.PutAsync(key, locale, body, http))
             .RequireAuthorization(options.Policy);
+        group.MapGet("{key}/{locale}/revisions", (string key, string locale, HttpContext http) => handlers.RevisionsAsync(key, locale, http))
+            .RequireAuthorization(options.Policy);
+        group.MapGet("{key}/{locale}/revisions/{id:int}", (string key, string locale, int id, HttpContext http) => handlers.RevisionAsync(key, locale, id, http))
+            .RequireAuthorization(options.Policy);
         return group;
     }
 
     /// <summary>
     /// Writes the starting text for every page and language in <paramref name="pages"/> that has none.
     /// Pages that an admin has written stay as they are. Keys and locales are stored in lower case, the
-    /// form the endpoints look pages up by.
+    /// form the endpoints look pages up by. Each page it writes also gets its first revision.
     /// </summary>
     public static async Task SeedAppKitLegalPagesAsync<TContext>(this IServiceProvider services, IEnumerable<LegalPageSeed> pages, CancellationToken cancellationToken = default)
         where TContext : DbContext
@@ -135,7 +191,11 @@ public static class LegalPagesExtensions
             var locale = page.Locale.ToLowerInvariant();
             // Add returns false for a page that exists or that appears twice in the seed.
             if (existing.Add((key, locale)))
-                db.Set<LegalPage>().Add(new LegalPage { Key = key, Locale = locale, Title = page.Title, BodyMarkdown = page.BodyMarkdown, UpdatedAt = now });
+            {
+                var seeded = new LegalPage { Key = key, Locale = locale, Title = page.Title, BodyMarkdown = page.BodyMarkdown, UpdatedAt = now };
+                db.Set<LegalPage>().Add(seeded);
+                db.Set<LegalPageRevision>().Add(LegalPageHandlers<TContext>.Revision(seeded, savedBy: null));
+            }
         }
         await db.SaveChangesAsync(cancellationToken);
     }
@@ -148,6 +208,9 @@ internal sealed class LegalPageHandlers<TContext>(AppKitLegalPagesOptions option
     private const int MaxTitleLength = 200;
 
     private static LegalPageInfo Info(LegalPage p) => new(p.Key, p.Locale, p.Title, p.BodyMarkdown, p.UpdatedAt);
+
+    internal static LegalPageRevision Revision(LegalPage p, string? savedBy) =>
+        new() { Key = p.Key, Locale = p.Locale, Title = p.Title, BodyMarkdown = p.BodyMarkdown, SavedAt = p.UpdatedAt, SavedBy = savedBy };
 
     public async Task<IResult> GetAsync(string key, string? locale, HttpContext http)
     {
@@ -190,16 +253,60 @@ internal sealed class LegalPageHandlers<TContext>(AppKitLegalPagesOptions option
         var now = (http.RequestServices.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow().UtcDateTime;
         key = key.ToLowerInvariant();
         locale = locale.ToLowerInvariant();
+        var title = body.Title!.Trim();
+        var markdown = body.BodyMarkdown!;
+        var revisions = db.Set<LegalPageRevision>();
         var page = await db.Set<LegalPage>().FirstOrDefaultAsync(p => p.Key == key && p.Locale == locale, http.RequestAborted);
         if (page is null)
         {
             page = new LegalPage { Key = key, Locale = locale, Title = "" };
             db.Set<LegalPage>().Add(page);
         }
-        page.Title = body.Title!.Trim();
-        page.BodyMarkdown = body.BodyMarkdown!;
+        else
+        {
+            // A save that changes nothing keeps the page and its history as they are.
+            if (page.Title == title && page.BodyMarkdown == markdown)
+                return TypedResults.Ok(Info(page));
+            // A page written before history was kept gets its current text as the first revision.
+            if (!await revisions.AnyAsync(r => r.Key == key && r.Locale == locale, http.RequestAborted))
+                revisions.Add(Revision(page, savedBy: null));
+        }
+        page.Title = title;
+        page.BodyMarkdown = markdown;
         page.UpdatedAt = now;
+        revisions.Add(Revision(page, SavedBy(http.User)));
         await db.SaveChangesAsync(http.RequestAborted);
         return TypedResults.Ok(Info(page));
     }
+
+    public async Task<IResult> RevisionsAsync(string key, string locale, HttpContext http)
+    {
+        if (!options.KnownKey(key) || !options.KnownLocale(locale))
+            return TypedResults.NotFound();
+        key = key.ToLowerInvariant();
+        locale = locale.ToLowerInvariant();
+        var list = await http.RequestServices.GetRequiredService<TContext>().Set<LegalPageRevision>().AsNoTracking()
+            .Where(r => r.Key == key && r.Locale == locale)
+            .OrderByDescending(r => r.SavedAt).ThenByDescending(r => r.Id)
+            .Select(r => new LegalPageRevisionSummary(r.Id, r.SavedAt, r.Title))
+            .ToListAsync(http.RequestAborted);
+        return TypedResults.Ok(list);
+    }
+
+    public async Task<IResult> RevisionAsync(string key, string locale, int id, HttpContext http)
+    {
+        if (!options.KnownKey(key) || !options.KnownLocale(locale))
+            return TypedResults.NotFound();
+        key = key.ToLowerInvariant();
+        locale = locale.ToLowerInvariant();
+        var r = await http.RequestServices.GetRequiredService<TContext>().Set<LegalPageRevision>().AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Id == id && r.Key == key && r.Locale == locale, http.RequestAborted);
+        return r is null
+            ? TypedResults.NotFound()
+            : TypedResults.Ok(new LegalPageRevisionInfo(r.Id, r.Key, r.Locale, r.Title, r.BodyMarkdown, r.SavedAt, r.SavedBy));
+    }
+
+    // The user id claim that AppKit.Auth writes, read without depending on that package.
+    private static string? SavedBy(ClaimsPrincipal user) => user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+
 }

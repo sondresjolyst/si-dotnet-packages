@@ -315,6 +315,167 @@ public class LegalPagesTests
         Assert.Equal("Privacy", served.GetProperty("title").GetString());
     }
 
+    // Revisions
+
+    private static async Task<List<LegalPageRevision>> RevisionsAsync(TestApp app)
+    {
+        using var scope = app.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<TestDbContext>().Set<LegalPageRevision>().AsNoTracking().OrderBy(r => r.Id).ToListAsync();
+    }
+
+    private static string Utc(JsonElement value) =>
+        value.GetDateTime().ToString("yyyy-MM-ddTHH:mm:ssZ", System.Globalization.CultureInfo.InvariantCulture);
+
+    [Fact]
+    public async Task Every_save_that_changes_the_page_adds_a_revision_listed_newest_first()
+    {
+        await using var app = await StartAsync();
+        await PutAsync(app, "/api/content/legal/terms/no", "Vilkår", "## Første");
+        app.Time.Advance(TimeSpan.FromHours(1));
+        await PutAsync(app, "/api/content/legal/terms/no", "Vilkår", "## Andre");
+        await PutAsync(app, "/api/content/legal/terms/en", "Terms", "## First");
+
+        var list = await JsonAsync(await app.SendAsync(HttpMethod.Get, "/api/content/legal/terms/no/revisions"));
+
+        Assert.Equal(["2026-10-15T13:00:00Z", "2026-10-15T12:00:00Z"], list.EnumerateArray().Select(r => Utc(r.GetProperty("savedAt"))));
+        Assert.All(list.EnumerateArray(), r => Assert.Equal("Vilkår", r.GetProperty("title").GetString()));
+        Assert.Equal(["id", "savedAt", "title"], list[0].EnumerateObject().Select(p => p.Name));
+        var stored = (await RevisionsAsync(app)).Where(r => r.Locale == "no").ToList();
+        Assert.Equal(["## Første", "## Andre"], stored.Select(r => r.BodyMarkdown));
+        Assert.All(stored, r => Assert.Equal("u1", r.SavedBy));
+        var page = (await PagesAsync(app)).Single(p => p.Locale == "no");
+        Assert.Equal(page.UpdatedAt, stored[^1].SavedAt);
+    }
+
+    [Fact]
+    public async Task A_title_change_alone_adds_a_revision()
+    {
+        await using var app = await StartAsync();
+        await PutAsync(app, "/api/content/legal/terms/no", "Vilkår", "## Samme");
+        await PutAsync(app, "/api/content/legal/terms/no", "Vilkår for kjøp", "## Samme");
+
+        Assert.Equal(["Vilkår", "Vilkår for kjøp"], (await RevisionsAsync(app)).Select(r => r.Title));
+    }
+
+    [Fact]
+    public async Task A_save_that_changes_nothing_adds_no_revision_and_keeps_the_saved_time()
+    {
+        await using var app = await StartAsync();
+        await PutAsync(app, "/api/content/legal/terms/no", "Vilkår", "## Samme");
+        app.Time.Advance(TimeSpan.FromHours(1));
+
+        var again = await JsonAsync(await PutAsync(app, "/api/content/legal/terms/no", "  Vilkår ", "## Samme"));
+
+        Assert.Equal("2026-10-15T12:00:00Z", Utc(again.GetProperty("updatedAt")));
+        Assert.Single(await RevisionsAsync(app));
+        Assert.Equal(new DateTime(2026, 10, 15, 12, 0, 0), Assert.Single(await PagesAsync(app)).UpdatedAt);
+    }
+
+    [Fact]
+    public async Task An_old_revision_opens_with_its_own_text()
+    {
+        await using var app = await StartAsync();
+        await PutAsync(app, "/api/content/legal/terms/no", "Gamle vilkår", "## Gammel tekst");
+        app.Time.Advance(TimeSpan.FromDays(30));
+        await PutAsync(app, "/api/content/legal/terms/no", "Nye vilkår", "## Ny tekst");
+        var oldId = (await JsonAsync(await app.SendAsync(HttpMethod.Get, "/api/content/legal/terms/no/revisions")))[1].GetProperty("id").GetInt32();
+
+        var old = await JsonAsync(await app.SendAsync(HttpMethod.Get, $"/api/content/legal/TERMS/No/revisions/{oldId}"));
+
+        Assert.Equal(oldId, old.GetProperty("id").GetInt32());
+        Assert.Equal(("terms", "no"), (old.GetProperty("key").GetString(), old.GetProperty("locale").GetString()));
+        Assert.Equal("Gamle vilkår", old.GetProperty("title").GetString());
+        Assert.Equal("## Gammel tekst", old.GetProperty("bodyMarkdown").GetString());
+        Assert.Equal("2026-10-15T12:00:00Z", Utc(old.GetProperty("savedAt")));
+        Assert.Equal("u1", old.GetProperty("savedBy").GetString());
+    }
+
+    [Fact]
+    public async Task A_revision_is_only_found_under_its_own_page_and_language()
+    {
+        await using var app = await StartAsync();
+        await PutAsync(app, "/api/content/legal/terms/no", "Vilkår");
+        var id = Assert.Single(await RevisionsAsync(app)).Id;
+
+        Assert.Equal(HttpStatusCode.OK, (await app.SendAsync(HttpMethod.Get, $"/api/content/legal/terms/no/revisions/{id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await app.SendAsync(HttpMethod.Get, $"/api/content/legal/terms/en/revisions/{id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await app.SendAsync(HttpMethod.Get, $"/api/content/legal/privacy/no/revisions/{id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await app.SendAsync(HttpMethod.Get, $"/api/content/legal/terms/no/revisions/{id + 1}")).StatusCode);
+    }
+
+    [Theory]
+    [InlineData("/api/content/legal/refunds/no/revisions")]
+    [InlineData("/api/content/legal/terms/de/revisions")]
+    [InlineData("/api/content/legal/refunds/no/revisions/1")]
+    [InlineData("/api/content/legal/terms/de/revisions/1")]
+    public async Task Revisions_of_an_unknown_page_or_language_are_not_found(string path)
+    {
+        await using var app = await StartAsync();
+
+        Assert.Equal(HttpStatusCode.NotFound, (await app.SendAsync(HttpMethod.Get, path)).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_page_with_no_revisions_lists_none()
+    {
+        await using var app = await StartAsync();
+
+        var list = await JsonAsync(await app.SendAsync(HttpMethod.Get, "/api/content/legal/privacy/en/revisions"));
+
+        Assert.Empty(list.EnumerateArray());
+    }
+
+    [Theory]
+    [InlineData("/api/content/legal/terms/no/revisions")]
+    [InlineData("/api/content/legal/terms/no/revisions/1")]
+    public async Task Revisions_need_the_policy(string path)
+    {
+        await using var app = await StartAsync(o => o.Policy = "Owner");
+        await PutAsync(app, "/api/content/legal/terms/no", roles: "Owner");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await app.SendAsync(HttpMethod.Get, path, roles: null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await app.SendAsync(HttpMethod.Get, path, roles: "Admin")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await app.SendAsync(HttpMethod.Get, path, roles: "Owner")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Seeding_writes_the_first_revision_of_each_page_it_writes()
+    {
+        await using var app = await StartAsync();
+        await PutAsync(app, "/api/content/legal/terms/no", "Mine vilkår", "## Mine");
+
+        await app.Services.SeedAppKitLegalPagesAsync<TestDbContext>(
+        [
+            new("terms", "no", "Vilkår", "## Start"),
+            new("Privacy", "NO", "Personvern", "## Start"),
+        ]);
+
+        var revisions = await RevisionsAsync(app);
+        Assert.Equal(["terms/no/Mine vilkår/u1", "privacy/no/Personvern/"], revisions.Select(r => $"{r.Key}/{r.Locale}/{r.Title}/{r.SavedBy}"));
+        Assert.Equal(new DateTime(2026, 10, 15, 12, 0, 0), revisions[1].SavedAt);
+    }
+
+    [Fact]
+    public async Task A_page_written_before_history_was_kept_keeps_its_old_text_on_the_next_save()
+    {
+        await using var app = await StartAsync();
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TestDbContext>();
+            db.LegalPages.Add(new LegalPage { Key = "terms", Locale = "no", Title = "Gamle vilkår", BodyMarkdown = "## Gammel", UpdatedAt = new DateTime(2025, 1, 2, 3, 4, 5) });
+            await db.SaveChangesAsync();
+        }
+
+        await PutAsync(app, "/api/content/legal/terms/no", "Nye vilkår", "## Ny");
+        app.Time.Advance(TimeSpan.FromHours(1));
+        await PutAsync(app, "/api/content/legal/terms/no", "Nyere vilkår", "## Nyere");
+
+        var revisions = await RevisionsAsync(app);
+        Assert.Equal(["## Gammel", "## Ny", "## Nyere"], revisions.Select(r => r.BodyMarkdown));
+        Assert.Equal((new DateTime(2025, 1, 2, 3, 4, 5), null), (revisions[0].SavedAt, revisions[0].SavedBy));
+        Assert.Equal("Gamle vilkår", revisions[0].Title);
+    }
+
     // Locale rules
 
     [Fact]
