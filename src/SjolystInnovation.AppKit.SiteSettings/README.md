@@ -86,7 +86,7 @@ public class AppSettings : ICompanySettings, IBrandingSettings
 | Call | What it does |
 | --- | --- |
 | `MapAppKitSiteSettings<TContext, TSettings>` | Maps the company info, settings, and branding endpoints. |
-| `AddAppKitLegalPages` | Maps the `LegalPages` table in `OnModelCreating`. |
+| `AddAppKitLegalPages` | Maps the `LegalPages` and `LegalPageRevisions` tables in `OnModelCreating`. |
 | `MapAppKitLegalPages<TContext>` | Maps the legal page endpoints. |
 | `SeedAppKitLegalPagesAsync<TContext>` | Writes the starting text of the legal pages that have none. |
 | `AddAppKitPageSections` | Maps the `PageSections` table in `OnModelCreating`. |
@@ -218,7 +218,8 @@ not know.
 
 ## Legal pages
 
-Your app's `DbContext` maps the `LegalPages` table with `AddAppKitLegalPages`. At startup,
+Your app's `DbContext` maps the `LegalPages` and `LegalPageRevisions` tables with
+`AddAppKitLegalPages`. At startup,
 `SeedAppKitLegalPagesAsync` seeds each page's starting text. Seeding writes only the pages and
 languages that have no text yet, so an admin's edits stay. It stores keys and locales in lowercase,
 the form the endpoints look pages up by. It does not read the endpoint options, so seed only keys and
@@ -232,6 +233,8 @@ page answers `key`, `locale`, `title`, `bodyMarkdown`, and `updatedAt`.
 | `GET {key}?locale=` | Everyone | Answers the page in the requested language, or in the first of `Locales` when it has none there. Answers `404` for a page that is not in `Keys` or has no text. |
 | `GET` | `Policy` | Answers every page in every language, by key and then language. |
 | `PUT {key}/{locale}` with `title` and `bodyMarkdown` | `Policy` | Saves the page, creating it the first time. An unknown key or language answers `400` with the reason as `detail`. A missing title or body, or a title over 200 characters, answers a validation problem with codes. |
+| `GET {key}/{locale}/revisions` | `Policy` | Answers the saved versions of the page as `id`, `savedAt`, and `title`, newest first. Answers an empty array while the page has none, and `404` for a key or language that is not in the options. |
+| `GET {key}/{locale}/revisions/{id}` | `Policy` | Answers one saved version as `id`, `key`, `locale`, `title`, `bodyMarkdown`, `savedAt`, and `savedBy`. Answers `404` when the version belongs to another page or language. |
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -241,6 +244,24 @@ page answers `key`, `locale`, `title`, `bodyMarkdown`, and `updatedAt`.
 
 The requested language matches a supported one exactly, then by its primary language, so `en-GB`
 reads `en`. `nb` and `nn` read as `no`. Keys and languages are stored in lowercase.
+
+### History
+
+Every version of a page is kept, so you can see what a page said on any date. Each save that changes
+the title or the body adds a row to `LegalPageRevisions` with the new text, `savedAt` equal to the
+page's new `updatedAt`, and `savedBy` set to the admin's user id from the `NameIdentifier` or `sub`
+claim. A save that changes nothing adds no version and leaves `updatedAt` as it was. Seeding a page
+writes its first version, with no `savedBy`. The package never changes or deletes a version.
+
+A page written before the history existed gets its current text as a version, dated by its
+`updatedAt`, on its first save after the upgrade.
+
+To upgrade from a version without history, add a migration to your app. `AddAppKitLegalPages` already
+maps the new table, so no code changes:
+
+```sh
+dotnet ef migrations add LegalPageRevisions
+```
 
 ## Page sections
 
