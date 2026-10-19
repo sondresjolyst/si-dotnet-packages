@@ -41,6 +41,12 @@ jobs:
       - name: Test Hosting
         run: dotnet run --project tests/SjolystInnovation.AppKit.Hosting.Tests --configuration Release --no-build
 
+      # The runner image has Google Chrome, so the Pdf tests also render through a real browser.
+      - name: Test Pdf
+        run: dotnet run --project tests/SjolystInnovation.AppKit.Pdf.Tests --configuration Release --no-build
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+
       - name: Test SiteSettings
         run: dotnet run --project tests/SjolystInnovation.AppKit.SiteSettings.Tests --configuration Release --no-build
 
@@ -59,6 +65,7 @@ jobs:
           dotnet pack src/SjolystInnovation.AppKit.Auth --configuration Release --no-build --output artifacts
           dotnet pack src/SjolystInnovation.AppKit.Email --configuration Release --no-build --output artifacts
           dotnet pack src/SjolystInnovation.AppKit.Hosting --configuration Release --no-build --output artifacts
+          dotnet pack src/SjolystInnovation.AppKit.Pdf --configuration Release --no-build --output artifacts
           dotnet pack src/SjolystInnovation.AppKit.SiteSettings --configuration Release --no-build --output artifacts
           dotnet pack src/SjolystInnovation.AppKit.Storage --configuration Release --no-build --output artifacts
           dotnet pack src/SjolystInnovation.AppKit.Storage.Images --configuration Release --no-build --output artifacts
