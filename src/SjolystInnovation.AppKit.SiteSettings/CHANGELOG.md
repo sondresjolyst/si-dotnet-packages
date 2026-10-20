@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.SiteSettings-v1.0.1...SjolystInnovation.AppKit.SiteSettings-v1.1.0) (2026-10-20)
+
+
+### Features
+
+* **site-settings:** keep every saved version of a legal page ([#97](https://github.com/sondresjolyst/si-dotnet-packages/issues/97)) ([1ec28f5](https://github.com/sondresjolyst/si-dotnet-packages/commit/1ec28f5cdf53ff3859a093689dfe07038fd2a17f))
+
 ## [1.0.1](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.SiteSettings-v1.0.0...SjolystInnovation.AppKit.SiteSettings-v1.0.1) (2026-10-17)
 
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Vipps-v1.1.0...SjolystInnovation.AppKit.Vipps-v1.2.0) (2026-10-20)
+
+
+### Features
+
+* **vipps:** allow creating a payment without profile sharing ([#96](https://github.com/sondresjolyst/si-dotnet-packages/issues/96)) ([a22f1aa](https://github.com/sondresjolyst/si-dotnet-packages/commit/a22f1aa25762e1b819abd7d143cc1177d48e04aa)), closes [#95](https://github.com/sondresjolyst/si-dotnet-packages/issues/95)
+
 ## [1.1.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Vipps-v1.0.0...SjolystInnovation.AppKit.Vipps-v1.1.0) (2026-10-18)
 
 
