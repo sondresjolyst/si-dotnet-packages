@@ -19,4 +19,11 @@ public class PublicSurfaceTests
     [InlineData(typeof(EmailVerificationCodes))]
     [InlineData(typeof(CodeCheck))]
     public void ExtensionPoints_StayPublic(Type type) => Assert.True(type.IsPublic);
+
+    [Theory]
+    [InlineData(typeof(EmailBrand))]
+    [InlineData(typeof(EmailLanguage))]
+    [InlineData(typeof(IEmailBrand))]
+    public void The_email_brand_types_stay_in_the_Auth_namespace(Type type) =>
+        Assert.Equal("SjolystInnovation.AppKit.Auth", type.Namespace);
 }

@@ -157,22 +157,6 @@ public class AuthEmailTests
         Assert.Contains("color:#1a1a1a;margin:22px", email.HtmlBody);
     }
 
-    [Theory]
-    [InlineData("#182232", true)]
-    [InlineData("#0f3d3a", true)]
-    [InlineData("#00887a", true)]
-    [InlineData("#0284c7", true)]
-    [InlineData("#000000", true)]
-    [InlineData("#949494", true)]
-    [InlineData("#959595", false)]
-    [InlineData("#ffd400", false)]
-    [InlineData("#ffffff", false)]
-    [InlineData("#FFD400", false)]
-    [InlineData("#0000ff", true)]
-    [InlineData("#00c000", false)]
-    public void White_text_is_used_down_to_a_contrast_of_3_to_1(string colour, bool white) =>
-        Assert.Equal(white, AuthEmailRenderer.ReadsOnWhite(colour));
-
     [Fact]
     public async Task A_user_without_a_first_name_gets_a_plain_greeting()
     {
@@ -225,19 +209,6 @@ public class AuthEmailTests
         Assert.Contains("Pyttogpanne AS<br>Torget 2, 5014 Bergen<br>post@pyttogpanne.example", email.HtmlBody);
         Assert.DoesNotContain("Org.nr.", email.HtmlBody);
         Assert.DoesNotContain("MVA", email.HtmlBody);
-    }
-
-    [Theory]
-    [InlineData("923202374", "923 202 374")]
-    [InlineData(" 923 202 374 ", "923 202 374")]
-    [InlineData("9232 02374", "923 202 374")]
-    [InlineData("12345678", "12345678")]
-    [InlineData(" 92320237X ", "92320237X")]
-    [InlineData("9232023741", "9232023741")]
-    public void Nine_digits_are_grouped_in_threes_and_anything_else_is_shown_trimmed(string number, string shown)
-    {
-        var brand = new EmailBrand("X") { OrgNumber = number };
-        Assert.Equal($"Org. no. {shown}", AuthEmailRenderer.OrgNumberLine(brand, AuthEmailRenderer.Words(EmailLanguage.English)));
     }
 
     [Fact]

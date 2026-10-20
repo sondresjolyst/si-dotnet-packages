@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Net;
-using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -56,7 +55,7 @@ public enum EmailLanguage
 }
 
 /// <summary>The options for <see cref="AuthEmailServiceCollectionExtensions.AddAppKitAuthEmails{TUser}"/>.</summary>
-public sealed partial class AppKitAuthEmailOptions
+public sealed class AppKitAuthEmailOptions
 {
     /// <summary>The language of the emails. Defaults to English.</summary>
     public EmailLanguage Language { get; set; } = EmailLanguage.English;
@@ -86,9 +85,6 @@ public sealed partial class AppKitAuthEmailOptions
     /// </summary>
     public string VerifyEmailUrl { get; set; } = string.Empty;
 
-    [GeneratedRegex("^#[0-9a-fA-F]{6}$")]
-    internal static partial Regex HexColor();
-
     internal static bool IsPageUrl(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp);
 }
@@ -115,8 +111,8 @@ public static class AuthEmailServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(configure);
         services.AddOptions<AppKitAuthEmailOptions>()
             .Configure(configure)
-            .Validate(o => AppKitAuthEmailOptions.HexColor().IsMatch(o.HeaderColor), "AppKitAuthEmailOptions.HeaderColor must be a #rrggbb colour.")
-            .Validate(o => AppKitAuthEmailOptions.HexColor().IsMatch(o.AccentColor), "AppKitAuthEmailOptions.AccentColor must be a #rrggbb colour.")
+            .Validate(o => EmailLayout.IsColor(o.HeaderColor), "AppKitAuthEmailOptions.HeaderColor must be a #rrggbb colour.")
+            .Validate(o => EmailLayout.IsColor(o.AccentColor), "AppKitAuthEmailOptions.AccentColor must be a #rrggbb colour.")
             .Validate(o => AppKitAuthEmailOptions.IsPageUrl(o.SetPasswordUrl), "AppKitAuthEmailOptions.SetPasswordUrl must be an absolute http or https address.")
             .ValidateOnStart();
         services.TryAddSingleton(TimeProvider.System);
@@ -191,7 +187,6 @@ internal sealed record AuthEmailText(string Badge, string Subject, string Headin
 /// <summary>The words shared by every email kind in one language.</summary>
 internal sealed record AuthEmailWords(
     string Hello, string HelloName, string CodeLabel, string Expiry, string Fallback, string Footer,
-    string OrgNumberLabel, string Vat,
     (string One, string Many) Minutes, (string One, string Many) Hours, (string One, string Many) Days,
     IReadOnlyDictionary<AuthEmailKind, AuthEmailText> Kinds);
 
@@ -202,7 +197,6 @@ internal static class AuthEmailRenderer
     private static readonly AuthEmailWords English = new(
         "Hi,", "Hi {0},", "Your code", "The code expires in {0}.", "Button not working? Copy this link:",
         "You got this email because of your account at {0}.",
-        "Org. no.", "MVA",
         ("minute", "minutes"), ("hour", "hours"), ("day", "days"),
         new Dictionary<AuthEmailKind, AuthEmailText>
         {
@@ -220,7 +214,6 @@ internal static class AuthEmailRenderer
     private static readonly AuthEmailWords Norwegian = new(
         "Hei,", "Hei {0},", "Koden din", "Koden utløper om {0}.", "Virker ikke knappen? Kopier denne lenken:",
         "Du får denne e-posten fordi du har en konto hos {0}.",
-        "Org.nr.", "MVA",
         ("minutt", "minutter"), ("time", "timer"), ("dag", "dager"),
         new Dictionary<AuthEmailKind, AuthEmailText>
         {
@@ -236,24 +229,6 @@ internal static class AuthEmailRenderer
         });
 
     private static string H(string? value) => WebUtility.HtmlEncode(value ?? string.Empty);
-
-    /// <summary>The near black used for text where a brand color is too light to read on.</summary>
-    internal const string Ink = "#1a1a1a";
-
-    /// <summary>
-    /// Checks whether white text is readable on the color, and the color on white, at a WCAG contrast
-    /// ratio of at least 3 to 1. That is the WCAG level for large text.
-    /// </summary>
-    internal static bool ReadsOnWhite(string hex)
-    {
-        static double Channel(string hex, int at)
-        {
-            var c = int.Parse(hex.AsSpan(at, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture) / 255.0;
-            return c <= 0.03928 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4);
-        }
-        var luminance = 0.2126 * Channel(hex, 1) + 0.7152 * Channel(hex, 3) + 0.0722 * Channel(hex, 5);
-        return 1.05 / (luminance + 0.05) >= 3;
-    }
 
     private static string F(string format, string value) => string.Format(CultureInfo.InvariantCulture, format, value);
 
@@ -276,20 +251,18 @@ internal static class AuthEmailRenderer
 
     internal static AuthEmailWords Words(EmailLanguage language) => language == EmailLanguage.Norwegian ? Norwegian : English;
 
-    /// <summary>
-    /// Formats the organization number line in the email's language, or returns null for a blank number.
-    /// Nine digits, with or without spaces, are grouped in threes.
-    /// </summary>
-    internal static string? OrgNumberLine(EmailBrand brand, AuthEmailWords words)
+    /// <summary>Maps the brand to the company details of the layout.</summary>
+    internal static EmailCompany Company(EmailBrand brand) => new(brand.Name)
     {
-        var number = brand.OrgNumber?.Trim();
-        if (string.IsNullOrEmpty(number))
-            return null;
-        var digits = number.Replace(" ", "", StringComparison.Ordinal);
-        if (digits.Length == 9 && digits.All(char.IsAsciiDigit))
-            number = $"{digits[..3]} {digits[3..6]} {digits[6..]}";
-        return brand.VatRegistered ? $"{words.OrgNumberLabel} {number} {words.Vat}" : $"{words.OrgNumberLabel} {number}";
-    }
+        LegalName = brand.LegalName,
+        OrgNumber = brand.OrgNumber,
+        VatRegistered = brand.VatRegistered,
+        Address = brand.Address,
+        Email = brand.Email,
+    };
+
+    internal static EmailLayoutLanguage Language(EmailLanguage language) =>
+        language == EmailLanguage.Norwegian ? EmailLayoutLanguage.Norwegian : EmailLayoutLanguage.English;
 
     internal static EmailMessage Render(AuthEmailKind kind, AppKitAuthEmailOptions options, EmailBrand brand,
         string? firstName, string to, string code, TimeSpan lifetime, string page)
@@ -298,50 +271,29 @@ internal static class AuthEmailRenderer
         var text = words.Kinds[kind];
         var link = Link(page, to, code);
         var hello = string.IsNullOrWhiteSpace(firstName) ? words.Hello : F(words.HelloName, H(firstName));
-        var brandLines = string.Join("<br>", new[] { brand.LegalName, OrgNumberLine(brand, words), brand.Address, brand.Email }
-            .Where(l => !string.IsNullOrWhiteSpace(l)).Select(H));
-        var header = options.HeaderColor;
-        var accent = options.AccentColor;
-        var headerText = ReadsOnWhite(header) ? "#fff" : Ink;
-        var accentText = ReadsOnWhite(accent) ? "#fff" : Ink;
-        var codeColor = ReadsOnWhite(header) ? header : Ink;
-        var labelColor = ReadsOnWhite(accent) ? accent : Ink;
-        var badge = ReadsOnWhite(header) ? "background:rgba(255,255,255,.25);border:1px solid rgba(255,255,255,.5)" : "background:rgba(0,0,0,.08);border:1px solid rgba(0,0,0,.4)";
-        const string Paragraph = "line-height:1.6;color:#333;font-size:13px";
+        var codeColor = EmailLayout.ReadsOnWhite(options.HeaderColor) ? options.HeaderColor : EmailLayout.Ink;
+        var labelColor = EmailLayout.ReadsOnWhite(options.AccentColor) ? options.AccentColor : EmailLayout.Ink;
+        const string Paragraph = EmailLayout.TextStyle;
 
-        var html = $$"""
-            <!DOCTYPE html>
-            <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
-            <body style="margin:0;background:#fff;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a">
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;max-width:600px;margin:0 auto">
-              <tr><td style="background:{{header}};color:{{headerText}};padding:28px 32px 20px">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-                  <td style="vertical-align:top">
-                    <div style="font-size:22px;font-weight:700;letter-spacing:.04em;margin-bottom:4px">{{H(brand.Name)}}</div>
-                    <div style="font-size:11px;opacity:.85;line-height:1.5">{{brandLines}}</div>
-                  </td>
-                  <td style="vertical-align:top;text-align:right">
-                    <span style="display:inline-block;{{badge}};padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">{{H(text.Badge)}}</span>
-                  </td>
-                </tr></table>
-              </td></tr>
-              <tr><td style="padding:24px 32px">
-                <h1 style="font-size:18px;margin:0 0 12px">{{H(text.Heading)}}</h1>
+        var body = $$"""
                 <p style="margin:0 0 10px;{{Paragraph}}">{{hello}}</p>
                 <p style="margin:0;{{Paragraph}}">{{H(F(text.Intro, brand.Name))}}</p>
                 <div style="text-align:center;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:{{labelColor}};margin:22px 0 6px">{{H(words.CodeLabel)}}</div>
                 <div style="text-align:center;font-family:'Courier New',Courier,monospace;font-size:32px;font-weight:700;letter-spacing:.3em;color:{{codeColor}};background:#f1f5f9;border:1px solid #cbd5e1;border-radius:8px;padding:18px 12px;margin:0 0 20px">{{H(code)}}</div>
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:4px 0 20px">
-                  <a href="{{H(link)}}" style="display:inline-block;padding:12px 22px;border-radius:8px;background:{{accent}};color:{{accentText}};font-weight:700;font-size:14px;text-decoration:none">{{H(text.Button)}}</a>
-                </td></tr></table>
+            """;
+        var afterButton = $$"""
                 <p style="margin:0 0 8px;{{Paragraph}}">{{H(F(words.Expiry, Duration(lifetime, words)))}}</p>
                 <p style="margin:0;{{Paragraph}}">{{H(text.Ignore)}}</p>
                 <p style="margin:16px 0 0;color:#6b7280;font-size:11px;line-height:1.5;word-break:break-all">{{H(words.Fallback)}} {{H(link)}}</p>
-              </td></tr>
-              <tr><td style="padding:14px 32px 24px;border-top:1px solid #e5e7eb;font-size:10px;color:#888;line-height:1.5">{{H(F(words.Footer, brand.LegalName is { Length: > 0 } legal ? legal : brand.Name))}}</td></tr>
-            </table>
-            </body></html>
             """;
+        var html = EmailLayout.Render(new EmailLayoutRequest(Company(brand), Language(options.Language), text.Badge, text.Heading, body)
+        {
+            HeaderColor = options.HeaderColor,
+            AccentColor = options.AccentColor,
+            Button = new EmailButton(text.Button, link),
+            AfterButtonHtml = afterButton,
+            Footer = F(words.Footer, brand.LegalName is { Length: > 0 } legal ? legal : brand.Name),
+        });
         return new EmailMessage(to, F(text.Subject, brand.Name), html);
     }
 }
