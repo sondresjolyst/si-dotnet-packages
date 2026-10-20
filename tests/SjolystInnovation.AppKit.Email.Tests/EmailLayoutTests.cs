@@ -4,7 +4,7 @@ namespace SjolystInnovation.AppKit.Email.Tests;
 
 public class EmailLayoutTests
 {
-    private static readonly EmailBrand Brand = new("Altinnendata")
+    private static readonly EmailCompany Brand = new("Altinnendata")
     {
         LegalName = "ALTINNENDATA AS",
         OrgNumber = "938433240",
@@ -13,7 +13,7 @@ public class EmailLayoutTests
         Email = "post@example.no",
     };
 
-    private static EmailLayoutRequest Request(EmailLanguage language = EmailLanguage.Norwegian) =>
+    private static EmailLayoutRequest Request(EmailLayoutLanguage language = EmailLayoutLanguage.Norwegian) =>
         new(Brand, language, "Ordrebekreftelse", "Takk for bestillingen", "<p>Ordrenummer: <strong>A-1</strong></p>");
 
     [Fact]
@@ -31,7 +31,7 @@ public class EmailLayoutTests
     [Fact]
     public void English_writes_the_org_number_label_in_English()
     {
-        var html = EmailLayout.Render(Request(EmailLanguage.English));
+        var html = EmailLayout.Render(Request(EmailLayoutLanguage.English));
         Assert.Contains("<br>Org. no. 938 433 240 Foretaksregisteret<br>", html);
     }
 
@@ -89,7 +89,7 @@ public class EmailLayoutTests
     [Fact]
     public void The_brand_badge_heading_footer_and_button_text_are_encoded()
     {
-        var html = EmailLayout.Render(new EmailLayoutRequest(new EmailBrand("A&B <Co>") { Address = "<script>" }, EmailLanguage.English, "<i>", "<b>Hi</b>", "")
+        var html = EmailLayout.Render(new EmailLayoutRequest(new EmailCompany("A&B <Co>") { Address = "<script>" }, EmailLayoutLanguage.English, "<i>", "<b>Hi</b>", "")
         {
             Button = new EmailButton("<x>", "https://example.no"),
             Footer = "<u>",
@@ -117,16 +117,16 @@ public class EmailLayoutTests
         Assert.Throws<ArgumentException>(() => EmailLayout.Render(Request() with { Button = new EmailButton("Ok", url) }));
 
     [Theory]
-    [InlineData(EmailLanguage.Norwegian, false, null, "Org.nr. 923 202 374")]
-    [InlineData(EmailLanguage.Norwegian, true, null, "Org.nr. 923 202 374 MVA")]
-    [InlineData(EmailLanguage.English, false, null, "Org. no. 923 202 374")]
-    [InlineData(EmailLanguage.English, true, null, "Org. no. 923 202 374 MVA")]
-    [InlineData(EmailLanguage.Norwegian, false, "Foretaksregisteret", "Org.nr. 923 202 374 Foretaksregisteret")]
-    [InlineData(EmailLanguage.Norwegian, true, " Foretaksregisteret ", "Org.nr. 923 202 374 MVA Foretaksregisteret")]
-    [InlineData(EmailLanguage.English, true, "Foretaksregisteret", "Org. no. 923 202 374 MVA Foretaksregisteret")]
-    [InlineData(EmailLanguage.English, false, " ", "Org. no. 923 202 374")]
-    public void The_org_number_line_follows_the_language_the_VAT_flag_and_the_register(EmailLanguage language, bool vat, string? register, string line) =>
-        Assert.Equal(line, EmailLayout.OrgNumberLine(new EmailBrand("X") { OrgNumber = "923202374", VatRegistered = vat, RegisterName = register }, language));
+    [InlineData(EmailLayoutLanguage.Norwegian, false, null, "Org.nr. 923 202 374")]
+    [InlineData(EmailLayoutLanguage.Norwegian, true, null, "Org.nr. 923 202 374 MVA")]
+    [InlineData(EmailLayoutLanguage.English, false, null, "Org. no. 923 202 374")]
+    [InlineData(EmailLayoutLanguage.English, true, null, "Org. no. 923 202 374 MVA")]
+    [InlineData(EmailLayoutLanguage.Norwegian, false, "Foretaksregisteret", "Org.nr. 923 202 374 Foretaksregisteret")]
+    [InlineData(EmailLayoutLanguage.Norwegian, true, " Foretaksregisteret ", "Org.nr. 923 202 374 MVA Foretaksregisteret")]
+    [InlineData(EmailLayoutLanguage.English, true, "Foretaksregisteret", "Org. no. 923 202 374 MVA Foretaksregisteret")]
+    [InlineData(EmailLayoutLanguage.English, false, " ", "Org. no. 923 202 374")]
+    public void The_org_number_line_follows_the_language_the_VAT_flag_and_the_register(EmailLayoutLanguage language, bool vat, string? register, string line) =>
+        Assert.Equal(line, EmailLayout.OrgNumberLine(new EmailCompany("X") { OrgNumber = "923202374", VatRegistered = vat, RegisterName = register }, language));
 
     [Theory]
     [InlineData("923202374", "923 202 374")]
@@ -136,7 +136,7 @@ public class EmailLayoutTests
     [InlineData(" 92320237X ", "92320237X")]
     [InlineData("9232023741", "9232023741")]
     public void Nine_digits_are_grouped_in_threes_and_anything_else_is_shown_trimmed(string number, string shown) =>
-        Assert.Equal($"Org. no. {shown}", EmailLayout.OrgNumberLine(new EmailBrand("X") { OrgNumber = number }, EmailLanguage.English));
+        Assert.Equal($"Org. no. {shown}", EmailLayout.OrgNumberLine(new EmailCompany("X") { OrgNumber = number }, EmailLayoutLanguage.English));
 
     [Theory]
     [InlineData(null)]
@@ -145,14 +145,14 @@ public class EmailLayoutTests
     public void A_blank_org_number_leaves_the_line_out_with_its_VAT_and_register(string? number)
     {
         var brand = Brand with { OrgNumber = number, VatRegistered = true };
-        Assert.Null(EmailLayout.OrgNumberLine(brand, EmailLanguage.Norwegian));
-        Assert.Equal(["ALTINNENDATA AS", "Mårvegen 21a, 4347 Lye", "post@example.no"], EmailLayout.CompanyLines(brand, EmailLanguage.Norwegian));
+        Assert.Null(EmailLayout.OrgNumberLine(brand, EmailLayoutLanguage.Norwegian));
+        Assert.Equal(["ALTINNENDATA AS", "Mårvegen 21a, 4347 Lye", "post@example.no"], EmailLayout.CompanyLines(brand, EmailLayoutLanguage.Norwegian));
     }
 
     [Fact]
     public void Company_lines_leave_out_blank_details()
     {
-        var lines = EmailLayout.CompanyLines(new EmailBrand("Garge") { OrgNumber = "912 345 678", Email = " " }, EmailLanguage.English);
+        var lines = EmailLayout.CompanyLines(new EmailCompany("Garge") { OrgNumber = "912 345 678", Email = " " }, EmailLayoutLanguage.English);
         Assert.Equal(["Org. no. 912 345 678"], lines);
     }
 

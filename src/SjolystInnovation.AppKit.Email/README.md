@@ -92,7 +92,7 @@ button, and an optional footer line. It uses tables and inline styles, so common
 the same way. The AppKit.Auth emails use the same layout.
 
 ```csharp
-var brand = new EmailBrand("Example")
+var company = new EmailCompany("Example")
 {
     LegalName = "Example AS",
     OrgNumber = "923202374",
@@ -102,7 +102,7 @@ var brand = new EmailBrand("Example")
     Email = "post@example.com",
 };
 
-var html = EmailLayout.Render(new EmailLayoutRequest(brand, EmailLanguage.Norwegian, "Betalingslenke", "Ny betalingslenke",
+var html = EmailLayout.Render(new EmailLayoutRequest(company, EmailLayoutLanguage.Norwegian, "Betalingslenke", "Ny betalingslenke",
     $"<p style=\"margin:0 0 10px;{EmailLayout.TextStyle}\">Ordrenummer: <strong>{WebUtility.HtmlEncode(reference)}</strong></p>")
 {
     HeaderColor = "#0f3d3a",
@@ -114,8 +114,8 @@ await email.SendAsync(new EmailMessage(buyer, "Ny betalingslenke", html), cancel
 
 | Request | Default | Meaning |
 | --- | --- | --- |
-| `Brand` | None | The company details for the header. Blank details are left out. |
-| `Language` | None | `English` or `Norwegian`, for the organization number label. |
+| `Company` | None | The company details for the header. Blank details are left out. |
+| `Language` | None | `EmailLayoutLanguage.English` or `Norwegian`, for the organization number label. |
 | `Badge`, `Heading` | None | Plain text. The layout encodes it. |
 | `BodyHtml` | None | Your HTML, with every value already encoded. `EmailLayout.TextStyle` gives paragraphs the layout's text style. |
 | `HeaderColor` | `#182232` | The header band, as `#rrggbb`. |

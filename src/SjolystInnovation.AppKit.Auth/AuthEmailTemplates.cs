@@ -8,11 +8,50 @@ using SjolystInnovation.AppKit.Email;
 
 namespace SjolystInnovation.AppKit.Auth;
 
+/// <summary>The company details shown in the header and footer of an email. Blank details are left out.</summary>
+/// <param name="Name">The brand name, used in the header, subjects and text.</param>
+public sealed record EmailBrand(string Name)
+{
+    /// <summary>The legal company name, shown in the header. The footer uses it instead of the brand name when set.</summary>
+    public string? LegalName { get; init; }
+
+    /// <summary>
+    /// The organization number, for example <c>923202374</c> or <c>923 202 374</c>. The header shows it in
+    /// the email's language, as <c>Org.nr. 923 202 374</c> in Norwegian and <c>Org. no. 923 202 374</c> in
+    /// English. Nine digits are grouped in threes, and anything else is shown trimmed as given. A blank
+    /// number leaves the line out.
+    /// </summary>
+    public string? OrgNumber { get; init; }
+
+    /// <summary>
+    /// Whether the company is registered for VAT. Adds <c>MVA</c> after the organization number in every
+    /// language, as Norwegian bookkeeping rules require for a registered business. Without a number it
+    /// shows nothing.
+    /// </summary>
+    public bool VatRegistered { get; init; }
+
+    /// <summary>The postal address, shown in the header.</summary>
+    public string? Address { get; init; }
+
+    /// <summary>The contact email address, shown in the header.</summary>
+    public string? Email { get; init; }
+}
+
 /// <summary>Provides the app's current company details to the auth emails, for example from its admin settings.</summary>
 public interface IEmailBrand
 {
     /// <summary>Gets the current company details.</summary>
     Task<EmailBrand> GetBrandAsync(CancellationToken cancellationToken);
+}
+
+/// <summary>The language the auth emails are written in.</summary>
+public enum EmailLanguage
+{
+    /// <summary>English.</summary>
+    English,
+
+    /// <summary>Norwegian Bokmål.</summary>
+    Norwegian,
 }
 
 /// <summary>The options for <see cref="AuthEmailServiceCollectionExtensions.AddAppKitAuthEmails{TUser}"/>.</summary>
@@ -212,6 +251,19 @@ internal static class AuthEmailRenderer
 
     internal static AuthEmailWords Words(EmailLanguage language) => language == EmailLanguage.Norwegian ? Norwegian : English;
 
+    /// <summary>Maps the brand to the company details of the layout.</summary>
+    internal static EmailCompany Company(EmailBrand brand) => new(brand.Name)
+    {
+        LegalName = brand.LegalName,
+        OrgNumber = brand.OrgNumber,
+        VatRegistered = brand.VatRegistered,
+        Address = brand.Address,
+        Email = brand.Email,
+    };
+
+    internal static EmailLayoutLanguage Language(EmailLanguage language) =>
+        language == EmailLanguage.Norwegian ? EmailLayoutLanguage.Norwegian : EmailLayoutLanguage.English;
+
     internal static EmailMessage Render(AuthEmailKind kind, AppKitAuthEmailOptions options, EmailBrand brand,
         string? firstName, string to, string code, TimeSpan lifetime, string page)
     {
@@ -234,7 +286,7 @@ internal static class AuthEmailRenderer
                 <p style="margin:0;{{Paragraph}}">{{H(text.Ignore)}}</p>
                 <p style="margin:16px 0 0;color:#6b7280;font-size:11px;line-height:1.5;word-break:break-all">{{H(words.Fallback)}} {{H(link)}}</p>
             """;
-        var html = EmailLayout.Render(new EmailLayoutRequest(brand, options.Language, text.Badge, text.Heading, body)
+        var html = EmailLayout.Render(new EmailLayoutRequest(Company(brand), Language(options.Language), text.Badge, text.Heading, body)
         {
             HeaderColor = options.HeaderColor,
             AccentColor = options.AccentColor,

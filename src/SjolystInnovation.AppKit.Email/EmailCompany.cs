@@ -1,10 +1,10 @@
 namespace SjolystInnovation.AppKit.Email;
 
-/// <summary>The company details shown in the header and footer of an email. Blank details are left out.</summary>
-/// <param name="Name">The brand name, used in the header, subjects and text.</param>
-public sealed record EmailBrand(string Name)
+/// <summary>The company details shown in the header of <see cref="EmailLayout"/>. Blank details are left out.</summary>
+/// <param name="Name">The brand name, shown large in the header.</param>
+public sealed record EmailCompany(string Name)
 {
-    /// <summary>The legal company name, shown in the header. The footer uses it instead of the brand name when set.</summary>
+    /// <summary>The legal company name, shown in the header.</summary>
     public string? LegalName { get; init; }
 
     /// <summary>
@@ -35,8 +35,8 @@ public sealed record EmailBrand(string Name)
     public string? Email { get; init; }
 }
 
-/// <summary>The language an email is written in.</summary>
-public enum EmailLanguage
+/// <summary>The language of the labels <see cref="EmailLayout"/> writes, such as the organization number label.</summary>
+public enum EmailLayoutLanguage
 {
     /// <summary>English.</summary>
     English,

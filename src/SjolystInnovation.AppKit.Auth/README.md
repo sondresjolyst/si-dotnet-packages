@@ -289,8 +289,7 @@ in a large box, a button to the app's page, and the same link as text under it.
 
 The emails go through `IEmailSender` and render with `EmailLayout`, both from
 `SjolystInnovation.AppKit.Email`, so the app's own emails can share the look. The company details come
-from an `IEmailBrand` that your app registers, so they can follow the app's own settings. `EmailBrand`
-and `EmailLanguage` live in the `SjolystInnovation.AppKit.Email` namespace.
+from an `IEmailBrand` that your app registers, so they can follow the app's own settings.
 
 ```csharp
 builder.Services.AddAppKitBrevo(builder.Configuration.GetSection("BrevoSettings"));
@@ -327,7 +326,7 @@ public sealed class EmailBrandFromSettings(ApplicationDbContext db) : IEmailBran
 The header lists the legal name, the organization number line, the address, and the email, and leaves
 out blank ones. The organization number line follows the rules in the
 [Email package](../SjolystInnovation.AppKit.Email/README.md#branded-layout), including `MVA` for a VAT
-registered business and an optional register name.
+registered business.
 
 | Option | Default | Meaning |
 | --- | --- | --- |

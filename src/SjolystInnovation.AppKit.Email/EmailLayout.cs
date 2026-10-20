@@ -11,12 +11,12 @@ namespace SjolystInnovation.AppKit.Email;
 public sealed record EmailButton(string Text, string Url);
 
 /// <summary>What <see cref="EmailLayout.Render"/> puts in the branded layout.</summary>
-/// <param name="Brand">The company details for the header.</param>
+/// <param name="Company">The company details for the header.</param>
 /// <param name="Language">The language of the organization number line.</param>
 /// <param name="Badge">The short label in the top right corner of the header, such as <c>Invitation</c>. The layout encodes it.</param>
 /// <param name="Heading">The heading above the body. The layout encodes it.</param>
 /// <param name="BodyHtml">The body as HTML, with every value already encoded by the caller.</param>
-public sealed record EmailLayoutRequest(EmailBrand Brand, EmailLanguage Language, string Badge, string Heading, string BodyHtml)
+public sealed record EmailLayoutRequest(EmailCompany Company, EmailLayoutLanguage Language, string Badge, string Heading, string BodyHtml)
 {
     /// <summary>
     /// The background color of the header band, as <c>#rrggbb</c>. Text on the band is white, or near
@@ -84,20 +84,20 @@ public static partial class EmailLayout
     /// grouped in threes, and anything else is shown trimmed as given. <c>MVA</c> follows when the company is
     /// VAT registered, then the register name when one is set.
     /// </summary>
-    public static string? OrgNumberLine(EmailBrand brand, EmailLanguage language)
+    public static string? OrgNumberLine(EmailCompany company, EmailLayoutLanguage language)
     {
-        ArgumentNullException.ThrowIfNull(brand);
-        var number = brand.OrgNumber?.Trim();
+        ArgumentNullException.ThrowIfNull(company);
+        var number = company.OrgNumber?.Trim();
         if (string.IsNullOrEmpty(number))
             return null;
         var digits = number.Replace(" ", "", StringComparison.Ordinal);
         if (digits.Length == 9 && digits.All(char.IsAsciiDigit))
             number = $"{digits[..3]} {digits[3..6]} {digits[6..]}";
-        var line = $"{(language == EmailLanguage.Norwegian ? "Org.nr." : "Org. no.")} {number}";
-        if (brand.VatRegistered)
+        var line = $"{(language == EmailLayoutLanguage.Norwegian ? "Org.nr." : "Org. no.")} {number}";
+        if (company.VatRegistered)
             line += " MVA";
-        if (!string.IsNullOrWhiteSpace(brand.RegisterName))
-            line += $" {brand.RegisterName.Trim()}";
+        if (!string.IsNullOrWhiteSpace(company.RegisterName))
+            line += $" {company.RegisterName.Trim()}";
         return line;
     }
 
@@ -106,10 +106,10 @@ public static partial class EmailLayout
     /// the email. Blank ones are left out. The layout shows them in the header, and a plain text email can
     /// use them as its footer.
     /// </summary>
-    public static IReadOnlyList<string> CompanyLines(EmailBrand brand, EmailLanguage language)
+    public static IReadOnlyList<string> CompanyLines(EmailCompany company, EmailLayoutLanguage language)
     {
-        ArgumentNullException.ThrowIfNull(brand);
-        return new[] { brand.LegalName, OrgNumberLine(brand, language), brand.Address, brand.Email }
+        ArgumentNullException.ThrowIfNull(company);
+        return new[] { company.LegalName, OrgNumberLine(company, language), company.Address, company.Email }
             .Where(l => !string.IsNullOrWhiteSpace(l)).Select(l => l!).ToArray();
     }
 
@@ -118,7 +118,7 @@ public static partial class EmailLayout
     public static string Render(EmailLayoutRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(request.Brand);
+        ArgumentNullException.ThrowIfNull(request.Company);
         if (!IsColor(request.HeaderColor))
             throw new ArgumentException("HeaderColor must be in the #rrggbb form.", nameof(request));
         if (!IsColor(request.AccentColor))
@@ -133,7 +133,7 @@ public static partial class EmailLayout
         var badge = ReadsOnWhite(header)
             ? "background:rgba(255,255,255,.25);border:1px solid rgba(255,255,255,.5)"
             : "background:rgba(0,0,0,.08);border:1px solid rgba(0,0,0,.4)";
-        var companyLines = string.Join("<br>", CompanyLines(request.Brand, request.Language).Select(H));
+        var companyLines = string.Join("<br>", CompanyLines(request.Company, request.Language).Select(H));
 
         var html = new StringBuilder();
         void Line(string text) => html.Append(text).Append('\n');
@@ -153,7 +153,7 @@ public static partial class EmailLayout
         Line($"  <tr><td style=\"background:{header};color:{headerText};padding:28px 32px 20px\">");
         Line("    <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr>");
         Line("      <td style=\"vertical-align:top\">");
-        Line($"        <div style=\"font-size:22px;font-weight:700;letter-spacing:.04em;margin-bottom:4px\">{H(request.Brand.Name)}</div>");
+        Line($"        <div style=\"font-size:22px;font-weight:700;letter-spacing:.04em;margin-bottom:4px\">{H(request.Company.Name)}</div>");
         Line($"        <div style=\"font-size:11px;opacity:.85;line-height:1.5\">{companyLines}</div>");
         Line("      </td>");
         Line("      <td style=\"vertical-align:top;text-align:right\">");
