@@ -3,7 +3,8 @@
 This package sends transactional email through the Brevo API and reads Brevo's delivery statistics.
 Use it for the emails your app sends one at a time, such as contact form messages, receipts, and sign-in
 codes. A send returns a result instead of throwing, so an email that Brevo refuses never breaks the
-request that sends it. Your app keeps its own templates.
+request that sends it. A branded layout with the company details is included, and your app writes the
+body.
 
 ```sh
 dotnet add package SjolystInnovation.AppKit.Email
@@ -82,6 +83,67 @@ is left out.
 | The caller cancels | `SendAsync` throws `OperationCanceledException`. |
 
 The log names the status and Brevo's reason, never the recipient.
+
+## Branded layout
+
+`EmailLayout.Render` wraps your email in a branded layout: a colored header with the brand name, the
+company details and a badge, then a heading, your body, an optional button, optional HTML after the
+button, and an optional footer line. It uses tables and inline styles, so common email clients show it
+the same way. The AppKit.Auth emails use the same layout.
+
+```csharp
+var brand = new EmailBrand("Example")
+{
+    LegalName = "Example AS",
+    OrgNumber = "923202374",
+    VatRegistered = true,
+    RegisterName = "Foretaksregisteret",
+    Address = "Torget 2, 5014 Bergen",
+    Email = "post@example.com",
+};
+
+var html = EmailLayout.Render(new EmailLayoutRequest(brand, EmailLanguage.Norwegian, "Betalingslenke", "Ny betalingslenke",
+    $"<p style=\"margin:0 0 10px;{EmailLayout.TextStyle}\">Ordrenummer: <strong>{WebUtility.HtmlEncode(reference)}</strong></p>")
+{
+    HeaderColor = "#0f3d3a",
+    AccentColor = "#00887a",
+    Button = new EmailButton("Betal med Vipps", paymentUrl),
+});
+await email.SendAsync(new EmailMessage(buyer, "Ny betalingslenke", html), cancellationToken);
+```
+
+| Request | Default | Meaning |
+| --- | --- | --- |
+| `Brand` | None | The company details for the header. Blank details are left out. |
+| `Language` | None | `English` or `Norwegian`, for the organization number label. |
+| `Badge`, `Heading` | None | Plain text. The layout encodes it. |
+| `BodyHtml` | None | Your HTML, with every value already encoded. `EmailLayout.TextStyle` gives paragraphs the layout's text style. |
+| `HeaderColor` | `#182232` | The header band, as `#rrggbb`. |
+| `AccentColor` | `#0284c7` | The button, as `#rrggbb`. |
+| `Button` | None | The button text and an absolute http or https address. |
+| `AfterButtonHtml` | None | Your HTML after the button, already encoded. |
+| `Footer` | None | A plain text line at the bottom. The layout encodes it. |
+
+Text on the header and the button is white. If a color is too light for white text, with a WCAG
+contrast below 3 to 1, that text turns near black. `EmailLayout.ReadsOnWhite` makes the same check
+for your own colored text. A color that is not `#rrggbb`, or a button address that is not an absolute
+http or https address, throws `ArgumentException`.
+
+The header lists the legal name, the organization number line, the address and the email. Pass the
+organization number as stored. `EmailLayout.OrgNumberLine` writes the line in the email's language:
+
+| `OrgNumber` | `VatRegistered` | `RegisterName` | Norwegian | English |
+| --- | --- | --- | --- | --- |
+| `923202374` | `false` | None | `Org.nr. 923 202 374` | `Org. no. 923 202 374` |
+| `923202374` | `true` | None | `Org.nr. 923 202 374 MVA` | `Org. no. 923 202 374 MVA` |
+| `923202374` | `true` | `Foretaksregisteret` | `Org.nr. 923 202 374 MVA Foretaksregisteret` | `Org. no. 923 202 374 MVA Foretaksregisteret` |
+| Blank | Either | Either | No line | No line |
+
+Nine digits, with or without spaces, are grouped in threes. Anything else is shown trimmed as given.
+Both languages write `MVA`, because Norwegian bookkeeping rules (bokføringsforskriften § 5-1-2) put
+those letters after the organization number of a business in the VAT register, also in English.
+`EmailLayout.CompanyLines` gives the same company lines as plain text, for a plain text email or a
+footer of your own.
 
 ## Read statistics
 

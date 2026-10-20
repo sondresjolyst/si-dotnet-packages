@@ -287,8 +287,10 @@ invite codes. `AddAppKitVerificationEmails<TUser>` adds an `IVerificationEmails<
 verification code. All three share one layout: a colored header with the company details, the code
 in a large box, a button to the app's page, and the same link as text under it.
 
-The emails go through `IEmailSender` from `SjolystInnovation.AppKit.Email`. The company details come
-from an `IEmailBrand` that your app registers, so they can follow the app's own settings.
+The emails go through `IEmailSender` and render with `EmailLayout`, both from
+`SjolystInnovation.AppKit.Email`, so the app's own emails can share the look. The company details come
+from an `IEmailBrand` that your app registers, so they can follow the app's own settings. `EmailBrand`
+and `EmailLanguage` live in the `SjolystInnovation.AppKit.Email` namespace.
 
 ```csharp
 builder.Services.AddAppKitBrevo(builder.Configuration.GetSection("BrevoSettings"));
@@ -323,15 +325,9 @@ public sealed class EmailBrandFromSettings(ApplicationDbContext db) : IEmailBran
 ```
 
 The header lists the legal name, the organization number line, the address, and the email, and leaves
-out blank ones. Pass the organization number as stored. The email writes the line in its language:
-
-| `OrgNumber` | `VatRegistered` | Norwegian | English |
-| --- | --- | --- | --- |
-| `923202374` | `false` | `Org.nr. 923 202 374` | `Org. no. 923 202 374` |
-| `923202374` | `true` | `Org.nr. 923 202 374 MVA` | `Org. no. 923 202 374 MVA` |
-| Blank | Either | No line | No line |
-
-Nine digits, with or without spaces, are grouped in threes. Anything else is shown trimmed as given. Both languages write `MVA`, because Norwegian bookkeeping rules (bokføringsforskriften § 5-1-2) put those letters after the organization number of a business in the VAT register, also in English.
+out blank ones. The organization number line follows the rules in the
+[Email package](../SjolystInnovation.AppKit.Email/README.md#branded-layout), including `MVA` for a VAT
+registered business and an optional register name.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
