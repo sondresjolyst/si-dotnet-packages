@@ -24,7 +24,9 @@ public class EmailLayoutTests
         Assert.EndsWith("</table>\n</body></html>", html);
         Assert.Contains(">Altinnendata</div>", html);
         Assert.Contains(">ALTINNENDATA AS<br>Org.nr. 938 433 240 Foretaksregisteret<br>M&#229;rvegen 21a, 4347 Lye<br>post@example.no</div>", html);
-        Assert.Contains(">Ordrebekreftelse</span>", html);
+        Assert.Contains(";white-space:nowrap\">Ordrebekreftelse</span>", html);
+        Assert.Contains("<style>@media (max-width:480px){.appkit-brand,.appkit-badge{display:block!important;", html);
+        Assert.Contains("<td class=\"appkit-badge\" style=\"vertical-align:top;text-align:right;padding-left:12px\">", html);
         Assert.Contains("<h1 style=\"font-size:18px;margin:0 0 12px\">Takk for bestillingen</h1>\n<p>Ordrenummer: <strong>A-1</strong></p>\n  </td></tr>", html);
     }
 

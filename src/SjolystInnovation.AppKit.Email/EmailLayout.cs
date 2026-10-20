@@ -53,6 +53,13 @@ public static partial class EmailLayout
     /// <summary>The inline style of body text in the layout, for paragraphs in <see cref="EmailLayoutRequest.BodyHtml"/>.</summary>
     public const string TextStyle = "line-height:1.6;color:#333;font-size:13px";
 
+    /// <summary>
+    /// Puts the badge under the company details on narrow screens, so a long badge never pushes the page
+    /// wider than the screen. Clients that drop the style keep the badge to the right.
+    /// </summary>
+    private const string NarrowScreenStyle =
+        "<style>@media (max-width:480px){.appkit-brand,.appkit-badge{display:block!important;width:auto!important}.appkit-badge{text-align:left!important;padding:10px 0 0!important}}</style>";
+
     [GeneratedRegex("^#[0-9a-fA-F]{6}$")]
     private static partial Regex HexColor();
 
@@ -147,17 +154,17 @@ public static partial class EmailLayout
         }
 
         Line("<!DOCTYPE html>");
-        Line("<html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"></head>");
+        Line("<html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\">" + NarrowScreenStyle + "</head>");
         Line($"<body style=\"margin:0;background:#fff;font-family:Arial,Helvetica,sans-serif;color:{Ink}\">");
         Line("<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border-collapse:collapse;max-width:600px;margin:0 auto\">");
         Line($"  <tr><td style=\"background:{header};color:{headerText};padding:28px 32px 20px\">");
         Line("    <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr>");
-        Line("      <td style=\"vertical-align:top\">");
+        Line("      <td class=\"appkit-brand\" style=\"vertical-align:top\">");
         Line($"        <div style=\"font-size:22px;font-weight:700;letter-spacing:.04em;margin-bottom:4px\">{H(request.Company.Name)}</div>");
         Line($"        <div style=\"font-size:11px;opacity:.85;line-height:1.5\">{companyLines}</div>");
         Line("      </td>");
-        Line("      <td style=\"vertical-align:top;text-align:right\">");
-        Line($"        <span style=\"display:inline-block;{badge};padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase\">{H(request.Badge)}</span>");
+        Line("      <td class=\"appkit-badge\" style=\"vertical-align:top;text-align:right;padding-left:12px\">");
+        Line($"        <span style=\"display:inline-block;{badge};padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap\">{H(request.Badge)}</span>");
         Line("      </td>");
         Line("    </tr></table>");
         Line("  </td></tr>");

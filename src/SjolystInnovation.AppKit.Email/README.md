@@ -89,7 +89,8 @@ The log names the status and Brevo's reason, never the recipient.
 `EmailLayout.Render` wraps your email in a branded layout: a colored header with the brand name, the
 company details and a badge, then a heading, your body, an optional button, optional HTML after the
 button, and an optional footer line. It uses tables and inline styles, so common email clients show it
-the same way. The AppKit.Auth emails use the same layout.
+the same way. On screens narrower than 480 pixels the badge moves under the company details, in
+clients that read the style in the head. The AppKit.Auth emails use the same layout.
 
 ```csharp
 var company = new EmailCompany("Example")

@@ -8,7 +8,8 @@ namespace SjolystInnovation.AppKit.Auth.Tests;
 /// <summary>
 /// Pins the auth emails to the HTML they had before they were rendered through <see cref="EmailLayout"/>.
 /// <see cref="Before"/> is a copy of the renderer as it was, so every kind in both languages must match it
-/// byte for byte.
+/// byte for byte. The one deliberate change since then keeps the badge on one line, with a gap to the
+/// company details, and moves it under them on narrow screens. The copy has that change too.
 /// </summary>
 public class AuthEmailParityTests
 {
@@ -57,6 +58,8 @@ public class AuthEmailParityTests
         Assert.Equal(before.To, now.To);
         Assert.Equal(before.HtmlBody, now.HtmlBody);
     }
+
+    private const string NarrowStyle = "<style>@media (max-width:480px){.appkit-brand,.appkit-badge{display:block!important;width:auto!important}.appkit-badge{text-align:left!important;padding:10px 0 0!important}}</style>";
 
     private static string H(string? value) => WebUtility.HtmlEncode(value ?? string.Empty);
 
@@ -118,17 +121,17 @@ public class AuthEmailParityTests
 
         var html = $$"""
             <!DOCTYPE html>
-            <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
+            <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">{{NarrowStyle}}</head>
             <body style="margin:0;background:#fff;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;max-width:600px;margin:0 auto">
               <tr><td style="background:{{header}};color:{{headerText}};padding:28px 32px 20px">
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-                  <td style="vertical-align:top">
+                  <td class="appkit-brand" style="vertical-align:top">
                     <div style="font-size:22px;font-weight:700;letter-spacing:.04em;margin-bottom:4px">{{H(brand.Name)}}</div>
                     <div style="font-size:11px;opacity:.85;line-height:1.5">{{brandLines}}</div>
                   </td>
-                  <td style="vertical-align:top;text-align:right">
-                    <span style="display:inline-block;{{badge}};padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">{{H(text.Badge)}}</span>
+                  <td class="appkit-badge" style="vertical-align:top;text-align:right;padding-left:12px">
+                    <span style="display:inline-block;{{badge}};padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap">{{H(text.Badge)}}</span>
                   </td>
                 </tr></table>
               </td></tr>
