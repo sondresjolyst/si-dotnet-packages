@@ -2,7 +2,7 @@
   <PropertyGroup>
     <PackageId>SjolystInnovation.AppKit.Email</PackageId>
     <!-- x-release-please-start-version -->
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <!-- x-release-please-end -->
     <Description>Transactional email through Brevo, with reply-to, attachments, a send result instead of exceptions, a branded email layout, and delivery statistics with an admin endpoint.</Description>
     <PackageTags>email;brevo;transactional-email;smtp</PackageTags>

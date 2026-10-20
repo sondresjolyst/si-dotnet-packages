@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v1.0.1...SjolystInnovation.AppKit.Auth-v1.1.0) (2026-10-20)
+
+
+### Features
+
+* **email:** add a branded email layout with the company details and render the auth emails through it ([#109](https://github.com/sondresjolyst/si-dotnet-packages/issues/109)) ([c210c2b](https://github.com/sondresjolyst/si-dotnet-packages/commit/c210c2bde09790aea661d99269aacf3875bda70d)), closes [#104](https://github.com/sondresjolyst/si-dotnet-packages/issues/104)
+
 ## [1.0.1](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v1.0.0...SjolystInnovation.AppKit.Auth-v1.0.1) (2026-10-17)
 
 
