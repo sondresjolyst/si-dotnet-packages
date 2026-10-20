@@ -155,17 +155,17 @@ internal sealed partial class VippsClient : IVippsClient
     public async Task<VippsCreatePaymentResponse> CreatePaymentAsync(VippsCreatePaymentRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
     {
         var target = await TargetAsync(null, cancellationToken);
-        var body = new
+        var body = new Dictionary<string, object?>
         {
-            amount = new { value = request.AmountInOre, currency = "NOK" },
-            paymentMethod = new { type = "WALLET" },
-            customer = new { phoneNumber = request.PhoneNumber },
-            reference = request.Reference,
-            returnUrl = request.ReturnUrl,
-            userFlow = "WEB_REDIRECT",
-            paymentDescription = request.Description,
-            captureType = "RESERVE_CAPTURE",
-            receipt = new
+            ["amount"] = new { value = request.AmountInOre, currency = "NOK" },
+            ["paymentMethod"] = new { type = "WALLET" },
+            ["customer"] = new { phoneNumber = request.PhoneNumber },
+            ["reference"] = request.Reference,
+            ["returnUrl"] = request.ReturnUrl,
+            ["userFlow"] = "WEB_REDIRECT",
+            ["paymentDescription"] = request.Description,
+            ["captureType"] = "RESERVE_CAPTURE",
+            ["receipt"] = new
             {
                 orderLines = request.ReceiptLines.Select(l =>
                 {
@@ -187,8 +187,9 @@ internal sealed partial class VippsClient : IVippsClient
                 }),
                 bottomLine = new { currency = "NOK", receiptNumber = request.Reference },
             },
-            profile = new { scope = request.Scope },
         };
+        if (!string.IsNullOrWhiteSpace(request.Scope))
+            body["profile"] = new { scope = request.Scope };
         var json = await SendAsync(target, HttpMethod.Post, "/epayment/v1/payments", body, idempotencyKey, "create-payment", cancellationToken);
         return Deserialize<VippsCreatePaymentResponse>(json) with { IsTest = target.IsTest };
     }

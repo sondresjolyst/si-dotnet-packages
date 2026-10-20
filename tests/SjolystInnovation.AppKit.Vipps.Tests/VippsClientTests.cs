@@ -289,6 +289,35 @@ public class VippsClientTests
     }
 
     [Fact]
+    public async Task CreatePayment_AsksForTheDefaultProfileScope()
+    {
+        var (client, vipps, _, _, _) = Create();
+        await client.CreatePaymentAsync(Payment(new VippsReceiptLine { Id = "1", Name = "Sensor", UnitPriceInOre = 100, Quantity = 1 }), "o");
+        Assert.Equal("name address email phoneNumber", vipps.Body("/epayment/v1/payments").GetProperty("profile").GetProperty("scope").GetString());
+    }
+
+    [Fact]
+    public async Task CreatePayment_SendsTheGivenProfileScope()
+    {
+        var (client, vipps, _, _, _) = Create();
+        await client.CreatePaymentAsync(Payment(new VippsReceiptLine { Id = "1", Name = "Sensor", UnitPriceInOre = 100, Quantity = 1 }) with { Scope = "name" }, "o");
+        Assert.Equal("name", vipps.Body("/epayment/v1/payments").GetProperty("profile").GetProperty("scope").GetString());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public async Task CreatePayment_WithoutAScope_SendsNoProfile(string? scope)
+    {
+        var (client, vipps, _, _, _) = Create();
+        await client.CreatePaymentAsync(Payment(new VippsReceiptLine { Id = "1", Name = "Sensor", UnitPriceInOre = 100, Quantity = 1 }) with { Scope = scope }, "o");
+        var body = vipps.Body("/epayment/v1/payments");
+        Assert.False(body.TryGetProperty("profile", out _));
+        Assert.Equal(100, body.GetProperty("amount").GetProperty("value").GetInt32());
+    }
+
+    [Fact]
     public async Task CreatePayment_WithoutVat_SendsAZeroTaxRateAndTheWholeAmountExcludingTax()
     {
         var (client, vipps, _, _, _) = Create();
