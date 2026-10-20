@@ -10,6 +10,7 @@ dotnet run --project tests/SjolystInnovation.AppKit.AdminStats.Tests
 dotnet run --project tests/SjolystInnovation.AppKit.Auth.Tests
 dotnet run --project tests/SjolystInnovation.AppKit.Email.Tests
 dotnet run --project tests/SjolystInnovation.AppKit.Hosting.Tests
+dotnet run --project tests/SjolystInnovation.AppKit.Pdf.Tests
 dotnet run --project tests/SjolystInnovation.AppKit.SiteSettings.Tests
 dotnet run --project tests/SjolystInnovation.AppKit.Storage.Tests
 dotnet run --project tests/SjolystInnovation.AppKit.Storage.Images.Tests
