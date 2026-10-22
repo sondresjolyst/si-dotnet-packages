@@ -301,6 +301,7 @@ internal sealed partial class VippsClient : IVippsClient
             Reference = dto.Reference ?? string.Empty,
             State = dto.State ?? string.Empty,
             ProfileSub = dto.Profile?.Sub,
+            AuthorizedAmountInOre = dto.Aggregate?.AuthorizedAmount?.Value ?? 0,
             CapturedAmountInOre = dto.Aggregate?.CapturedAmount?.Value ?? 0,
             RefundedAmountInOre = dto.Aggregate?.RefundedAmount?.Value ?? 0,
             CancelledAmountInOre = dto.Aggregate?.CancelledAmount?.Value ?? 0,
@@ -410,6 +411,7 @@ internal sealed partial class VippsClient : IVippsClient
 
     private sealed class AggregateDto
     {
+        public AmountDto? AuthorizedAmount { get; set; }
         public AmountDto? CapturedAmount { get; set; }
         public AmountDto? RefundedAmount { get; set; }
         public AmountDto? CancelledAmount { get; set; }
