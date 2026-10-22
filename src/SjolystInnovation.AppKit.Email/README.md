@@ -146,6 +146,53 @@ those letters after the organization number of a business in the VAT register, a
 `EmailLayout.CompanyLines` gives the same company lines as plain text, for a plain text email or a
 footer of your own.
 
+## Check an address a user typed
+
+`EmailAddress.IsSingle` tells whether a typed address is one plain address and nothing else. Use it
+before the address becomes a recipient or a `ReplyTo`, so a user cannot add recipients or a display
+name to your email.
+
+```csharp
+if (!EmailAddress.IsSingle(request.Email))
+    return Results.ValidationProblem(new Dictionary<string, string[]> { ["email"] = ["Enter one email address."] });
+```
+
+It returns false for a blank value, a list separator (comma or semicolon), a display name, angle
+brackets, quotes, a backslash, a domain literal in square brackets, a line break, and a trailing dot.
+Surrounding spaces are allowed, and plus addressing such as `kari+shop@example.no` is accepted.
+
+## Limit receipts
+
+`EmailReceiptGate` decides whether your app may send a receipt to a typed address. A mailbox gets one
+receipt per window, and all mailboxes together get a capped number per hour. Spellings of one mailbox
+count as one: the case, a `+tag`, and for Gmail the dots in the name and `googlemail.com`.
+
+```csharp
+builder.Services.AddAppKitEmailReceiptGate(o => o.GlobalLimit = 20);
+
+app.MapPost("/api/contact", async (ContactRequest request, EmailReceiptGate gate, IEmailSender email) =>
+{
+    // Send your own copy first. The gate only guards the receipt.
+    if (gate.TryAcquire(request.Email))
+        await email.SendAsync(new EmailMessage(request.Email, "We got your message", "<p>Thank you.</p>"));
+    return Results.NoContent();
+});
+```
+
+`AddAppKitEmailReceiptGate` also takes a configuration section. The gate is a singleton that keeps its
+counts in memory, so each app instance counts for itself. It uses the registered `TimeProvider`, or the
+system clock if there is none.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `AddressWindow` | 10 minutes | How long a mailbox waits between receipts. |
+| `GlobalWindow` | 1 hour | The period that `GlobalLimit` counts over. |
+| `GlobalLimit` | 30 | The most receipts across all mailboxes in `GlobalWindow`. |
+
+A window or limit that is not above zero throws `ArgumentOutOfRangeException` when the gate is
+created. `TryAcquire` counts a send as soon as it returns true. A refused receipt is not counted.
+`EmailReceiptGate.Mailbox` gives the folded mailbox name if you need it for logging or storage.
+
 ## Read statistics
 
 ```csharp
