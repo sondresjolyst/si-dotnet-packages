@@ -41,7 +41,7 @@ public sealed class IpTruncatorTests
 
     [Fact]
     public void Drops_the_IPv6_scope_id() =>
-        Assert.Equal("fe80::", IpTruncator.Truncate("fe80::1%eth0"));
+        Assert.Equal("fe80::", IpTruncator.Truncate("fe80::1%2"));
 
     [Theory]
     [InlineData(null)]
