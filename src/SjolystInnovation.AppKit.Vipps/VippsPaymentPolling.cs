@@ -15,7 +15,8 @@ public static class VippsPaymentPolling
     /// carries its captures, refunds, and cancellation as amounts. A capture implies <c>CAPTURED</c> with the
     /// captured total, followed by <c>REFUNDED</c> with the refunded total when there is one. Without a capture, a
     /// canceled amount implies <c>CANCELLED</c>, and otherwise the payment implies <c>AUTHORIZED</c> with the
-    /// authorized amount. <c>CREATED</c> and any other state imply nothing.
+    /// authorized amount. <c>CREATED</c> and any other state imply nothing. The amount of a polled <c>AUTHORIZED</c>
+    /// comes from <see cref="VippsPayment.AuthorizedAmountInOre"/>, which the client reads from <c>aggregate.authorizedAmount</c>.
     /// </summary>
     /// <param name="payment">The payment as Vipps showed it.</param>
     /// <param name="now">The time of the poll, which becomes each event's timestamp.</param>

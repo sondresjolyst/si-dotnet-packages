@@ -349,11 +349,31 @@ var payment = await vipps.GetPaymentAsync(order.Reference, order.IsTest, cancell
 foreach (var delivery in VippsPaymentPolling.DeliveriesOf(payment, order.IsTest, "shop", DateTimeOffset.UtcNow))
 {
     var outcome = await handler.HandleAsync(delivery, cancellationToken);
-    if (outcome.Kind != VippsWebhookOutcomeKind.Applied) break;
-    await db.SaveChangesAsync(cancellationToken);
-    if (outcome.AfterCommit is { } afterCommit) await afterCommit(cancellationToken);
+    if (outcome.Kind != VippsWebhookOutcomeKind.Applied)
+    {
+        // A rejected or retried event must not leave its changes behind for a later save.
+        db.ChangeTracker.Clear();
+        break;
+    }
+
+    try
+    {
+        await db.SaveChangesAsync(cancellationToken);
+    }
+    catch (DbUpdateConcurrencyException)
+    {
+        // A webhook or another change saved the order first. Whoever saved sends the emails, and the next poll reads the order again.
+        db.ChangeTracker.Clear();
+        break;
+    }
+
+    // The change is saved, so a shutdown must not skip its emails.
+    if (outcome.AfterCommit is { } afterCommit) await afterCommit(CancellationToken.None);
 }
 ```
+
+Keep the order a concurrency token, such as PostgreSQL's `xmin`, so a webhook and a poll for the same
+change cannot both save.
 
 ### Registration
 

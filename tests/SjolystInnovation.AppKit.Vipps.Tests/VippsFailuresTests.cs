@@ -55,6 +55,15 @@ public class VippsFailuresTests
     }
 
     [Fact]
+    public void APlainOperationCanceledExceptionWhileTheCallersTokenIsNotCancelled_IsUncertain()
+    {
+        var ex = new OperationCanceledException("canceled elsewhere");
+        Assert.Equal(VippsFailureKind.Uncertain, VippsFailures.Classify(ex, CancellationToken.None));
+        Assert.True(VippsFailures.IsProviderFailure(ex, CancellationToken.None));
+        Assert.False(VippsFailures.IsCallerCancellation(ex, CancellationToken.None));
+    }
+
+    [Fact]
     public void ACancellationOfTheCallersToken_IsTheCallerCancelling()
     {
         using var cts = new CancellationTokenSource();
