@@ -155,7 +155,7 @@ the setting never sends it to the wrong one.
 | `GetUserInfoAsync` | Userinfo, for the profile a user shared |
 | `RegisterWebhookAsync`, `ListWebhooksAsync`, `DeleteWebhookAsync` | Webhooks v1 |
 
-`GetPaymentAsync` and the authorized event carry `CaptureGuaranteedUntil`, the last moment a capture is guaranteed.
+`GetPaymentAsync` and the authorized event carry `CaptureGuaranteedUntil`, the last moment a capture is guaranteed. `GetPaymentAsync` also reports the authorized, captured, refunded, and canceled amounts.
 
 Amounts are in øre. Every call sends the access token, the subscription key, the merchant serial
 number, and the `Vipps-System-*` headers. A call that changes an agreement, a charge, or a payment
@@ -180,6 +180,40 @@ or stores.
 A failed call throws `HttpRequestException`. It logs the Vipps error code, error reference, trace ID,
 and body length. It never logs the body, because the body may echo a phone number or a name. If you
 need to debug, set `LogFailedResponseBodies` to log the body of a failure that carries no error IDs.
+
+## Failed calls
+
+A caller of a capture, a cancel, a refund, or a payment read needs to know whether Vipps refused the
+call or whether it may have gone through. `VippsFailures.Classify` sorts the exception a call threw:
+
+| Kind | When | What it means |
+| --- | --- | --- |
+| `Refused` | A 4xx other than 408, 409, and 429 | Vipps answered and did not do it in this call. An earlier try may still have gone through, so read the payment when you must know. |
+| `Uncertain` | A timeout, a transport error, a 5xx, 408, 409, or 429 | The operation may have gone through. Try again with the same idempotency key, or read the payment. |
+| `CallerCancelled` | The token you passed was canceled | The operation may have gone through. |
+| `None` | Any other exception | Not a failure of the call to Vipps. |
+
+`HttpClient` reports its own timeout as a cancellation, so `Classify` takes the token you passed to
+the call and counts a cancellation as `CallerCancelled` only when that token was canceled.
+`VippsFailures.IsRefusal`, `IsProviderFailure`, and `IsCallerCancellation` answer the same questions
+one at a time. `IsProviderFailure` is true for `Refused` and `Uncertain`.
+
+```csharp
+builder.Services.AddAppKitVipps(builder.Configuration.GetSection("Vipps"))
+    .ConfigureHttpClient(c => c.Timeout = VippsFailures.RecommendedTimeout);
+
+try
+{
+    await vipps.CapturePaymentAsync(order.Reference, order.TotalInOre, $"capture-{order.Reference}", order.IsTest, cancellationToken);
+}
+catch (Exception ex) when (VippsFailures.IsProviderFailure(ex, cancellationToken))
+{
+    return Results.Problem("Vipps is not available.", statusCode: 502);
+}
+```
+
+`VippsFailures.RecommendedTimeout` is 15 seconds. The client keeps the `HttpClient` default of 100
+seconds unless you set it.
 
 ## Webhooks
 
@@ -265,6 +299,81 @@ a delivery that lost that race, and a failure there is only logged.
 ```csharp
 return VippsWebhookOutcome.Applied(token => emails.SendAsync(order.Id, token));
 ```
+
+### Check a payment event
+
+`VippsPaymentEventChecks.Check` makes the checks a handler needs before it applies an ePayment event
+to an order. It takes the order's environment and total as plain values and returns the first
+problem it finds:
+
+| Problem | When |
+| --- | --- |
+| `WrongEnvironment` | The event was signed in a different environment from the one the order was created in. |
+| `NotSuccessful` | The event's `Success` is `false`. |
+| `AmountMismatch` | An `AUTHORIZED` amount differs from the total, or a `CAPTURED` or `REFUNDED` amount is not above zero and at most the total. |
+| `None` | The event passed. |
+
+```csharp
+var problem = VippsPaymentEventChecks.Check(delivery, order.IsTest, order.TotalInOre);
+if (problem != VippsPaymentEventProblem.None)
+{
+    logger.LogWarning("Webhook {EventKey} rejected: {Problem} for order {OrderId}", delivery.EventKey, problem, order.Id);
+    return VippsWebhookOutcome.Rejected;
+}
+```
+
+`VippsPaymentEventChecks.AmountFits` and `EnvironmentMatches` run one check each. `AmountFits` also
+takes a name and an amount, for a change your app builds itself.
+
+### Poll for lost events
+
+Vipps asks merchants to poll as a fallback for lost webhooks. `VippsPaymentPolling.EventsOf` turns a
+payment read with `GetPaymentAsync` into the events it implies, so a polled payment goes through the
+same handler as a webhook:
+
+| Payment | Events |
+| --- | --- |
+| `ABORTED`, `EXPIRED`, or `TERMINATED` | The event of the same name, without an amount |
+| `AUTHORIZED` with a capture | `CAPTURED` with the captured total, then `REFUNDED` with the refunded total when there is one |
+| `AUTHORIZED` with a canceled amount and no capture | `CANCELLED` with the canceled amount |
+| `AUTHORIZED` with nothing else | `AUTHORIZED` with the authorized amount, the profile, and `CaptureGuaranteedUntil` |
+| `CREATED` or any other state | None |
+
+Each event is a success, stamped with the time of the poll. `VippsPaymentPolling.DeliveriesOf` wraps
+the events for your handler, with the key `poll:{reference}:{name}:{amount}` and `test:` in front in
+the test environment. Your handler's changes are not saved for you here, so save them yourself.
+`VippsPaymentEventNames` lists the event names.
+
+```csharp
+var payment = await vipps.GetPaymentAsync(order.Reference, order.IsTest, cancellationToken);
+foreach (var delivery in VippsPaymentPolling.DeliveriesOf(payment, order.IsTest, "shop", DateTimeOffset.UtcNow))
+{
+    var outcome = await handler.HandleAsync(delivery, cancellationToken);
+    if (outcome.Kind != VippsWebhookOutcomeKind.Applied)
+    {
+        // A rejected or retried event must not leave its changes behind for a later save.
+        db.ChangeTracker.Clear();
+        break;
+    }
+
+    try
+    {
+        await db.SaveChangesAsync(cancellationToken);
+    }
+    catch (DbUpdateConcurrencyException)
+    {
+        // A webhook or another change saved the order first. Whoever saved sends the emails, and the next poll reads the order again.
+        db.ChangeTracker.Clear();
+        break;
+    }
+
+    // The change is saved, so a shutdown must not skip its emails.
+    if (outcome.AfterCommit is { } afterCommit) await afterCommit(CancellationToken.None);
+}
+```
+
+Keep the order a concurrency token, such as PostgreSQL's `xmin`, so a webhook and a poll for the same
+change cannot both save.
 
 ### Registration
 
