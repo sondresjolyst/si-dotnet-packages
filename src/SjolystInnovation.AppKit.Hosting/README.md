@@ -273,6 +273,23 @@ The helper retries only while it checks for pending migrations, which is when it
 database. It retries a provider error marked transient, a socket error, or a timeout. A failing
 migration is never retried, so the app fails to start and the error is in the log.
 
+## Truncating IP addresses
+
+`IpTruncator.Truncate` shortens a client address before you store it, for example with an accepted
+terms record. It keeps the /24 network of an IPv4 address and the /48 network of an IPv6 address, which
+is enough to spot fraud without pointing at one household.
+
+```csharp
+var stored = IpTruncator.Truncate(context.Connection.RemoteIpAddress);
+// 203.0.113.77 becomes 203.0.113.0, 2001:db8:abcd:1::9 becomes 2001:db8:abcd::
+```
+
+Kestrel reports an IPv4 client on a dual-stack socket as `::ffff:203.0.113.77`. That address is mapped
+back to IPv4 first, so it is stored as `203.0.113.0` and not as an empty or wrong IPv6 prefix. It takes a
+string or an `IPAddress`. It returns an empty string for null, empty or white space input and for text
+that .NET cannot parse as an IP address, which includes an IPv4 address with a port. A bracketed IPv6
+address with a port is parsed and truncated. An IPv6 scope id is dropped.
+
 ## Links
 
 - [Source code](https://github.com/sondresjolyst/si-dotnet-packages/tree/main/src/SjolystInnovation.AppKit.Hosting)
