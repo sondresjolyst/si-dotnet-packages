@@ -346,14 +346,14 @@ public class VippsClientTests
         env.IsTest = false;
         vipps.Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get"
             ? (HttpStatusCode.OK, """{"access_token":"t","expires_in":3600}""")
-            : (HttpStatusCode.OK, """{"reference":"order-42","state":"AUTHORIZED","profile":{"sub":"sub-1"},"aggregate":{"capturedAmount":{"value":500},"refundedAmount":{"value":200},"cancelledAmount":{"value":0}}}""");
+            : (HttpStatusCode.OK, """{"reference":"order-42","state":"AUTHORIZED","profile":{"sub":"sub-1"},"aggregate":{"authorizedAmount":{"value":700},"capturedAmount":{"value":500},"refundedAmount":{"value":200},"cancelledAmount":{"value":0}}}""");
 
         var payment = await client.GetPaymentAsync("order-42", isTest: true);
         await client.CapturePaymentAsync("order-42", 500, "cap-1", isTest: true);
         await client.RefundPaymentAsync("order-42", 200, "ref-1", isTest: true);
         await client.CancelPaymentAsync("order-42", "can-1", isTest: true);
 
-        Assert.Equal(new VippsPayment { Reference = "order-42", State = "AUTHORIZED", ProfileSub = "sub-1", CapturedAmountInOre = 500, RefundedAmountInOre = 200 }, payment);
+        Assert.Equal(new VippsPayment { Reference = "order-42", State = "AUTHORIZED", ProfileSub = "sub-1", AuthorizedAmountInOre = 700, CapturedAmountInOre = 500, RefundedAmountInOre = 200 }, payment);
         Assert.All(vipps.Sent, s => Assert.Equal("apitest.vipps.no", s.Request.RequestUri!.Host));
         var paths = vipps.Api.Select(s => $"{s.Request.Method} {s.Request.RequestUri!.AbsolutePath}").ToList();
         Assert.Equal(["GET /epayment/v1/payments/order-42", "POST /epayment/v1/payments/order-42/capture", "POST /epayment/v1/payments/order-42/refund", "POST /epayment/v1/payments/order-42/cancel"], paths);

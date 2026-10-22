@@ -155,7 +155,7 @@ the setting never sends it to the wrong one.
 | `GetUserInfoAsync` | Userinfo, for the profile a user shared |
 | `RegisterWebhookAsync`, `ListWebhooksAsync`, `DeleteWebhookAsync` | Webhooks v1 |
 
-`GetPaymentAsync` and the authorized event carry `CaptureGuaranteedUntil`, the last moment a capture is guaranteed.
+`GetPaymentAsync` and the authorized event carry `CaptureGuaranteedUntil`, the last moment a capture is guaranteed. `GetPaymentAsync` also reports the authorized, captured, refunded, and canceled amounts.
 
 Amounts are in øre. Every call sends the access token, the subscription key, the merchant serial
 number, and the `Vipps-System-*` headers. A call that changes an agreement, a charge, or a payment
@@ -298,6 +298,36 @@ a delivery that lost that race, and a failure there is only logged.
 
 ```csharp
 return VippsWebhookOutcome.Applied(token => emails.SendAsync(order.Id, token));
+```
+
+### Poll for lost events
+
+Vipps asks merchants to poll as a fallback for lost webhooks. `VippsPaymentPolling.EventsOf` turns a
+payment read with `GetPaymentAsync` into the events it implies, so a polled payment goes through the
+same handler as a webhook:
+
+| Payment | Events |
+| --- | --- |
+| `ABORTED`, `EXPIRED`, or `TERMINATED` | The event of the same name, without an amount |
+| `AUTHORIZED` with a capture | `CAPTURED` with the captured total, then `REFUNDED` with the refunded total when there is one |
+| `AUTHORIZED` with a canceled amount and no capture | `CANCELLED` with the canceled amount |
+| `AUTHORIZED` with nothing else | `AUTHORIZED` with the authorized amount, the profile, and `CaptureGuaranteedUntil` |
+| `CREATED` or any other state | None |
+
+Each event is a success, stamped with the time of the poll. `VippsPaymentPolling.DeliveriesOf` wraps
+the events for your handler, with the key `poll:{reference}:{name}:{amount}` and `test:` in front in
+the test environment. Your handler's changes are not saved for you here, so save them yourself.
+`VippsPaymentEventNames` lists the event names.
+
+```csharp
+var payment = await vipps.GetPaymentAsync(order.Reference, order.IsTest, cancellationToken);
+foreach (var delivery in VippsPaymentPolling.DeliveriesOf(payment, order.IsTest, "shop", DateTimeOffset.UtcNow))
+{
+    var outcome = await handler.HandleAsync(delivery, cancellationToken);
+    if (outcome.Kind != VippsWebhookOutcomeKind.Applied) break;
+    await db.SaveChangesAsync(cancellationToken);
+    if (outcome.AfterCommit is { } afterCommit) await afterCommit(cancellationToken);
+}
 ```
 
 ### Registration

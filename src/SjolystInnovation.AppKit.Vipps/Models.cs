@@ -147,6 +147,8 @@ public sealed record VippsPayment
     public string State { get; init; } = string.Empty;
     /// <summary>The user's profile id, when they shared a profile.</summary>
     public string? ProfileSub { get; init; }
+    /// <summary>The authorized amount in øre.</summary>
+    public int AuthorizedAmountInOre { get; init; }
     /// <summary>The captured amount in øre.</summary>
     public int CapturedAmountInOre { get; init; }
     /// <summary>The refunded amount in øre.</summary>

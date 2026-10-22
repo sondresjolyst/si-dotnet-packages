@@ -43,3 +43,22 @@ public static class VippsEvents
     public static readonly IReadOnlyList<string> Recurring =
         [AgreementActivated, AgreementStopped, AgreementExpired, AgreementRejected, ChargeCaptured, ChargeFailed, ChargeCreationFailed];
 }
+
+/// <summary>The values of <see cref="VippsPaymentEvent.Name"/>, the short names of the ePayment events.</summary>
+public static class VippsPaymentEventNames
+{
+    /// <summary>The user authorized the payment, which reserves its amount.</summary>
+    public const string Authorized = "AUTHORIZED";
+    /// <summary>Part or all of the reservation was captured.</summary>
+    public const string Captured = "CAPTURED";
+    /// <summary>Part or all of the captured amount was refunded.</summary>
+    public const string Refunded = "REFUNDED";
+    /// <summary>The reservation was canceled.</summary>
+    public const string Cancelled = "CANCELLED";
+    /// <summary>The user aborted the payment.</summary>
+    public const string Aborted = "ABORTED";
+    /// <summary>The payment expired before the user acted.</summary>
+    public const string Expired = "EXPIRED";
+    /// <summary>The payment was terminated.</summary>
+    public const string Terminated = "TERMINATED";
+}
