@@ -181,6 +181,40 @@ A failed call throws `HttpRequestException`. It logs the Vipps error code, error
 and body length. It never logs the body, because the body may echo a phone number or a name. If you
 need to debug, set `LogFailedResponseBodies` to log the body of a failure that carries no error IDs.
 
+## Failed calls
+
+A caller of a capture, a cancel, a refund, or a payment read needs to know whether Vipps refused the
+call or whether it may have gone through. `VippsFailures.Classify` sorts the exception a call threw:
+
+| Kind | When | What it means |
+| --- | --- | --- |
+| `Refused` | A 4xx other than 408, 409, and 429 | Vipps answered and did not do it in this call. An earlier try may still have gone through, so read the payment when you must know. |
+| `Uncertain` | A timeout, a transport error, a 5xx, 408, 409, or 429 | The operation may have gone through. Try again with the same idempotency key, or read the payment. |
+| `CallerCancelled` | The token you passed was canceled | The operation may have gone through. |
+| `None` | Any other exception | Not a failure of the call to Vipps. |
+
+`HttpClient` reports its own timeout as a cancellation, so `Classify` takes the token you passed to
+the call and counts a cancellation as `CallerCancelled` only when that token was canceled.
+`VippsFailures.IsRefusal`, `IsProviderFailure`, and `IsCallerCancellation` answer the same questions
+one at a time. `IsProviderFailure` is true for `Refused` and `Uncertain`.
+
+```csharp
+builder.Services.AddAppKitVipps(builder.Configuration.GetSection("Vipps"))
+    .ConfigureHttpClient(c => c.Timeout = VippsFailures.RecommendedTimeout);
+
+try
+{
+    await vipps.CapturePaymentAsync(order.Reference, order.TotalInOre, $"capture-{order.Reference}", order.IsTest, cancellationToken);
+}
+catch (Exception ex) when (VippsFailures.IsProviderFailure(ex, cancellationToken))
+{
+    return Results.Problem("Vipps is not available.", statusCode: 502);
+}
+```
+
+`VippsFailures.RecommendedTimeout` is 15 seconds. The client keeps the `HttpClient` default of 100
+seconds unless you set it.
+
 ## Webhooks
 
 The webhook endpoints take ePayment and Recurring events for your app's own merchant. Each webhook
