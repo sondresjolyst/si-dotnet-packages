@@ -300,6 +300,31 @@ a delivery that lost that race, and a failure there is only logged.
 return VippsWebhookOutcome.Applied(token => emails.SendAsync(order.Id, token));
 ```
 
+### Check a payment event
+
+`VippsPaymentEventChecks.Check` makes the checks a handler needs before it applies an ePayment event
+to an order. It takes the order's environment and total as plain values and returns the first
+problem it finds:
+
+| Problem | When |
+| --- | --- |
+| `WrongEnvironment` | The event was signed in a different environment from the one the order was created in. |
+| `NotSuccessful` | The event's `Success` is `false`. |
+| `AmountMismatch` | An `AUTHORIZED` amount differs from the total, or a `CAPTURED` or `REFUNDED` amount is not above zero and at most the total. |
+| `None` | The event passed. |
+
+```csharp
+var problem = VippsPaymentEventChecks.Check(delivery, order.IsTest, order.TotalInOre);
+if (problem != VippsPaymentEventProblem.None)
+{
+    logger.LogWarning("Webhook {EventKey} rejected: {Problem} for order {OrderId}", delivery.EventKey, problem, order.Id);
+    return VippsWebhookOutcome.Rejected;
+}
+```
+
+`VippsPaymentEventChecks.AmountFits` and `EnvironmentMatches` run one check each. `AmountFits` also
+takes a name and an amount, for a change your app builds itself.
+
 ### Poll for lost events
 
 Vipps asks merchants to poll as a fallback for lost webhooks. `VippsPaymentPolling.EventsOf` turns a
