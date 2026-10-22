@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
@@ -150,5 +151,42 @@ public class EmailReceiptGateTests
         Assert.Equal(TimeSpan.FromMinutes(2), options.AddressWindow);
         Assert.Equal(TimeSpan.FromHours(1), options.GlobalWindow);
         Assert.Equal(5, options.GlobalLimit);
+    }
+
+    [Fact]
+    public void An_address_longer_than_254_characters_is_refused_and_not_counted()
+    {
+        var gate = Gate(o => o.GlobalLimit = 1);
+        var tooLong = new string('a', 244) + "@example.no";
+        Assert.Equal(255, tooLong.Length);
+        Assert.False(gate.TryAcquire(tooLong));
+        var longest = new string('a', 243) + "@example.no";
+        Assert.Equal(254, longest.Length);
+        Assert.True(gate.TryAcquire(longest));
+    }
+
+    [Theory]
+    [InlineData("AddressWindow", "00:00:00", "AddressWindow must be above zero.")]
+    [InlineData("GlobalWindow", "-00:00:01", "GlobalWindow must be above zero.")]
+    [InlineData("GlobalLimit", "0", "GlobalLimit must be above zero.")]
+    public void A_bad_configuration_fails_when_the_host_starts(string key, string value, string message)
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { [$"Receipts:{key}"] = value }).Build();
+        var builder = Host.CreateApplicationBuilder();
+        builder.Services.AddAppKitEmailReceiptGate(configuration.GetSection("Receipts"));
+        using var host = builder.Build();
+
+        var error = Assert.Throws<OptionsValidationException>(() => host.StartAsync().GetAwaiter().GetResult());
+        Assert.Contains(message, error.Failures);
+    }
+
+    [Fact]
+    public void A_bad_option_set_in_code_fails_when_the_host_starts()
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.Services.AddAppKitEmailReceiptGate(o => o.GlobalLimit = -1);
+        using var host = builder.Build();
+
+        Assert.Throws<OptionsValidationException>(() => host.StartAsync().GetAwaiter().GetResult());
     }
 }

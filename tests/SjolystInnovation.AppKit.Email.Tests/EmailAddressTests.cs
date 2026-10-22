@@ -26,6 +26,7 @@ public class EmailAddressTests
     [InlineData("kari@example.no\r\nBcc: x@example.no")]
     [InlineData("kari@example.no\n")]
     [InlineData("kari@example.no.")]
+    [InlineData("kari\0@example.no")]
     [InlineData("a@example.no b@example.no")]
     public void Anything_but_one_plain_address_is_refused(string? value) => Assert.False(EmailAddress.IsSingle(value));
 }

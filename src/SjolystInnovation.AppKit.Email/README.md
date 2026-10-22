@@ -153,12 +153,14 @@ before the address becomes a recipient or a `ReplyTo`, so a user cannot add reci
 name to your email.
 
 ```csharp
-if (!EmailAddress.IsSingle(request.Email))
+var address = request.Email?.Trim();
+if (!EmailAddress.IsSingle(address))
     return Results.ValidationProblem(new Dictionary<string, string[]> { ["email"] = ["Enter one email address."] });
+// Use address, not request.Email, as the recipient or the ReplyTo.
 ```
 
 It returns false for a blank value, a list separator (comma or semicolon), a display name, angle
-brackets, quotes, a backslash, a domain literal in square brackets, a line break, and a trailing dot.
+brackets, quotes, a backslash, a domain literal in square brackets, a line break, a NUL character, and a trailing dot.
 Surrounding spaces are allowed, and plus addressing such as `kari+shop@example.no` is accepted.
 
 ## Limit receipts
@@ -172,9 +174,13 @@ builder.Services.AddAppKitEmailReceiptGate(o => o.GlobalLimit = 20);
 
 app.MapPost("/api/contact", async (ContactRequest request, EmailReceiptGate gate, IEmailSender email) =>
 {
+    var address = request.Email?.Trim();
+    if (!EmailAddress.IsSingle(address))
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["email"] = ["Enter one email address."] });
+
     // Send your own copy first. The gate only guards the receipt.
-    if (gate.TryAcquire(request.Email))
-        await email.SendAsync(new EmailMessage(request.Email, "We got your message", "<p>Thank you.</p>"));
+    if (gate.TryAcquire(address!))
+        await email.SendAsync(new EmailMessage(address!, "We got your message", "<p>Thank you.</p>"));
     return Results.NoContent();
 });
 ```
@@ -189,8 +195,7 @@ system clock if there is none.
 | `GlobalWindow` | 1 hour | The period that `GlobalLimit` counts over. |
 | `GlobalLimit` | 30 | The most receipts across all mailboxes in `GlobalWindow`. |
 
-A window or limit that is not above zero throws `ArgumentOutOfRangeException` when the gate is
-created. `TryAcquire` counts a send as soon as it returns true. A refused receipt is not counted.
+A window or limit that is not above zero stops the app at startup. `TryAcquire` returns false for an address longer than 254 characters, `EmailReceiptGate.MaxAddressLength`. `TryAcquire` counts a send as soon as it returns true. A refused receipt is not counted.
 `EmailReceiptGate.Mailbox` gives the folded mailbox name if you need it for logging or storage.
 
 ## Read statistics

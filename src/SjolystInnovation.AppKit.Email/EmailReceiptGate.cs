@@ -26,6 +26,9 @@ public sealed class EmailReceiptGateOptions
 /// </summary>
 public sealed class EmailReceiptGate
 {
+    /// <summary>The longest email address, in characters. <see cref="TryAcquire"/> refuses a longer one.</summary>
+    public const int MaxAddressLength = 254;
+
     private static readonly string[] GmailDomains = ["gmail.com", "googlemail.com"];
 
     private readonly TimeProvider _time;
@@ -52,11 +55,15 @@ public sealed class EmailReceiptGate
         _globalLimit = value.GlobalLimit;
     }
 
-    /// <summary>True when a receipt to <paramref name="address"/> may go out now. The send is counted at once.</summary>
+    /// <summary>
+    /// True when a receipt to <paramref name="address"/> may go out now. The send is counted at once. An address
+    /// longer than <see cref="MaxAddressLength"/> is refused.
+    /// </summary>
     /// <exception cref="ArgumentNullException">When the address is null.</exception>
     public bool TryAcquire(string address)
     {
         ArgumentNullException.ThrowIfNull(address);
+        if (address.Length > MaxAddressLength) return false;
         var now = _time.GetUtcNow();
         var mailbox = Mailbox(address);
         lock (_lock)
@@ -110,7 +117,7 @@ public static class EmailReceiptGateServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         var options = services.AddOptions<EmailReceiptGateOptions>();
         if (configure is not null) options.Configure(configure);
-        return AddGate(services);
+        return AddGate(services, options);
     }
 
     /// <summary>
@@ -121,12 +128,16 @@ public static class EmailReceiptGateServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(section);
-        services.AddOptions<EmailReceiptGateOptions>().Bind(section);
-        return AddGate(services);
+        return AddGate(services, services.AddOptions<EmailReceiptGateOptions>().Bind(section));
     }
 
-    private static IServiceCollection AddGate(IServiceCollection services)
+    private static IServiceCollection AddGate(IServiceCollection services, OptionsBuilder<EmailReceiptGateOptions> options)
     {
+        options
+            .Validate(o => o.AddressWindow > TimeSpan.Zero, "AddressWindow must be above zero.")
+            .Validate(o => o.GlobalWindow > TimeSpan.Zero, "GlobalWindow must be above zero.")
+            .Validate(o => o.GlobalLimit > 0, "GlobalLimit must be above zero.")
+            .ValidateOnStart();
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<EmailReceiptGate>();
         return services;
