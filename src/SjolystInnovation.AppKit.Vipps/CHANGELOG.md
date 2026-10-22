@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Vipps-v1.2.0...SjolystInnovation.AppKit.Vipps-v1.3.0) (2026-10-22)
+
+
+### Features
+
+* **vipps:** add failure, polling and webhook check helpers ([#113](https://github.com/sondresjolyst/si-dotnet-packages/issues/113)) ([17a2089](https://github.com/sondresjolyst/si-dotnet-packages/commit/17a2089d7595ff15f66ae71016a003b772a8c05f))
+
 ## [1.2.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Vipps-v1.1.0...SjolystInnovation.AppKit.Vipps-v1.2.0) (2026-10-20)
 
 

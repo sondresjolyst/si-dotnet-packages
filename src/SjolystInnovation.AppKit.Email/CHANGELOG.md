@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Email-v1.2.0...SjolystInnovation.AppKit.Email-v1.3.0) (2026-10-22)
+
+
+### Features
+
+* **email:** add a single address check and a receipt gate ([#112](https://github.com/sondresjolyst/si-dotnet-packages/issues/112)) ([9efa3f2](https://github.com/sondresjolyst/si-dotnet-packages/commit/9efa3f209fbcfa44218239ba1bfe0e5ad3b31ef6))
+
 ## [1.2.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Email-v1.1.0...SjolystInnovation.AppKit.Email-v1.2.0) (2026-10-20)
 
 
