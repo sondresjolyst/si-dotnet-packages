@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Hosting-v1.0.3...SjolystInnovation.AppKit.Hosting-v1.1.0) (2026-10-22)
+
+
+### Features
+
+* **hosting:** add IpTruncator for storing client addresses ([#111](https://github.com/sondresjolyst/si-dotnet-packages/issues/111)) ([3ab6b63](https://github.com/sondresjolyst/si-dotnet-packages/commit/3ab6b6395423c995c4ed70cbad15e1755d374c8b))
+
 ## [1.0.3](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Hosting-v1.0.2...SjolystInnovation.AppKit.Hosting-v1.0.3) (2026-10-18)
 
 
