@@ -9,6 +9,7 @@ public class EmailAddressTests
     [InlineData("kari+shop@example.no")]
     [InlineData("kari.nordmann@sub.example.no")]
     [InlineData("  kari@example.no  ")]
+    [InlineData("kari@example.no ")]
     public void An_ordinary_address_is_single(string value) => Assert.True(EmailAddress.IsSingle(value));
 
     [Theory]
@@ -28,5 +29,12 @@ public class EmailAddressTests
     [InlineData("kari@example.no.")]
     [InlineData("kari\0@example.no")]
     [InlineData("a@example.no b@example.no")]
+    [InlineData("kari@example.no>")]
+    [InlineData("\"Kari\" kari@example.no")]
+    [InlineData("\"ka ri\"@example.no")]
+    [InlineData("ka\\ri@example.no")]
+    [InlineData("\"ka\\\"ri\"@example.no")]
+    [InlineData("kari@[IPv6:2001:db8::1]")]
+    [InlineData("kari@gmail.com.")]
     public void Anything_but_one_plain_address_is_refused(string? value) => Assert.False(EmailAddress.IsSingle(value));
 }

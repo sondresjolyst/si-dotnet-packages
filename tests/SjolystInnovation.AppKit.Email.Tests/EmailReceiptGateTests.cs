@@ -35,6 +35,8 @@ public class EmailReceiptGateTests
     [InlineData("kari@example.no", "kari+x@example.no")]
     [InlineData("kari@example.no", "  kari@example.no ")]
     [InlineData("kari.n@gmail.com", "karin@googlemail.com")]
+    [InlineData("kari@kunde.no", "kari+a+b@kunde.no")]
+    [InlineData("kari@gmail.com", "K.ari+x@Gmail.com")]
     public void Spellings_of_one_mailbox_count_as_one(string first, string second)
     {
         var gate = Gate();
@@ -48,6 +50,15 @@ public class EmailReceiptGateTests
         var gate = Gate();
         Assert.True(gate.TryAcquire("ka.ri@example.no"));
         Assert.True(gate.TryAcquire("kari@example.no"));
+    }
+
+    [Fact]
+    public void A_leading_plus_is_part_of_the_mailbox()
+    {
+        var gate = Gate();
+        Assert.True(gate.TryAcquire("+kari@kunde.no"));
+        Assert.True(gate.TryAcquire("kari@kunde.no"));
+        Assert.False(gate.TryAcquire("+kari@kunde.no"));
     }
 
     [Fact]
