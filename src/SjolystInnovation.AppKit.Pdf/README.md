@@ -82,10 +82,12 @@ render that matters. The browser is closed when the app stops.
 
 ## Attach the withdrawal form
 
-`WithdrawalForm` builds the standard withdrawal form (angrerettskjema) from the annex to angrerettloven
-as an HTML document. Any Norwegian distance seller needs it. Pass the seller and the order as plain
-records and render the result like any other HTML. The form is in Norwegian by default. Set
-`Language` to `WithdrawalFormLanguage.English` for the English model form.
+`WithdrawalForm` builds the standard withdrawal form as an HTML document. The Norwegian form (angreskjema)
+follows forskrift 20. juni 2014 nr. 777 § 1 (blankett Q-0319B), and the English one follows
+Directive 2011/83/EU, Annex I(B). Any Norwegian distance seller needs it. The form is for goods, so
+"varer" is ticked in the Norwegian form. Pass the seller and the order as plain records and render the
+result like any other HTML. The form is in Norwegian by default. Set `Language` to
+`WithdrawalFormLanguage.English` for the English model form.
 
 ```csharp
 using SjolystInnovation.AppKit.Email;
@@ -98,7 +100,6 @@ var form = new WithdrawalFormRequest(
         OrganizationNumber = "999 888 777",
         AddressLines = ["Storgata 1", "0155 Oslo"],
         Email = "post@example.no",
-        Phone = "+47 22 33 44 55",
     },
     new WithdrawalFormOrder("ORD-1042", new DateOnly(2026, 10, 9), ["Gaming PC", "Mouse mat"]));
 
@@ -114,13 +115,13 @@ await emailSender.SendAsync(
 
 | Input | Meaning |
 | --- | --- |
-| `WithdrawalFormSeller` | The name, an optional legal name that is shown instead, an optional organization number, the address lines, the email address, and an optional phone number. |
-| `WithdrawalFormOrder` | The order number, the date of the agreement, and the goods as plain strings. `ReceivedOn` is optional. |
+| `WithdrawalFormSeller` | The name, an optional legal name that is shown instead, an optional organization number, the address lines, and an optional email address. The send-to line shows the name, the organization number, the address and the email. |
+| `WithdrawalFormOrder` | The order number, the date of the agreement, and the goods as plain strings, one per line. With no goods the form shows blank lines to write on. `ReceivedOn` is optional. |
 | `Language` | Norwegian by default, or English. |
 
 Dates print as `dd.MM.yyyy`. Convert a timestamp to the shop's local date before you pass it. The buyer
 writes the name, the address, the date and the signature by hand, so those lines stay blank, and so does
-the date of receipt unless you pass `ReceivedOn`. Every value is HTML encoded. The document has inline CSS
+the date of receipt unless you pass `ReceivedOn`, which also ticks it in the Norwegian form. Every value is HTML encoded. The document has inline CSS
 and a Content-Security-Policy that blocks everything but inline styles and `data:` images, so it renders
 with scripts off and no network. `WithdrawalForm.FileName` returns `angrerettskjema.pdf` or
 `withdrawal-form.pdf`.
