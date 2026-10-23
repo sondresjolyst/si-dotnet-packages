@@ -80,6 +80,51 @@ which is closed afterwards. When a render fails or times out, or the browser has
 render launches a fresh browser. Renders that run while the browser is closed fail as well, so retry a
 render that matters. The browser is closed when the app stops.
 
+## Attach the withdrawal form
+
+`WithdrawalForm` builds the standard withdrawal form (angrerettskjema) from the annex to angrerettloven
+as an HTML document. Any Norwegian distance seller needs it. Pass the seller and the order as plain
+records and render the result like any other HTML. The form is in Norwegian by default. Set
+`Language` to `WithdrawalFormLanguage.English` for the English model form.
+
+```csharp
+using SjolystInnovation.AppKit.Email;
+using SjolystInnovation.AppKit.Pdf;
+
+var form = new WithdrawalFormRequest(
+    new WithdrawalFormSeller("Example Shop")
+    {
+        LegalName = "Example Shop AS",
+        OrganizationNumber = "999 888 777",
+        AddressLines = ["Storgata 1", "0155 Oslo"],
+        Email = "post@example.no",
+        Phone = "+47 22 33 44 55",
+    },
+    new WithdrawalFormOrder("ORD-1042", new DateOnly(2026, 10, 9), ["Gaming PC", "Mouse mat"]));
+
+byte[] bytes = await pdf.RenderAsync(WithdrawalForm.Html(form), cancellationToken);
+
+await emailSender.SendAsync(
+    new EmailMessage(buyerEmail, "Your order ORD-1042", confirmationHtml)
+    {
+        Attachments = [new EmailAttachment(WithdrawalForm.FileName(form.Language), bytes)],
+    },
+    cancellationToken);
+```
+
+| Input | Meaning |
+| --- | --- |
+| `WithdrawalFormSeller` | The name, an optional legal name that is shown instead, an optional organization number, the address lines, the email address, and an optional phone number. |
+| `WithdrawalFormOrder` | The order number, the date of the agreement, and the goods as plain strings. `ReceivedOn` is optional. |
+| `Language` | Norwegian by default, or English. |
+
+Dates print as `dd.MM.yyyy`. Convert a timestamp to the shop's local date before you pass it. The buyer
+writes the name, the address, the date and the signature by hand, so those lines stay blank, and so does
+the date of receipt unless you pass `ReceivedOn`. Every value is HTML encoded. The document has inline CSS
+and a Content-Security-Policy that blocks everything but inline styles and `data:` images, so it renders
+with scripts off and no network. `WithdrawalForm.FileName` returns `angrerettskjema.pdf` or
+`withdrawal-form.pdf`.
+
 ## Run Chromium in a container
 
 Install Chrome in the image, point `PUPPETEER_EXECUTABLE_PATH` at it, and run the app as a non-root
