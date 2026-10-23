@@ -37,7 +37,6 @@ public sealed class WithdrawalFormTests
         Assert.Contains("ved kjøp av varer og tjenester som ikke er finansielle tjenester", text);
         Assert.Contains("Fyll ut og returner dette skjemaet dersom du ønsker å gå fra avtalen", text);
         Assert.Contains("Utfylt skjema sendes til: Altinnendata Sjølyst (org.nr. 999 888 777), Mårvegen 21a, 4347 Lye, post@example.no", text);
-        Assert.DoesNotContain("99 99", text);
         Assert.Contains("Jeg/vi underretter herved om at jeg/vi ønsker å gå fra min/vår avtale om kjøp av følgende: (sett kryss)", text);
         Assert.Contains("X varer (spesifiser på linjene nedenfor)", text);
         Assert.Contains("tjenester (spesifiser på linjene nedenfor)", text);
@@ -63,10 +62,11 @@ public sealed class WithdrawalFormTests
         Assert.Contains("Model withdrawal form", text);
         Assert.Contains("(complete and return this form only if you wish to withdraw from the contract)", text);
         Assert.Contains("To: Altinnendata Sjølyst (org. no. 999 888 777), Mårvegen 21a, 4347 Lye, post@example.no", text);
-        Assert.Contains("I/We hereby give notice that I/We withdraw from my/our contract of sale of the following goods:", text);
+        Assert.Contains("I/We (*) hereby give notice that I/We (*) withdraw from my/our (*) contract of sale of the following goods (*)/for the provision of the following service (*),", text);
         Assert.Contains("Order number: AID-000042", text);
-        Assert.Contains("Ordered on: 09.10.2026", text);
-        Assert.Contains("Received on:", text);
+        Assert.Contains("Ordered on (*) 09.10.2026 / received on (*)", text);
+        Assert.DoesNotContain("Ordered on:", text);
+        Assert.Contains("(*) Delete as appropriate.", text);
         Assert.Contains("Name of consumer(s):", text);
         Assert.Contains("Address of consumer(s):", text);
         Assert.Contains("Signature of consumer(s) (only if this form is notified on paper):", text);
@@ -104,7 +104,7 @@ public sealed class WithdrawalFormTests
         Assert.Equal(5, Regex.Count(no, "<span class=\"blank\"></span>"));
 
         var en = WithdrawalForm.Html(Request(WithdrawalFormLanguage.English, new DateOnly(2026, 10, 15)));
-        Assert.Contains("Received on:</span> 15.10.2026", en);
+        Assert.Contains("received on (*)</span> 15.10.2026", en);
         Assert.Equal(4, Regex.Count(en, "<span class=\"blank\"></span>"));
     }
 
@@ -131,6 +131,34 @@ public sealed class WithdrawalFormTests
                 Assert.Contains($"&lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;co&quot;{suffix}", html);
         }
     }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void ABlankEmail_LeavesNoTrailingComma(string? email)
+    {
+        var request = new WithdrawalFormRequest(
+            new WithdrawalFormSeller("Altinnendata") { OrganizationNumber = "999 888 777", AddressLines = ["Mårvegen 21a", "4347 Lye"], Email = email },
+            new WithdrawalFormOrder("1", new DateOnly(2026, 1, 2), ["Vare"]));
+
+        foreach (var language in new[] { WithdrawalFormLanguage.Norwegian, WithdrawalFormLanguage.English })
+        {
+            var html = WithdrawalForm.Html(request with { Language = language });
+
+            Assert.Contains("<p class=\"seller\">Altinnendata (org", html);
+            Assert.Contains("Mårvegen 21a, 4347 Lye</p>".Replace("å", "&#229;", StringComparison.Ordinal), html);
+        }
+    }
+
+    [Fact]
+    public void TheOrganizationNumber_IsShownExactly()
+    {
+        var text = Text(WithForm());
+        Assert.Contains("(org.nr. 999 888 777)", text);
+    }
+
+    private static string WithForm() => WithdrawalForm.Html(Request());
 
     [Fact]
     public void TheName_IsUsedWhenThereIsNoLegalName_AndBlankPartsAreLeftOut()

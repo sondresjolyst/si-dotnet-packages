@@ -77,6 +77,7 @@ public static class WithdrawalForm
           .blank { display: inline-block; min-width: 70mm; border-bottom: 1px solid #333; height: 1.1em; vertical-align: bottom; }
           .seller { margin: 4pt 0 0 0; }
           .subtitle { margin: 0; font-size: 10pt; }
+          .note { margin-top: 18pt; font-size: 9.5pt; }
           .check { margin: 6pt 0; }
           .box { display: inline-block; width: 4mm; height: 4mm; border: 1px solid #333; vertical-align: text-bottom; text-align: center; font-size: 9pt; line-height: 4mm; font-weight: bold; }
           .item { border-bottom: 1px solid #333; min-height: 1.4em; margin: 4pt 0; }
@@ -120,15 +121,15 @@ public static class WithdrawalForm
         {
             body.Append("</header><p class=\"lead\">(complete and return this form only if you wish to withdraw from the contract)</p>");
             Field(body, "To", $"<p class=\"seller\">{SellerLine(seller, "org. no.")}</p>");
-            body.Append("<p>I/We hereby give notice that I/We withdraw from my/our contract of sale of the following goods:</p>");
+            body.Append("<p>I/We (*) hereby give notice that I/We (*) withdraw from my/our (*) contract of sale of the following goods (*)/for the provision of the following service (*),</p>");
             body.Append(ItemLines(order.Items));
             Field(body, "Order number", Enc(order.Reference));
-            Field(body, "Ordered on", Date(order.OrderedOn));
-            Field(body, "Received on", received);
+            body.Append(CultureInfo.InvariantCulture, $"<div class=\"field\"><span class=\"label\">Ordered on (*)</span> {Date(order.OrderedOn)} / <span class=\"label\">received on (*)</span> {received}</div>");
             Field(body, "Name of consumer(s)", Blank);
             Field(body, "Address of consumer(s)", Blank);
             Field(body, "Signature of consumer(s) (only if this form is notified on paper)", Blank);
             Field(body, "Date", Blank);
+            body.Append("<p class=\"note\">(*) Delete as appropriate.</p>");
         }
 
         return $"<!doctype html><html lang=\"{(no ? "nb" : "en")}\"><head><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"{Csp}\"><title>{title}</title>{Style}</head><body>{body}</body></html>";
