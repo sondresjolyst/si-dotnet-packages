@@ -87,7 +87,7 @@ follows forskrift 20. juni 2014 nr. 777 § 1 (blankett Q-0319B), and the English
 Directive 2011/83/EU, Annex I(B). Any Norwegian distance seller needs it. The form is for goods, so
 "varer" is ticked in the Norwegian form. Pass the seller and the order as plain records and render the
 result like any other HTML. The form is in Norwegian by default. Set `Language` to
-`WithdrawalFormLanguage.English` for the English model form.
+`WithdrawalFormLanguage.English` for the English model form, which keeps the directive's (*) marks and its "Delete as appropriate" footnote for the buyer to complete.
 
 ```csharp
 using SjolystInnovation.AppKit.Email;
