@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>SjolystInnovation.AppKit.Consent</PackageId>
+    <!-- x-release-please-start-version -->
+    <Version>1.0.0</Version>
+    <!-- x-release-please-end -->
+    <Description>A pseudonymous, append-only log of the cookie consent choices a site's banner sends, for ASP.NET Core apps: an anonymous endpoint that adds each choice with the server's time, no IP address and no user agent, and a daily job that deletes old rows.</Description>
+    <PackageTags>consent;cookies;cookie-consent;gdpr;privacy;minimal-api</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <InternalsVisibleTo Include="SjolystInnovation.AppKit.Consent.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.12" />
+  </ItemGroup>
+</Project>

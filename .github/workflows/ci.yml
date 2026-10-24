@@ -35,6 +35,9 @@ jobs:
       - name: Test Auth
         run: dotnet run --project tests/SjolystInnovation.AppKit.Auth.Tests --configuration Release --no-build
 
+      - name: Test Consent
+        run: dotnet run --project tests/SjolystInnovation.AppKit.Consent.Tests --configuration Release --no-build
+
       - name: Test Email
         run: dotnet run --project tests/SjolystInnovation.AppKit.Email.Tests --configuration Release --no-build
 
@@ -63,6 +66,7 @@ jobs:
         run: |
           dotnet pack src/SjolystInnovation.AppKit.AdminStats --configuration Release --no-build --output artifacts
           dotnet pack src/SjolystInnovation.AppKit.Auth --configuration Release --no-build --output artifacts
+          dotnet pack src/SjolystInnovation.AppKit.Consent --configuration Release --no-build --output artifacts
           dotnet pack src/SjolystInnovation.AppKit.Email --configuration Release --no-build --output artifacts
           dotnet pack src/SjolystInnovation.AppKit.Hosting --configuration Release --no-build --output artifacts
           dotnet pack src/SjolystInnovation.AppKit.Pdf --configuration Release --no-build --output artifacts
