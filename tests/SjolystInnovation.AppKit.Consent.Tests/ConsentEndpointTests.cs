@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -255,8 +256,32 @@ public class ConsentEndpointTests
 
         Assert.Equal(HttpStatusCode.BadRequest, (await PostRawAsync(app, "not json")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await PostRawAsync(app, $$"""{"consentId":"{{Id}}","marketing":"yes","noticeVersion":"v1","schemaVersion":1,"source":"banner"}""")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await PostRawAsync(app, $$"""{"consentId":"{{Id}}","marketing":1,"noticeVersion":"v1","schemaVersion":1,"source":"banner"}""")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await PostRawAsync(app, "")).StatusCode);
         Assert.Empty(await app.RowsAsync());
+    }
+
+    [Fact]
+    public async Task A_user_id_longer_than_450_is_left_out_and_logged()
+    {
+        await using var app = await TestApp.StartAsync();
+
+        var response = await PostAsync(app, Body(), roles: "Default", headers: new Dictionary<string, string> { ["X-Test-Sub"] = new string('u', 451) });
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Null(Assert.Single(await app.RowsAsync()).UserId);
+        Assert.Contains(app.Logs.GetSnapshot(), r => r.Level == LogLevel.Warning && r.Message.Contains("451 characters", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_user_id_of_450_is_stored()
+    {
+        await using var app = await TestApp.StartAsync();
+
+        await PostAsync(app, Body(), roles: "Default", headers: new Dictionary<string, string> { ["X-Test-Sub"] = new string('u', 450) });
+
+        Assert.Equal(new string('u', 450), Assert.Single(await app.RowsAsync()).UserId);
+        Assert.DoesNotContain(app.Logs.GetSnapshot(), r => r.Message.Contains("user id", StringComparison.Ordinal));
     }
 
     // Rate limiting
@@ -284,6 +309,16 @@ public class ConsentEndpointTests
             Assert.Equal(HttpStatusCode.NoContent, (await PostAsync(app, Body())).StatusCode);
 
         Assert.Null(PostEndpoint(app).Metadata.GetMetadata<EnableRateLimitingAttribute>());
+        Assert.Contains(app.Logs.GetSnapshot(), r => r.Level == LogLevel.Warning
+            && r.Message == "POST /api/consent has no rate limit policy, so anyone can add rows without limit. Set RateLimitPolicy or add a rate limit rule for the route.");
+    }
+
+    [Fact]
+    public async Task With_a_policy_no_warning_is_logged()
+    {
+        await using var app = await TestApp.StartAsync(o => o.RateLimitPolicy = TestApp.RateLimitPolicy);
+
+        Assert.DoesNotContain(app.Logs.GetSnapshot(), r => r.Level == LogLevel.Warning);
     }
 
     [Fact]
@@ -346,6 +381,24 @@ public class ConsentEndpointTests
     }
 
     [Fact]
+    public async Task The_history_of_one_consent_id_holds_none_of_another_ids_rows()
+    {
+        const string Other = "11111111-2222-3333-4444-555555555555";
+        await using var app = await TestApp.StartAsync();
+        await PostAsync(app, Body(noticeVersion: "mine"));
+        await PostAsync(app, Body(consentId: Other, noticeVersion: "theirs"));
+        await PostAsync(app, Body(consentId: Other, noticeVersion: "theirs"));
+
+        var mine = (await JsonAsync(await app.SendAsync(HttpMethod.Get, $"/api/consent/{Id}", roles: "Admin"))).EnumerateArray().ToList();
+        var theirs = (await JsonAsync(await app.SendAsync(HttpMethod.Get, $"/api/consent/{Other}", roles: "Admin"))).EnumerateArray().ToList();
+
+        Assert.Equal(["mine"], mine.Select(e => e.GetProperty("noticeVersion").GetString()));
+        Assert.All(mine, e => Assert.Equal(Id, e.GetProperty("consentId").GetString()));
+        Assert.Equal(2, theirs.Count);
+        Assert.All(theirs, e => Assert.Equal(Other, e.GetProperty("consentId").GetString()));
+    }
+
+    [Fact]
     public async Task Choices_at_the_same_time_are_listed_by_id_newest_first()
     {
         await using var app = await TestApp.StartAsync();
@@ -355,6 +408,32 @@ public class ConsentEndpointTests
         var list = (await JsonAsync(await app.SendAsync(HttpMethod.Get, $"/api/consent/{Id}", roles: "Admin"))).EnumerateArray().ToList();
 
         Assert.Equal(["second", "first"], list.Select(e => e.GetProperty("noticeVersion").GetString()));
+    }
+
+    [Fact]
+    public async Task The_history_returns_at_most_100_rows_and_take_picks_fewer()
+    {
+        var id = Guid.Parse(Id);
+        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var seed = Enumerable.Range(0, 105).Select(i => new ConsentRecord
+        {
+            ConsentId = id, Marketing = i % 2 == 0, NoticeVersion = $"n{i}", SchemaVersion = 1, DecidedAt = start.AddMinutes(i), Source = "banner",
+        });
+        await using var app = await TestApp.StartAsync(seed: seed);
+
+        async Task<List<string?>> Notices(string query) =>
+            (await JsonAsync(await app.SendAsync(HttpMethod.Get, $"/api/consent/{Id}{query}", roles: "Admin"))).EnumerateArray()
+                .Select(e => e.GetProperty("noticeVersion").GetString()).ToList();
+
+        var all = await Notices("");
+        Assert.Equal(100, all.Count);
+        Assert.Equal("n104", all[0]);
+        Assert.Equal("n5", all[^1]);
+        Assert.Equal(["n104", "n103", "n102"], await Notices("?take=3"));
+        Assert.Equal(100, (await Notices("?take=500")).Count);
+        Assert.Equal(["n104"], await Notices("?take=0"));
+        Assert.Equal(["n104"], await Notices("?take=-4"));
+        Assert.Equal(100, ConsentExtensions.MaxHistory);
     }
 
     [Fact]

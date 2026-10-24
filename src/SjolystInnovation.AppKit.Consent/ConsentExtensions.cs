@@ -3,17 +3,19 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 
 namespace SjolystInnovation.AppKit.Consent;
 
-/// <summary>A consent choice as the browser sends it.</summary>
+/// <summary>A consent choice as the site's banner sends it. The package cannot tell who sent it.</summary>
 /// <param name="ConsentId">The browser's consent id, a GUID like <c>3f2a6c1e-0b7d-4e8a-9c55-1d2e3f4a5b6c</c>. Required, and not all zeros.</param>
-/// <param name="Marketing">Whether the visitor allowed marketing cookies. Required.</param>
-/// <param name="NoticeVersion">The version of the notice the visitor answered. Required, at most 64 of the characters <c>A-Z a-z 0-9 . _ -</c>.</param>
+/// <param name="Marketing">Whether the choice allows marketing cookies. Required.</param>
+/// <param name="NoticeVersion">The version of the notice the choice answers. Required, at most 64 of the characters <c>A-Z a-z 0-9 . _ -</c>.</param>
 /// <param name="SchemaVersion">The version of the browser's stored consent record. Required, at least 1.</param>
 /// <param name="Source">Where the choice was made, <c>banner</c> or <c>settings</c>. Required.</param>
 public sealed record ConsentBody(string? ConsentId, bool? Marketing, string? NoticeVersion, int? SchemaVersion, string? Source);
@@ -21,11 +23,11 @@ public sealed record ConsentBody(string? ConsentId, bool? Marketing, string? Not
 /// <summary>A logged consent choice as the history endpoint returns it.</summary>
 /// <param name="Id">The row id.</param>
 /// <param name="ConsentId">The browser's consent id.</param>
-/// <param name="Marketing">Whether the visitor allowed marketing cookies.</param>
-/// <param name="NoticeVersion">The version of the notice the visitor answered.</param>
+/// <param name="Marketing">Whether the choice allowed marketing cookies.</param>
+/// <param name="NoticeVersion">The version of the notice the choice answered.</param>
 /// <param name="SchemaVersion">The version of the browser's stored consent record.</param>
 /// <param name="DecidedAt">When the server received the choice, in UTC.</param>
-/// <param name="UserId">The id of the signed-in user who made the choice, or null.</param>
+/// <param name="UserId">The id of the signed-in user whose request sent the choice, or null.</param>
 /// <param name="Source">Where the choice was made.</param>
 public sealed record ConsentRecordInfo(long Id, Guid ConsentId, bool Marketing, string NoticeVersion, int SchemaVersion, DateTime DecidedAt, string? UserId, string Source);
 
@@ -57,12 +59,19 @@ public static class ConsentErrorCodes
 }
 
 /// <summary>Registers, maps, and configures the consent log.</summary>
-public static class ConsentExtensions
+public static partial class ConsentExtensions
 {
+    /// <summary>The largest <c>POST consent</c> body, in bytes.</summary>
+    public const int MaxBodyBytes = 1024;
+
+    /// <summary>The most rows <c>GET consent/{consentId}</c> returns.</summary>
+    public const int MaxHistory = 100;
+
     /// <summary>
     /// Registers <see cref="AppKitConsentOptions"/> and a hosted service that deletes rows older than
     /// <see cref="AppKitConsentOptions.KeepFor"/> when the app starts and once a day after that. The app
-    /// fails to start when <see cref="AppKitConsentOptions.KeepFor"/> is not positive.
+    /// fails to start when <see cref="AppKitConsentOptions.KeepFor"/> is shorter than
+    /// <see cref="AppKitConsentOptions.MinimumKeepFor"/>.
     /// </summary>
     public static IServiceCollection AddAppKitConsent<TContext>(this IServiceCollection services, Action<AppKitConsentOptions>? configure = null)
         where TContext : DbContext
@@ -71,7 +80,8 @@ public static class ConsentExtensions
         var options = services.AddOptions<AppKitConsentOptions>();
         if (configure is not null)
             options.Configure(configure);
-        options.Validate(o => o.KeepFor > TimeSpan.Zero, "The consent KeepFor must be positive.").ValidateOnStart();
+        options.Validate(o => o.KeepFor >= AppKitConsentOptions.MinimumKeepFor,
+            $"The consent KeepFor must be at least {AppKitConsentOptions.MinimumKeepForDays} days.").ValidateOnStart();
         services.TryAddSingleton(TimeProvider.System);
         services.AddHostedService<ConsentRetentionService<TContext>>();
         return services;
@@ -79,8 +89,9 @@ public static class ConsentExtensions
 
     /// <summary>
     /// Maps <see cref="ConsentRecord"/> to the <c>ConsentRecords</c> table, with an index on
-    /// <see cref="ConsentRecord.ConsentId"/> for the history and one on <see cref="ConsentRecord.DecidedAt"/>
-    /// for the daily delete. The table has no column for an IP address or a user agent.
+    /// <see cref="ConsentRecord.ConsentId"/> and <see cref="ConsentRecord.DecidedAt"/> for the history and one
+    /// on <see cref="ConsentRecord.DecidedAt"/> for the daily delete. The table has no column for an IP
+    /// address or a user agent.
     /// </summary>
     public static ModelBuilder AddAppKitConsent(this ModelBuilder modelBuilder)
     {
@@ -91,8 +102,8 @@ public static class ConsentExtensions
             e.HasKey(r => r.Id);
             e.Property(r => r.NoticeVersion).IsRequired().HasMaxLength(ConsentLimits.NoticeVersion);
             e.Property(r => r.Source).IsRequired().HasMaxLength(ConsentLimits.Source);
-            e.Property(r => r.UserId).HasMaxLength(450);
-            e.HasIndex(r => r.ConsentId);
+            e.Property(r => r.UserId).HasMaxLength(ConsentLimits.UserId);
+            e.HasIndex(r => new { r.ConsentId, r.DecidedAt });
             e.HasIndex(r => r.DecidedAt);
         });
         return modelBuilder;
@@ -101,11 +112,13 @@ public static class ConsentExtensions
     /// <summary>
     /// Maps the consent endpoints under <paramref name="prefix"/>. <c>POST consent</c> is open to everyone.
     /// It checks the <see cref="ConsentBody"/>, adds one <see cref="ConsentRecord"/> with the server's time
-    /// and, for a signed-in visitor, the user id, and answers 204. A refused body answers 400 with the
-    /// field errors and their <see cref="ConsentErrorCodes"/>. It never stores the IP address or the user
-    /// agent. It applies <see cref="AppKitConsentEndpointOptions.RateLimitPolicy"/> when one is set.
-    /// <c>GET consent/{consentId}</c> lists the choices of one consent id, newest first, behind
-    /// <see cref="AppKitConsentEndpointOptions.Policy"/>.
+    /// and, for a signed-in request, the user id, and answers 204. A refused body answers 400 with the
+    /// field errors and their <see cref="ConsentErrorCodes"/>. A body over <see cref="MaxBodyBytes"/> bytes
+    /// is refused. It never stores the IP address or the user agent. It applies
+    /// <see cref="AppKitConsentEndpointOptions.RateLimitPolicy"/> when one is set, and logs a warning at
+    /// startup when none is, because the table then grows without limit.
+    /// <c>GET consent/{consentId}?take=</c> lists the newest choices of one consent id, at most
+    /// <see cref="MaxHistory"/>, behind <see cref="AppKitConsentEndpointOptions.Policy"/>.
     /// </summary>
     public static RouteGroupBuilder MapAppKitConsent<TContext>(this IEndpointRouteBuilder endpoints,
         string prefix = "/api", Action<AppKitConsentEndpointOptions>? configure = null)
@@ -116,12 +129,22 @@ public static class ConsentExtensions
         configure?.Invoke(options);
 
         var group = endpoints.MapGroup(prefix);
-        var post = group.MapPost("consent", (Func<ConsentBody, HttpContext, Task<IResult>>)ConsentHandlers<TContext>.PostAsync).AllowAnonymous();
+        var post = group.MapPost("consent", (Func<ConsentBody, HttpContext, Task<IResult>>)ConsentHandlers<TContext>.PostAsync)
+            .AllowAnonymous()
+            .WithMetadata(new RequestSizeLimitAttribute(MaxBodyBytes));
         if (options.RateLimitPolicy is { } policy)
             post.RequireRateLimiting(policy);
-        group.MapGet("consent/{consentId:guid}", (Func<Guid, HttpContext, Task<IResult>>)ConsentHandlers<TContext>.HistoryAsync)
+        else if (endpoints.ServiceProvider.GetService<ILoggerFactory>() is { } loggers)
+            Log.Unlimited(loggers.CreateLogger(typeof(ConsentExtensions)), prefix);
+        group.MapGet("consent/{consentId:guid}", (Func<Guid, int?, HttpContext, Task<IResult>>)ConsentHandlers<TContext>.HistoryAsync)
             .RequireAuthorization(options.Policy);
         return group;
+    }
+
+    private static partial class Log
+    {
+        [LoggerMessage(Level = LogLevel.Warning, Message = "POST {Prefix}/consent has no rate limit policy, so anyone can add rows without limit. Set RateLimitPolicy or add a rate limit rule for the route.")]
+        public static partial void Unlimited(ILogger logger, string prefix);
     }
 }
 
@@ -130,6 +153,13 @@ internal static class ConsentLimits
 {
     public const int NoticeVersion = 64;
     public const int Source = 32;
+    public const int UserId = 450;
+}
+
+internal static partial class HandlerLog
+{
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The user id has {Length} characters, more than the {Max} the consent log holds. The choice is recorded without it.")]
+    public static partial void UserIdTooLong(ILogger logger, int length, int max);
 }
 
 internal static partial class ConsentHandlers<TContext>
@@ -150,18 +180,20 @@ internal static partial class ConsentHandlers<TContext>
             NoticeVersion = body.NoticeVersion!,
             SchemaVersion = body.SchemaVersion!.Value,
             DecidedAt = now,
-            UserId = UserId(http.User),
+            UserId = UserId(http),
             Source = body.Source!,
         });
         await db.SaveChangesAsync(http.RequestAborted);
         return TypedResults.NoContent();
     }
 
-    public static async Task<IResult> HistoryAsync(Guid consentId, HttpContext http)
+    public static async Task<IResult> HistoryAsync(Guid consentId, int? take, HttpContext http)
     {
+        var count = Math.Clamp(take ?? ConsentExtensions.MaxHistory, 1, ConsentExtensions.MaxHistory);
         var list = await http.RequestServices.GetRequiredService<TContext>().Set<ConsentRecord>().AsNoTracking()
             .Where(r => r.ConsentId == consentId)
             .OrderByDescending(r => r.DecidedAt).ThenByDescending(r => r.Id)
+            .Take(count)
             .Select(r => new ConsentRecordInfo(r.Id, r.ConsentId, r.Marketing, r.NoticeVersion, r.SchemaVersion, r.DecidedAt, r.UserId, r.Source))
             .ToListAsync(http.RequestAborted);
         return TypedResults.Ok(list);
@@ -201,11 +233,19 @@ internal static partial class ConsentHandlers<TContext>
     }
 
     // The user id claim that AppKit.Auth writes, read without depending on that package. A visitor who is
-    // not signed in has none.
-    private static string? UserId(ClaimsPrincipal user) =>
-        user.Identity?.IsAuthenticated == true
-            ? user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub")
-            : null;
+    // not signed in has none. An id longer than the column is left out and logged, so the choice is still
+    // recorded.
+    private static string? UserId(HttpContext http)
+    {
+        var user = http.User;
+        if (user.Identity?.IsAuthenticated != true)
+            return null;
+        var id = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub");
+        if (id is null || id.Length <= ConsentLimits.UserId)
+            return id;
+        HandlerLog.UserIdTooLong(http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(ConsentExtensions)), id.Length, ConsentLimits.UserId);
+        return null;
+    }
 
     [GeneratedRegex(@"^[A-Za-z0-9._-]+\z", RegexOptions.CultureInvariant)]
     private static partial Regex NoticeVersionPattern();

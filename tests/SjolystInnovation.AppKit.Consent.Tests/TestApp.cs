@@ -13,6 +13,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 
@@ -59,6 +60,7 @@ public sealed class TestApp : IAsyncDisposable
 
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
     public FakeTimeProvider Time { get; } = new(new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero));
+    public FakeLogCollector Logs { get; } = new();
     private IHost _host = default!;
     public HttpClient Client { get; private set; } = default!;
 
@@ -94,6 +96,7 @@ public sealed class TestApp : IAsyncDisposable
                         });
                     });
                     s.AddSingleton<TimeProvider>(app.Time);
+                    s.AddLogging(b => b.AddProvider(new FakeLoggerProvider(app.Logs)));
                     if (addServices)
                         s.AddAppKitConsent<TestDbContext>(consent);
                     s.AddRouting();

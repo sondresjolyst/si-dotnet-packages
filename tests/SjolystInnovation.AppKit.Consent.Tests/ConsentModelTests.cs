@@ -60,7 +60,7 @@ public sealed class ConsentModelTests : IDisposable
     {
         var indexes = Entity.GetIndexes().Select(i => string.Join(",", i.Properties.Select(p => p.Name))).Order().ToList();
 
-        Assert.Equal(["ConsentId", "DecidedAt"], indexes);
+        Assert.Equal(["ConsentId,DecidedAt", "DecidedAt"], indexes);
         Assert.All(Entity.GetIndexes(), i => Assert.False(i.IsUnique));
     }
 

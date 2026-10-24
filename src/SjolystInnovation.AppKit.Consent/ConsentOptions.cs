@@ -6,12 +6,18 @@ public sealed class AppKitConsentOptions
     /// <summary>The number of days in <see cref="DefaultKeepFor"/>: three years, with one leap day.</summary>
     public const int DefaultKeepForDays = 3 * 365 + 1;
 
+    /// <summary>The number of days in <see cref="MinimumKeepFor"/>.</summary>
+    public const int MinimumKeepForDays = 365;
+
     /// <summary>How long a row is kept by default, <see cref="DefaultKeepForDays"/> days.</summary>
     public static readonly TimeSpan DefaultKeepFor = TimeSpan.FromDays(DefaultKeepForDays);
 
+    /// <summary>The shortest <see cref="KeepFor"/> the app starts with, <see cref="MinimumKeepForDays"/> days.</summary>
+    public static readonly TimeSpan MinimumKeepFor = TimeSpan.FromDays(MinimumKeepForDays);
+
     /// <summary>
     /// How long a row is kept after <see cref="ConsentRecord.DecidedAt"/>. A daily job deletes older rows.
-    /// Defaults to <see cref="DefaultKeepFor"/>. It must be positive.
+    /// Defaults to <see cref="DefaultKeepFor"/>. It must be at least <see cref="MinimumKeepFor"/>.
     /// </summary>
     public TimeSpan KeepFor { get; set; } = DefaultKeepFor;
 }
@@ -21,8 +27,9 @@ public sealed class AppKitConsentEndpointOptions
 {
     /// <summary>
     /// The name of a rate limiting policy the app registered with <c>AddRateLimiter</c>, applied to
-    /// <c>POST consent</c>. Null applies none, for an app that limits the route another way, such as
-    /// with a rule for AppKit.Hosting's <c>AddAppKitRateLimiting</c>. Defaults to null.
+    /// <c>POST consent</c>. Null applies none and logs a warning at startup. Leave it null only when the
+    /// app limits the route another way, such as with a rule for AppKit.Hosting's
+    /// <c>AddAppKitRateLimiting</c>. Defaults to null.
     /// </summary>
     public string? RateLimitPolicy { get; set; }
 
