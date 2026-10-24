@@ -10,8 +10,9 @@ browser at this time", not as proof of a person's consent.
 
 - The browser makes a random consent id once and keeps it with its stored choice. It sends the id with
   every choice.
-- Every request adds a row. Rows are never changed, so the rows for one consent id are the choices sent
-  for that browser.
+- Every request adds a row. The package code never changes a row, so the rows for one consent id are
+  the choices sent for that browser. This is how the package behaves, not a database guarantee. Anyone
+  with write access to the table can still change it.
 - The log is pseudonymous. A row holds **no IP address and no user agent**. It is tied to an account
   only when the request was signed in, through the user id.
 - The server sets the time of each row. A time sent by the client is never used.
@@ -135,7 +136,9 @@ left out and logged as a warning, and the choice is still recorded. A request th
 gets no user id. The endpoint reads nothing else from the request, so no IP address or user agent
 reaches the table.
 
-`GET consent/{consentId}` returns at most 100 rows. Add `?take=` for fewer. A `take` below 1 counts as
+`GET consent/{consentId}` returns the newest 100 rows for one consent id at most. It is meant for an
+admin to spot-check a browser's choices, not for a full export. Read the table for that. Add `?take=`
+for fewer. A `take` below 1 counts as
 1 and one above 100 counts as 100.
 
 ## Errors
@@ -200,7 +203,8 @@ The policy applies only to `POST consent`. The package registers no limiter of i
 `AddAppKitConsent` registers a hosted service that deletes rows whose `DecidedAt` is older than
 `KeepFor`, when the app starts and once a day after that. It deletes 1000 rows per statement until
 none are left. On a provider without bulk delete, such as the in-memory provider, it loads and removes
-each batch instead.
+each batch instead. The cutoff is fixed when a run starts. Each batch is logged at debug level, and a
+run that fails or is cancelled logs how many rows it had deleted by then.
 
 `KeepFor` defaults to `AppKitConsentOptions.DefaultKeepFor`, which is 1096 days: three years with one
 leap day. It must be at least `MinimumKeepFor`, 365 days, or the app fails to start.

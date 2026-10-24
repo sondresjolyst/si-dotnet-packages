@@ -9,7 +9,8 @@ namespace SjolystInnovation.AppKit.Consent;
 /// <summary>
 /// Deletes consent rows older than <see cref="AppKitConsentOptions.KeepFor"/> when the app starts and once
 /// a day after that. It deletes <see cref="BatchSize"/> rows per statement until none are left, so a large
-/// backlog does not hold one long lock. A provider without bulk delete, such as the in-memory provider,
+/// backlog does not hold one long lock. The cutoff is fixed once per run. Each batch is logged at debug
+/// level, and a run that fails or is cancelled logs how many rows it had deleted by then. A provider without bulk delete, such as the in-memory provider,
 /// loads and removes each batch instead.
 /// </summary>
 internal sealed partial class ConsentRetentionService<TContext>(
@@ -57,16 +58,22 @@ internal sealed partial class ConsentRetentionService<TContext>(
                     batch = rows.Count;
                 }
                 deleted += batch;
+                Log.Batch(logger, batch, deleted);
             }
             while (batch == BatchSize);
             if (deleted > 0)
                 Log.Deleted(logger, deleted, cutoff);
             return deleted;
         }
-        // Log a failed run and try again on the next tick.
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException)
         {
-            Log.Failed(logger, ex);
+            Log.Cancelled(logger, deleted);
+            throw;
+        }
+        // Log a failed run and try again on the next tick.
+        catch (Exception ex)
+        {
+            Log.Failed(logger, deleted, ex);
             return deleted;
         }
     }
@@ -76,7 +83,13 @@ internal sealed partial class ConsentRetentionService<TContext>(
         [LoggerMessage(Level = LogLevel.Information, Message = "Deleted {Count} consent record(s) older than {Cutoff}.")]
         public static partial void Deleted(ILogger logger, int count, DateTime cutoff);
 
-        [LoggerMessage(Level = LogLevel.Error, Message = "Deleting old consent records failed.")]
-        public static partial void Failed(ILogger logger, Exception exception);
+        [LoggerMessage(Level = LogLevel.Debug, Message = "Deleted a batch of {Count} consent record(s), {Total} in this run.")]
+        public static partial void Batch(ILogger logger, int count, int total);
+
+        [LoggerMessage(Level = LogLevel.Information, Message = "Deleting old consent records was cancelled after {Count} record(s) were deleted.")]
+        public static partial void Cancelled(ILogger logger, int count);
+
+        [LoggerMessage(Level = LogLevel.Error, Message = "Deleting old consent records failed after {Count} record(s) were deleted.")]
+        public static partial void Failed(ILogger logger, int count, Exception exception);
     }
 }

@@ -127,6 +127,15 @@ public sealed class ConsentRetentionTests : IAsyncDisposable
     {
         public List<string> Texts { get; } = [];
 
+        /// <summary>Runs after each statement with the number of statements so far.</summary>
+        public Action<int>? AfterNonQuery { get; init; }
+
+        public override ValueTask<int> NonQueryExecutedAsync(DbCommand command, CommandExecutedEventData eventData, int result, CancellationToken cancellationToken = default)
+        {
+            AfterNonQuery?.Invoke(Texts.Count);
+            return base.NonQueryExecutedAsync(command, eventData, result, cancellationToken);
+        }
+
         public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
             Texts.Add(command.CommandText);
@@ -138,6 +147,66 @@ public sealed class ConsentRetentionTests : IAsyncDisposable
             Texts.Add(command.CommandText);
             return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
         }
+    }
+
+    private async Task<ServiceProvider> SeedOldAsync(CommandLog commands)
+    {
+        var old = Now - TimeSpan.FromDays(2000);
+        await SeedAsync([.. Enumerable.Range(0, 5).Select(i => Row(old.AddMinutes(i), $"old{i}")), Row(Now, "new")]);
+        return new ServiceCollection().AddDbContext<TestDbContext>(o => o.UseSqlite(_connection).AddInterceptors(commands)).BuildServiceProvider();
+    }
+
+    [Fact]
+    public async Task Each_batch_is_logged_at_debug_level_with_the_running_total()
+    {
+        using var provider = await SeedOldAsync(new CommandLog());
+
+        await Service(scopes: provider.GetRequiredService<IServiceScopeFactory>(), batchSize: 2).CleanupAsync(CancellationToken.None);
+
+        Assert.Equal(
+            ["Deleted a batch of 2 consent record(s), 2 in this run.", "Deleted a batch of 2 consent record(s), 4 in this run.", "Deleted a batch of 1 consent record(s), 5 in this run."],
+            _logger.Collector.GetSnapshot().Where(l => l.Level == LogLevel.Debug).Select(l => l.Message));
+    }
+
+    [Fact]
+    public async Task A_run_that_fails_after_a_batch_logs_the_rows_it_deleted()
+    {
+        using var provider = await SeedOldAsync(new CommandLog { AfterNonQuery = n => { if (n == 2) throw new InvalidOperationException("boom"); } });
+
+        Assert.Equal(2, await Service(scopes: provider.GetRequiredService<IServiceScopeFactory>(), batchSize: 2).CleanupAsync(CancellationToken.None));
+
+        Assert.Contains(_logger.Collector.GetSnapshot(), l => l.Level == LogLevel.Error && l.Message == "Deleting old consent records failed after 2 record(s) were deleted.");
+    }
+
+    [Fact]
+    public async Task A_run_cancelled_after_a_batch_logs_the_rows_it_deleted_and_throws()
+    {
+        using var cancel = new CancellationTokenSource();
+        using var provider = await SeedOldAsync(new CommandLog { AfterNonQuery = n => { if (n == 1) cancel.Cancel(); } });
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            Service(scopes: provider.GetRequiredService<IServiceScopeFactory>(), batchSize: 2).CleanupAsync(cancel.Token));
+
+        Assert.Contains(_logger.Collector.GetSnapshot(), l => l.Message == "Deleting old consent records was cancelled after 2 record(s) were deleted.");
+        Assert.Equal(4, (await NoticesAsync()).Count);
+        Assert.DoesNotContain(_logger.Collector.GetSnapshot(), l => l.Level == LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task The_cutoff_is_fixed_for_the_whole_run()
+    {
+        var time = new FakeTimeProvider(Now);
+        var old = Now - AppKitConsentOptions.DefaultKeepFor;
+        // Two rows past the cutoff, and two that the clock moving a day during the run would also catch.
+        await SeedAsync(Row(old.AddDays(-2), "a"), Row(old.AddDays(-1), "b"), Row(old.AddHours(1), "c"), Row(old.AddHours(2), "d"));
+        using var provider = new ServiceCollection().AddDbContext<TestDbContext>(o => o.UseSqlite(_connection)
+            .AddInterceptors(new CommandLog { AfterNonQuery = _ => time.Advance(TimeSpan.FromDays(1)) })).BuildServiceProvider();
+        var service = new ConsentRetentionService<TestDbContext>(provider.GetRequiredService<IServiceScopeFactory>(),
+            Options.Create(new AppKitConsentOptions()), time, _logger) { BatchSize = 1 };
+
+        Assert.Equal(2, await service.CleanupAsync(CancellationToken.None));
+
+        Assert.Equal(["c", "d"], await NoticesAsync());
     }
 
     [Fact]
@@ -194,7 +263,7 @@ public sealed class ConsentRetentionTests : IAsyncDisposable
         using var broken = new ServiceCollection().BuildServiceProvider();
 
         Assert.Equal(0, await Service(scopes: broken.GetRequiredService<IServiceScopeFactory>()).CleanupAsync(CancellationToken.None));
-        Assert.Contains(_logger.Collector.GetSnapshot(), l => l.Level == LogLevel.Error && l.Message == "Deleting old consent records failed." && l.Exception is not null);
+        Assert.Contains(_logger.Collector.GetSnapshot(), l => l.Level == LogLevel.Error && l.Message == "Deleting old consent records failed after 0 record(s) were deleted." && l.Exception is not null);
     }
 
     [Fact]
