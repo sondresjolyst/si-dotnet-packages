@@ -7,5 +7,6 @@
   "src/SjolystInnovation.AppKit.AdminStats": "1.0.0",
   "src/SjolystInnovation.AppKit.Storage": "1.0.0",
   "src/SjolystInnovation.AppKit.Storage.Images": "1.0.0",
-  "src/SjolystInnovation.AppKit.Pdf": "1.1.0"
+  "src/SjolystInnovation.AppKit.Pdf": "1.1.0",
+  "src/SjolystInnovation.AppKit.Consent": "1.0.0"
 }
