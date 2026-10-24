@@ -97,7 +97,7 @@ limiter sees the client's address.
 | `ConsentErrorCodes` | The stable codes for refused fields. |
 | `ConsentExtensions.MaxBodyBytes`, `ConsentExtensions.MaxHistory` | The body limit of 1024 bytes and the history limit of 100 rows. |
 | `AppKitConsentOptions` | `KeepFor`, with `DefaultKeepFor`, `DefaultKeepForDays`, `MinimumKeepFor`, and `MinimumKeepForDays`. |
-| `AppKitConsentEndpointOptions` | `RateLimitPolicy` and the history's `Policy`. |
+| `AppKitConsentEndpointOptions` | `RateLimitPolicy`, `RateLimitedExternally`, and the history's `Policy`. |
 
 ## Endpoints
 
@@ -166,7 +166,8 @@ A body that is not JSON, or a field of the wrong JSON type, answers `400` before
 
 `POST consent` is open to everyone. Without a limit, anyone can add rows as fast as they can send
 requests, and the table grows without limit until the daily job removes rows older than `KeepFor`.
-When `RateLimitPolicy` is null, `MapAppKitConsent` logs a warning at startup. Pick one of these.
+When `RateLimitPolicy` is null, `MapAppKitConsent` logs a warning at startup, unless
+`RateLimitedExternally` is true. Pick one of these.
 
 A named policy, registered with the ASP.NET Core rate limiter as in [Get started](#get-started), and
 passed by name:
@@ -176,8 +177,9 @@ app.MapAppKitConsent<ApplicationDbContext>("/api", o => o.RateLimitPolicy = "con
 ```
 
 Or, with AppKit.Hosting's `AddAppKitRateLimiting`, a rule for the route in the `RateLimiting`
-section. Leave `RateLimitPolicy` null then. The startup warning still shows, because the package
-cannot see the rule.
+section. Leave `RateLimitPolicy` null then, and set `RateLimitedExternally` to skip the startup
+warning. The package cannot see the rule, so the flag is a promise your app keeps. If the rule is
+removed, nothing warns you.
 
 ```json
 "RateLimiting": {
@@ -185,6 +187,10 @@ cannot see the rule.
     { "Endpoint": "POST:/api/consent", "Period": "1m", "Limit": 20 }
   ]
 }
+```
+
+```csharp
+app.MapAppKitConsent<ApplicationDbContext>("/api", o => o.RateLimitedExternally = true);
 ```
 
 The policy applies only to `POST consent`. The package registers no limiter of its own.

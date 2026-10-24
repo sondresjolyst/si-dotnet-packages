@@ -33,6 +33,14 @@ public sealed class AppKitConsentEndpointOptions
     /// </summary>
     public string? RateLimitPolicy { get; set; }
 
+    /// <summary>
+    /// Set it to true when the app limits <c>POST consent</c> outside the package, such as with a rule for
+    /// AppKit.Hosting's <c>AddAppKitRateLimiting</c>. It only skips the startup warning for a null
+    /// <see cref="RateLimitPolicy"/>. The package does not check that a limit exists, so it is a promise the
+    /// app keeps. Defaults to false.
+    /// </summary>
+    public bool RateLimitedExternally { get; set; }
+
     /// <summary>The authorization policy that reading the history of a consent id requires. Defaults to <c>Admin</c>.</summary>
     public string Policy { get; set; } = "Admin";
 }

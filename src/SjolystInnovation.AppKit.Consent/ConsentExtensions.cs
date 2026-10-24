@@ -115,8 +115,9 @@ public static partial class ConsentExtensions
     /// and, for a signed-in request, the user id, and answers 204. A refused body answers 400 with the
     /// field errors and their <see cref="ConsentErrorCodes"/>. A body over <see cref="MaxBodyBytes"/> bytes
     /// is refused. It never stores the IP address or the user agent. It applies
-    /// <see cref="AppKitConsentEndpointOptions.RateLimitPolicy"/> when one is set, and logs a warning at
-    /// startup when none is, because the table then grows without limit.
+    /// <see cref="AppKitConsentEndpointOptions.RateLimitPolicy"/> when one is set. When none is, it logs a
+    /// warning at startup, because the table then grows without limit, unless
+    /// <see cref="AppKitConsentEndpointOptions.RateLimitedExternally"/> is true.
     /// <c>GET consent/{consentId}?take=</c> lists the newest choices of one consent id, at most
     /// <see cref="MaxHistory"/>, behind <see cref="AppKitConsentEndpointOptions.Policy"/>.
     /// </summary>
@@ -134,7 +135,7 @@ public static partial class ConsentExtensions
             .WithMetadata(new RequestSizeLimitAttribute(MaxBodyBytes));
         if (options.RateLimitPolicy is { } policy)
             post.RequireRateLimiting(policy);
-        else if (endpoints.ServiceProvider.GetService<ILoggerFactory>() is { } loggers)
+        else if (!options.RateLimitedExternally && endpoints.ServiceProvider.GetService<ILoggerFactory>() is { } loggers)
             Log.Unlimited(loggers.CreateLogger(typeof(ConsentExtensions)), prefix);
         group.MapGet("consent/{consentId:guid}", (Func<Guid, int?, HttpContext, Task<IResult>>)ConsentHandlers<TContext>.HistoryAsync)
             .RequireAuthorization(options.Policy);

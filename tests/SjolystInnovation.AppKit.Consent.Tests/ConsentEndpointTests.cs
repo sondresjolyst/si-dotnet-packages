@@ -313,6 +313,24 @@ public class ConsentEndpointTests
             && r.Message == "POST /api/consent has no rate limit policy, so anyone can add rows without limit. Set RateLimitPolicy or add a rate limit rule for the route.");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task The_warning_is_skipped_only_when_the_app_says_it_limits_the_route(bool external)
+    {
+        await using var app = await TestApp.StartAsync(o => o.RateLimitedExternally = external);
+
+        var warned = app.Logs.GetSnapshot().Any(r => r.Level == LogLevel.Warning && r.Message.Contains("no rate limit policy", StringComparison.Ordinal));
+        Assert.Equal(!external, warned);
+        Assert.Null(PostEndpoint(app).Metadata.GetMetadata<EnableRateLimitingAttribute>());
+    }
+
+    [Fact]
+    public void RateLimitedExternally_defaults_to_false()
+    {
+        Assert.False(new AppKitConsentEndpointOptions().RateLimitedExternally);
+    }
+
     [Fact]
     public async Task With_a_policy_no_warning_is_logged()
     {
