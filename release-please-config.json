@@ -105,6 +105,57 @@
         }
       ]
     },
+    "src/SjolystInnovation.AppKit.Consent": {
+      "release-type": "simple",
+      "component": "SjolystInnovation.AppKit.Consent",
+      "initial-version": "1.0.0",
+      "extra-files": [
+        "SjolystInnovation.AppKit.Consent.csproj"
+      ],
+      "changelog-sections": [
+        {
+          "type": "feat",
+          "section": "Features"
+        },
+        {
+          "type": "fix",
+          "section": "Bug Fixes"
+        },
+        {
+          "type": "deps",
+          "section": "Dependencies"
+        },
+        {
+          "type": "revert",
+          "section": "Reverts"
+        },
+        {
+          "type": "docs",
+          "section": "Documentation",
+          "hidden": true
+        },
+        {
+          "type": "style",
+          "section": "Styles",
+          "hidden": true
+        },
+        {
+          "type": "chore",
+          "section": "Miscellaneous Chores",
+          "hidden": true
+        },
+        {
+          "type": "refactor",
+          "section": "Code Refactoring",
+          "hidden": true
+        },
+        {
+          "type": "ci",
+          "section": "Continuous Integration",
+          "hidden": true
+        }
+      ]
+    },
     "src/SjolystInnovation.AppKit.Email": {
       "release-type": "simple",
       "component": "SjolystInnovation.AppKit.Email",

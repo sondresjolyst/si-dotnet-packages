@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/SjolystInnovation.AppKit.AdminStats/SjolystInnovation.AppKit.AdminStats.csproj" />
     <Project Path="src/SjolystInnovation.AppKit.Auth/SjolystInnovation.AppKit.Auth.csproj" />
+    <Project Path="src/SjolystInnovation.AppKit.Consent/SjolystInnovation.AppKit.Consent.csproj" />
     <Project Path="src/SjolystInnovation.AppKit.Email/SjolystInnovation.AppKit.Email.csproj" />
     <Project Path="src/SjolystInnovation.AppKit.Hosting/SjolystInnovation.AppKit.Hosting.csproj" />
     <Project Path="src/SjolystInnovation.AppKit.Pdf/SjolystInnovation.AppKit.Pdf.csproj" />
@@ -13,6 +14,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/SjolystInnovation.AppKit.AdminStats.Tests/SjolystInnovation.AppKit.AdminStats.Tests.csproj" />
     <Project Path="tests/SjolystInnovation.AppKit.Auth.Tests/SjolystInnovation.AppKit.Auth.Tests.csproj" />
+    <Project Path="tests/SjolystInnovation.AppKit.Consent.Tests/SjolystInnovation.AppKit.Consent.Tests.csproj" />
     <Project Path="tests/SjolystInnovation.AppKit.Email.Tests/SjolystInnovation.AppKit.Email.Tests.csproj" />
     <Project Path="tests/SjolystInnovation.AppKit.Hosting.Tests/SjolystInnovation.AppKit.Hosting.Tests.csproj" />
     <Project Path="tests/SjolystInnovation.AppKit.Pdf.Tests/SjolystInnovation.AppKit.Pdf.Tests.csproj" />

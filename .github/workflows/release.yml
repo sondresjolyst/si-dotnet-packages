@@ -12,6 +12,7 @@ on:
         options:
           - src/SjolystInnovation.AppKit.AdminStats
           - src/SjolystInnovation.AppKit.Auth
+          - src/SjolystInnovation.AppKit.Consent
           - src/SjolystInnovation.AppKit.Email
           - src/SjolystInnovation.AppKit.Hosting
           - src/SjolystInnovation.AppKit.Pdf
