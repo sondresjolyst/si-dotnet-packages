@@ -34,8 +34,9 @@ public sealed class VippsOptions
     public string SystemVersion { get; set; } = "1.0.0";
 
     /// <summary>
-    /// Whether to log the body of a failed response that carries no Vipps error ids. For debugging only,
-    /// because a body may echo a phone number, a name, or an agreement id. Defaults to false.
+    /// Whether to log the body of a failed response that carries no Vipps error ids and is not an RFC 7807
+    /// problem. For debugging only, because a body may echo a phone number, a name, or an agreement id.
+    /// Defaults to false.
     /// </summary>
     public bool LogFailedResponseBodies { get; set; }
 

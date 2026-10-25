@@ -138,7 +138,7 @@ the same with a `Test` prefix. A missing base URL keeps its default.
 | `Test` | Base URL `https://apitest.vipps.no` | The test credentials. |
 | `SystemName` | Empty | The `Vipps-System-Name` header, such as the app's name. At most 30 characters are sent. |
 | `SystemVersion` | `1.0.0` | The `Vipps-System-Version` header. Build metadata after a `+` is left out, and at most 30 characters are sent. |
-| `LogFailedResponseBodies` | `false` | Whether to log the body of a failed response that carries no Vipps error IDs. For debugging only. |
+| `LogFailedResponseBodies` | `false` | Whether to log the body of a failed response that carries no Vipps error IDs and is not an RFC 7807 problem. For debugging only. |
 
 Calls go to the live environment unless your app registers its own `IVippsEnvironment`, such as one
 that reads an admin setting. `FixedVippsEnvironment` is the default, which always answers live. A call
@@ -178,8 +178,14 @@ The client applies the limits that Vipps sets, which `VippsLimits` lists:
 or stores.
 
 A failed call throws `HttpRequestException`. It logs the Vipps error code, error reference, trace ID,
-and body length. It never logs the body, because the body may echo a phone number or a name. If you
-need to debug, set `LogFailedResponseBodies` to log the body of a failure that carries no error IDs.
+and body length. For an RFC 7807 problem, the answer of the Recurring and ePayment APIs, the error code
+is the problem id from its `type`, the trace ID is its `contextId`, and it also logs the `title` and the
+names of the fields in `extraDetails`. It never logs the body, a problem's `detail`, or the extra detail
+reasons, because they may echo a phone number or a name. An id is logged only when it is a GUID or a
+plain name with fewer than seven digits, and a title only when it is plain words without
+digits. Anything else logs as `-`. If you need to debug, set
+`LogFailedResponseBodies` to log the body of a failure that carries no error IDs and is not an RFC 7807
+problem.
 
 ## Failed calls
 
@@ -192,6 +198,10 @@ call or whether it may have gone through. `VippsFailures.Classify` sorts the exc
 | `Uncertain` | A timeout, a transport error, a 5xx, 408, 409, or 429 | The operation may have gone through. Try again with the same idempotency key, or read the payment. |
 | `CallerCancelled` | The token you passed was canceled | The operation may have gone through. |
 | `None` | Any other exception | Not a failure of the call to Vipps. |
+
+A failed access token throws `VippsAccessTokenException`, an `HttpRequestException` with the status code
+of the token request. Its 400 or 404 says nothing about the payment or the agreement the call was for, so
+check for it before you read a refusal as one about them.
 
 `HttpClient` reports its own timeout as a cancellation, so `Classify` takes the token you passed to
 the call and counts a cancellation as `CallerCancelled` only when that token was canceled.

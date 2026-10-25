@@ -515,9 +515,9 @@ public class VippsClientTests
             ? (HttpStatusCode.OK, """{"access_token":"t"}""")
             : (HttpStatusCode.BadRequest, """{"errorCode":"E1","errorRef":"R1","traceId":"T1","phoneNumber":"4791234567"}""");
 
-        await Assert.ThrowsAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
+        await Assert.ThrowsAnyAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
         var line = Assert.Single(log.Lines, l => l.StartsWith("Error", StringComparison.Ordinal));
-        Assert.Contains("ErrorCode=E1 ErrorRef=R1 TraceId=T1 BodyLength=", line, StringComparison.Ordinal);
+        Assert.Contains("ErrorCode=E1 ErrorRef=R1 TraceId=T1 Title=- Fields=- BodyLength=", line, StringComparison.Ordinal);
         Assert.DoesNotContain("4791234567", line, StringComparison.Ordinal);
         Assert.Contains("get-agreement failed: 400", line, StringComparison.Ordinal);
     }
@@ -527,9 +527,9 @@ public class VippsClientTests
     {
         var (client, vipps, _, _, log) = Create();
         vipps.Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get" ? (HttpStatusCode.BadRequest, """{"phoneNumber":"4791234567"}""") : (HttpStatusCode.OK, "{}");
-        await Assert.ThrowsAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
+        await Assert.ThrowsAnyAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
         var line = Assert.Single(log.Lines, l => l.StartsWith("Error", StringComparison.Ordinal));
-        Assert.Contains("accesstoken/get failed: 400 ErrorCode=- ErrorRef=- TraceId=- BodyLength=28", line, StringComparison.Ordinal);
+        Assert.Contains("accesstoken/get failed: 400 ErrorCode=- ErrorRef=- TraceId=- Title=- Fields=- BodyLength=28", line, StringComparison.Ordinal);
         Assert.DoesNotContain("4791234567", line, StringComparison.Ordinal);
     }
 
@@ -540,7 +540,7 @@ public class VippsClientTests
         var log = new ListLogger();
         var options = Options.Create(new VippsOptions { LogFailedResponseBodies = true, SystemName = "x" });
         var client = new VippsClient(new HttpClient(vipps), options, new FixedVippsEnvironment(false), log, new FakeTimeProvider(Now));
-        await Assert.ThrowsAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
+        await Assert.ThrowsAnyAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
         Assert.Contains(log.Lines, l => l.Contains("accesstoken/get failed: 401 body=not json", StringComparison.Ordinal));
     }
 
@@ -550,5 +550,185 @@ public class VippsClientTests
     [InlineData("{\"errorCode\":5}", null, null, null)]
     [InlineData("{\"errorRef\":\"R\"}", null, "R", null)]
     public void ErrorIds_ReadsOnlyStringIds(string body, string? code, string? reference, string? trace) =>
-        Assert.Equal((code, reference, trace), VippsClient.ErrorIds(body));
+        Assert.Equal((code, reference, trace, (string?)null, (string?)null), VippsClient.ErrorIds(body));
+
+    [Fact]
+    public async Task AFailure_WithAProblemBody_LogsTheProblemTitleAndFields_ButNotItsDetails()
+    {
+        var (client, vipps, _, _, log) = Create();
+        vipps.Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get"
+            ? (HttpStatusCode.OK, """{"access_token":"t"}""")
+            : (HttpStatusCode.BadRequest, """
+                {"type":"https://developer.vippsmobilepay.com/docs/APIs/recurring-api/recurring-api-problems#charge-due-too-soon",
+                 "title":"Charge not creatable","status":400,"detail":"Agreement agr_secret for 4791234567 is not active",
+                 "instance":"/recurring/v3/agreements/agr_secret/charges","contextId":"c0ffee00-0000-4000-8000-000000000001",
+                 "extraDetails":[{"name":"due","reason":"4791234567"},{"name":"due","reason":"x"},{"name":"Ola Nordmann","reason":"y"}]}
+                """);
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => client.CreateChargeAsync("agr_secret",
+            new VippsCreateChargeRequest { AmountInOre = 100, Due = new DateOnly(2026, 12, 1), Description = "x", OrderId = "o" }, "k"));
+
+        var line = Assert.Single(log.Lines, l => l.StartsWith("Error", StringComparison.Ordinal));
+        Assert.Contains("create-charge failed: 400 ErrorCode=charge-due-too-soon ErrorRef=- TraceId=c0ffee00-0000-4000-8000-000000000001 Title=Charge not creatable Fields=due BodyLength=", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("4791234567", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("agr_secret", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ola", line, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("""{"type":"https://developer.vippsmobilepay.com/api-name/v1/validation-error"}""", "validation-error")]
+    [InlineData("""{"type":"https://example.com/problems/conflict/"}""", "conflict")]
+    [InlineData("""{"type":"about:blank#4791234567"}""", null)]
+    [InlineData("""{"type":"https://example.com/problems#Ola Nordmann"}""", null)]
+    [InlineData("""{"errorCode":"E1","type":"https://example.com/problems#other"}""", "E1")]
+    public void ErrorIds_TakesTheErrorCodeFromAProblemType_WhenItIsAPlainName(string body, string? code) =>
+        Assert.Equal(code, VippsClient.ErrorIds(body).ErrorCode);
+
+    [Fact]
+    public void ErrorIds_KeepsTenFields()
+    {
+        var fields = string.Join(',', Enumerable.Range(1, 12).Select(i => $$"""{"name":"f{{i}}"}"""));
+        Assert.Equal(string.Join(',', Enumerable.Range(1, 10).Select(i => $"f{i}")), VippsClient.ErrorIds($$"""{"extraDetails":[{{fields}}]}""").Fields);
+    }
+
+    [Theory]
+    [InlineData("Charge not creatable", "Charge not creatable")]
+    [InlineData("Your request parameters didn't validate.", "Your request parameters didn't validate.")]
+    [InlineData("Agreement cannot be updated (stopped)", "Agreement cannot be updated (stopped)")]
+    [InlineData("Charge for 4791234567 failed", null)]
+    [InlineData("Charge 50000 too high", null)]
+    [InlineData("Order ola@example.com refused", null)]
+    [InlineData("Agreement agr_secret refused", null)]
+    [InlineData("   ", null)]
+    [InlineData("", null)]
+    public void ErrorIds_LogsATitleOnlyWhenItIsPlainWords(string title, string? logged) =>
+        Assert.Equal(logged, VippsClient.ErrorIds(JsonSerializer.Serialize(new { title })).Title);
+
+    [Fact]
+    public void ErrorIds_LeavesOutALongTitle() =>
+        Assert.Null(VippsClient.ErrorIds(JsonSerializer.Serialize(new { title = new string('t', 101) })).Title);
+
+    [Theory]
+    [InlineData("c0ffee00-0000-4000-8000-000000000001", "c0ffee00-0000-4000-8000-000000000001")]
+    [InlineData("00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000000")]
+    [InlineData("trace_1.a-b", "trace_1.a-b")]
+    [InlineData("4791234567", null)]
+    [InlineData("ref-12345678", null)]
+    [InlineData("912-34-567", null)]
+    [InlineData("ref-123.4567", null)]
+    [InlineData("a1b2c3d4e5f6g7", null)]
+    [InlineData("ref-123456", "ref-123456")]
+    [InlineData("Ola Nordmann", null)]
+    [InlineData("ola@example.com", null)]
+    [InlineData("/recurring/v3/agreements/agr_1", null)]
+    public void ErrorIds_LogsIdsOnlyWhenTheyAreAGuidOrAPlainName(string id, string? logged)
+    {
+        Assert.Equal(logged, VippsClient.ErrorIds(JsonSerializer.Serialize(new { traceId = id })).TraceId);
+        Assert.Equal(logged, VippsClient.ErrorIds(JsonSerializer.Serialize(new { contextId = id })).TraceId);
+        Assert.Equal(logged, VippsClient.ErrorIds(JsonSerializer.Serialize(new { errorRef = id })).ErrorRef);
+        Assert.Equal(logged, VippsClient.ErrorIds(JsonSerializer.Serialize(new { errorCode = id })).ErrorCode);
+    }
+
+    [Theory]
+    [InlineData("Call 912 34 567")]
+    [InlineData("Ref 1-2-3-4-5-6-7")]
+    public void ErrorIds_LeavesOutATitleWithDigits(string title) =>
+        Assert.Null(VippsClient.ErrorIds(JsonSerializer.Serialize(new { title })).Title);
+
+    [Fact]
+    public async Task AFailure_WhoseIdsAreLeftOut_DoesNotLogTheBody_EvenWhenTheAppTurnsBodyLoggingOn()
+    {
+        var vipps = new FakeVipps { Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get"
+            ? (HttpStatusCode.BadRequest, """{"traceId":"912-34-567","errorRef":"4791234567","name":"Ola Nordmann"}""")
+            : (HttpStatusCode.OK, "{}") };
+        var log = new ListLogger();
+        var options = Options.Create(new VippsOptions { LogFailedResponseBodies = true, SystemName = "x" });
+        var client = new VippsClient(new HttpClient(vipps), options, new FixedVippsEnvironment(false), log, new FakeTimeProvider(Now));
+
+        await Assert.ThrowsAnyAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
+
+        var line = Assert.Single(log.Lines, l => l.StartsWith("Error", StringComparison.Ordinal));
+        Assert.Contains("accesstoken/get failed: 400 ErrorCode=- ErrorRef=- TraceId=- Title=- Fields=- BodyLength=", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ola", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("4791234567", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("912-34-567", line, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("""{"detail":"Agreement for 4791234567 is not active"}""")]
+    [InlineData("""{"type":"about:blank","detail":"Ola Nordmann 4791234567"}""")]
+    [InlineData("""{"title":5,"extraDetails":[{"name":"x","reason":"4791234567"}]}""")]
+    [InlineData("""{"instance":"/recurring/v3/agreements/agr_1","contextId":{"id":"4791234567"}}""")]
+    [InlineData("""{"errorCode":5,"message":"4791234567"}""")]
+    [InlineData("""{"traceId":null,"message":"4791234567"}""")]
+    public async Task AFailure_WithAProblemOrIdsOfAnyType_IsNeverLoggedWhole(string body)
+    {
+        var vipps = new FakeVipps { Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get" ? (HttpStatusCode.BadRequest, body) : (HttpStatusCode.OK, "{}") };
+        var log = new ListLogger();
+        var options = Options.Create(new VippsOptions { LogFailedResponseBodies = true, SystemName = "x" });
+        var client = new VippsClient(new HttpClient(vipps), options, new FixedVippsEnvironment(false), log, new FakeTimeProvider(Now));
+
+        await Assert.ThrowsAnyAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
+
+        var line = Assert.Single(log.Lines, l => l.StartsWith("Error", StringComparison.Ordinal));
+        Assert.DoesNotContain("body=", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("4791234567", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ola", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AFailure_ThatIsNotAProblemAndHasNoIds_IsLoggedWhole_WhenTheAppTurnsThatOn()
+    {
+        var vipps = new FakeVipps { Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get" ? (HttpStatusCode.BadRequest, """{"error":"invalid_client"}""") : (HttpStatusCode.OK, "{}") };
+        var log = new ListLogger();
+        var options = Options.Create(new VippsOptions { LogFailedResponseBodies = true, SystemName = "x" });
+        var client = new VippsClient(new HttpClient(vipps), options, new FixedVippsEnvironment(false), log, new FakeTimeProvider(Now));
+
+        await Assert.ThrowsAnyAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
+
+        Assert.Contains(log.Lines, l => l.Contains("""accesstoken/get failed: 400 body={"error":"invalid_client"}""", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest)]
+    [InlineData(HttpStatusCode.NotFound)]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    public async Task AFailedAccessToken_ThrowsVippsAccessTokenException_WithItsStatus(HttpStatusCode status)
+    {
+        var (client, vipps, _, _, _) = Create();
+        vipps.Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get" ? (status, "{}") : (HttpStatusCode.OK, "{}");
+
+        var e = await Assert.ThrowsAsync<VippsAccessTokenException>(() => client.GetAgreementAsync("agr_1"));
+
+        Assert.Equal(status, e.StatusCode);
+        Assert.Equal(VippsFailureKind.Refused, VippsFailures.Classify(e, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task AFailedAccessTokenRequest_InTransport_ThrowsVippsAccessTokenException()
+    {
+        var (client, vipps, _, _, _) = Create();
+        vipps.Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get" ? throw new HttpRequestException("down") : (HttpStatusCode.OK, "{}");
+
+        var e = await Assert.ThrowsAsync<VippsAccessTokenException>(() => client.GetAgreementAsync("agr_1"));
+
+        Assert.Null(e.StatusCode);
+        Assert.Equal(VippsFailureKind.Uncertain, VippsFailures.Classify(e, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task AFailedCall_AfterTheToken_IsAPlainHttpRequestException()
+    {
+        var (client, vipps, _, _, _) = Create();
+        vipps.Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get" ? (HttpStatusCode.OK, """{"access_token":"t"}""") : (HttpStatusCode.NotFound, "{}");
+
+        var e = await Assert.ThrowsAnyAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
+
+        Assert.IsNotType<VippsAccessTokenException>(e);
+        Assert.Equal(HttpStatusCode.NotFound, e.StatusCode);
+    }
+
+    [Fact]
+    public void ErrorIds_LeavesOutAFieldNameWithADigitRun() =>
+        Assert.Equal("due", VippsClient.ErrorIds("""{"extraDetails":[{"name":"due"},{"name":"p912-34-567"}]}""").Fields);
 }
