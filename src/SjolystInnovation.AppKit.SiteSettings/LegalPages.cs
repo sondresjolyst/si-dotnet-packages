@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -71,12 +72,6 @@ public sealed class AppKitLegalPagesOptions
     internal bool KnownKey(string? key) => key is not null && Keys.Contains(key, StringComparer.OrdinalIgnoreCase);
 
     internal bool KnownLocale(string? locale) => locale is not null && Locales.Contains(locale, StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// Finds the supported locale a tag asks for. It tries an exact match first, then the tag's primary
-    /// language, with <c>nb</c> and <c>nn</c> read as <c>no</c>. Anything else, or no tag, gets the fallback.
-    /// </summary>
-    internal string Normalize(string? locale) => LocaleTags.Match(Locales, Locales[0], locale);
 }
 
 /// <summary>A legal page as the endpoints return it.</summary>
@@ -85,7 +80,11 @@ public sealed class AppKitLegalPagesOptions
 /// <param name="Title">The page title.</param>
 /// <param name="BodyMarkdown">The page body as Markdown.</param>
 /// <param name="UpdatedAt">When the page was last saved, in UTC.</param>
-public sealed record LegalPageInfo(string Key, string Locale, string Title, string BodyMarkdown, DateTime UpdatedAt);
+public sealed record LegalPageInfo(string Key, string Locale, string Title, string BodyMarkdown, DateTime UpdatedAt)
+{
+    /// <summary>The version of the page, see <see cref="LegalPagesExtensions.LegalPageVersion"/>.</summary>
+    public string Version => LegalPagesExtensions.Version(UpdatedAt);
+}
 
 /// <summary>A saved version of a legal page in the list of versions, without its body.</summary>
 /// <param name="Id">The revision id.</param>
@@ -108,7 +107,7 @@ public sealed record LegalPageRevisionInfo(int Id, string Key, string Locale, st
 /// <param name="BodyMarkdown">The page body as Markdown. Required.</param>
 public sealed record LegalPageBody(string? Title, string? BodyMarkdown);
 
-/// <summary>Maps, seeds, and configures the legal pages.</summary>
+/// <summary>Maps, seeds, configures, and looks up the legal pages.</summary>
 public static class LegalPagesExtensions
 {
     /// <summary>
@@ -199,6 +198,54 @@ public static class LegalPagesExtensions
         }
         await db.SaveChangesAsync(cancellationToken);
     }
+
+    /// <summary>
+    /// Finds the current text of a page in the language <paramref name="locale"/> asks for, matched against
+    /// <paramref name="locales"/> the way <c>GET {key}</c> matches it, or else in the first of
+    /// <paramref name="locales"/>. Answers null when the page has text in neither.
+    /// </summary>
+    public static async Task<LegalPage?> FindCurrentLegalPageAsync(this DbContext db, string key, string? locale, IReadOnlyList<string> locales,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(locales);
+        if (locales.Count == 0)
+            throw new ArgumentException("At least one locale is needed. The first is the fallback.", nameof(locales));
+        key = key.ToLowerInvariant();
+        var wanted = LocaleTags.Match(locales, locales[0], locale);
+        var fallback = locales[0].ToLowerInvariant();
+        var pages = await db.Set<LegalPage>().AsNoTracking()
+            .Where(p => p.Key == key && (p.Locale == wanted || p.Locale == fallback))
+            .ToListAsync(cancellationToken);
+        return pages.FirstOrDefault(p => p.Locale == wanted) ?? pages.FirstOrDefault(p => p.Locale == fallback);
+    }
+
+    /// <summary>
+    /// The version of a page: when it was last saved, in UTC to the microsecond, for example
+    /// <c>2026-10-19T12:34:56.123456Z</c>. A save that changes nothing keeps it, so a client can send back
+    /// the version it showed and the app can check it is still the current one.
+    /// </summary>
+    public static string LegalPageVersion(LegalPage page)
+    {
+        ArgumentNullException.ThrowIfNull(page);
+        return Version(page.UpdatedAt);
+    }
+
+    /// <summary>
+    /// The version of the current text of a page, found as <see cref="FindCurrentLegalPageAsync"/> finds it,
+    /// or null when the page has none.
+    /// </summary>
+    public static async Task<string?> GetCurrentLegalPageVersionAsync(this DbContext db, string key, string? locale, IReadOnlyList<string> locales,
+        CancellationToken cancellationToken = default)
+    {
+        var page = await db.FindCurrentLegalPageAsync(key, locale, locales, cancellationToken);
+        return page is null ? null : Version(page.UpdatedAt);
+    }
+
+    // The time is stored in UTC, but a database can hand it back without that kind. It is read as UTC and never converted.
+    internal static string Version(DateTime updatedAt) =>
+        DateTime.SpecifyKind(updatedAt, DateTimeKind.Utc).ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'", CultureInfo.InvariantCulture);
 }
 
 internal sealed class LegalPageHandlers<TContext>(AppKitLegalPagesOptions options)
@@ -216,12 +263,7 @@ internal sealed class LegalPageHandlers<TContext>(AppKitLegalPagesOptions option
     {
         if (!options.KnownKey(key))
             return TypedResults.NotFound();
-        key = key.ToLowerInvariant();
-        var pages = http.RequestServices.GetRequiredService<TContext>().Set<LegalPage>().AsNoTracking();
-        var wanted = options.Normalize(locale);
-        var fallback = options.Locales[0].ToLowerInvariant();
-        var page = await pages.FirstOrDefaultAsync(p => p.Key == key && p.Locale == wanted, http.RequestAborted)
-            ?? await pages.FirstOrDefaultAsync(p => p.Key == key && p.Locale == fallback, http.RequestAborted);
+        var page = await http.RequestServices.GetRequiredService<TContext>().FindCurrentLegalPageAsync(key, locale, options.Locales, http.RequestAborted);
         return page is null ? TypedResults.NotFound() : TypedResults.Ok(Info(page));
     }
 
