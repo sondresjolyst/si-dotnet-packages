@@ -614,6 +614,10 @@ public class VippsClientTests
     [InlineData("trace_1.a-b", "trace_1.a-b")]
     [InlineData("4791234567", null)]
     [InlineData("ref-12345678", null)]
+    [InlineData("912-34-567", null)]
+    [InlineData("ref-123.4567", null)]
+    [InlineData("a1b2c3d4e5f6g7", null)]
+    [InlineData("ref-123456", "ref-123456")]
     [InlineData("Ola Nordmann", null)]
     [InlineData("ola@example.com", null)]
     [InlineData("/recurring/v3/agreements/agr_1", null)]
@@ -625,7 +629,32 @@ public class VippsClientTests
         Assert.Equal(logged, VippsClient.ErrorIds(JsonSerializer.Serialize(new { errorCode = id })).ErrorCode);
     }
 
+    [Theory]
+    [InlineData("Call 912 34 567")]
+    [InlineData("Ref 1-2-3-4-5-6-7")]
+    public void ErrorIds_LeavesOutATitleWithDigits(string title) =>
+        Assert.Null(VippsClient.ErrorIds(JsonSerializer.Serialize(new { title })).Title);
+
+    [Fact]
+    public async Task AFailure_WhoseIdsAreLeftOut_DoesNotLogTheBody_EvenWhenTheAppTurnsBodyLoggingOn()
+    {
+        var vipps = new FakeVipps { Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get"
+            ? (HttpStatusCode.BadRequest, """{"traceId":"912-34-567","errorRef":"4791234567","name":"Ola Nordmann"}""")
+            : (HttpStatusCode.OK, "{}") };
+        var log = new ListLogger();
+        var options = Options.Create(new VippsOptions { LogFailedResponseBodies = true, SystemName = "x" });
+        var client = new VippsClient(new HttpClient(vipps), options, new FixedVippsEnvironment(false), log, new FakeTimeProvider(Now));
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
+
+        var line = Assert.Single(log.Lines, l => l.StartsWith("Error", StringComparison.Ordinal));
+        Assert.Contains("accesstoken/get failed: 400 ErrorCode=- ErrorRef=- TraceId=- Title=- Fields=- BodyLength=", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ola", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("4791234567", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("912-34-567", line, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void ErrorIds_LeavesOutAFieldNameWithADigitRun() =>
-        Assert.Equal("due", VippsClient.ErrorIds("""{"extraDetails":[{"name":"due"},{"name":"p4791234567"}]}""").Fields);
+        Assert.Equal("due", VippsClient.ErrorIds("""{"extraDetails":[{"name":"due"},{"name":"p912-34-567"}]}""").Fields);
 }

@@ -366,7 +366,9 @@ internal sealed partial class VippsClient : IVippsClient
         // A failed body may echo a phone number, a name, or an agreement id, so log Vipps's own error ids
         // instead. Log the body only when the app turns that on and the response has no error ids.
         var ids = ErrorIds(body);
-        if (ids.ErrorCode == null && ids.ErrorRef == null && ids.TraceId == null && _options.LogFailedResponseBodies)
+        // Whether the body carries error ids is read from the body itself, so an id left out of the log as unsafe
+        // never turns on the body logging.
+        if (!HasErrorIds(body) && _options.LogFailedResponseBodies)
             LogFailedWithBody(_logger, operation, (int)response.StatusCode, body);
         else
             LogFailed(_logger, operation, (int)response.StatusCode, ids.ErrorCode ?? "-", ids.ErrorRef ?? "-", ids.TraceId ?? "-",
@@ -422,10 +424,10 @@ internal sealed partial class VippsClient : IVippsClient
         return ProblemName(id);
     }
 
-    // A name made of letters, digits, dots, dashes, and underscores, with no run of seven or more digits, so it
+    // A name made of letters, digits, dots, dashes, and underscores, with fewer than seven digits in all, so it
     // cannot carry a phone number, an account number, or a name with spaces.
     private static string? ProblemName(string? value) =>
-        value is { Length: > 0 and <= 64 } && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.') && !HasDigitRun(value)
+        value is { Length: > 0 and <= 64 } && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.') && value.Count(char.IsAsciiDigit) < 7
             ? value
             : null;
 
@@ -441,15 +443,22 @@ internal sealed partial class VippsClient : IVippsClient
             ? value
             : null;
 
-    private static bool HasDigitRun(string value)
+    private static readonly string[] ErrorIdNames = ["errorCode", "errorRef", "traceId"];
+
+    // Whether the body has an errorCode, errorRef, or traceId string, whatever its value.
+    internal static bool HasErrorIds(string body)
     {
-        var run = 0;
-        foreach (var c in value)
+        if (string.IsNullOrEmpty(body)) return false;
+        try
         {
-            run = char.IsAsciiDigit(c) ? run + 1 : 0;
-            if (run >= 7) return true;
+            using var doc = JsonDocument.Parse(body);
+            return doc.RootElement.ValueKind == JsonValueKind.Object
+                && ErrorIdNames.Any(n => doc.RootElement.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.String);
         }
-        return false;
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Vipps access token refreshed ({Environment}), expires in {ExpiresIn}s")]
