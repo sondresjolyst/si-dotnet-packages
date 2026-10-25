@@ -178,8 +178,11 @@ The client applies the limits that Vipps sets, which `VippsLimits` lists:
 or stores.
 
 A failed call throws `HttpRequestException`. It logs the Vipps error code, error reference, trace ID,
-and body length. It never logs the body, because the body may echo a phone number or a name. If you
-need to debug, set `LogFailedResponseBodies` to log the body of a failure that carries no error IDs.
+and body length. For an RFC 7807 problem, the answer of the Recurring and ePayment APIs, the error code
+is the problem id from its `type`, the trace ID is its `contextId`, and it also logs the `title` and the
+names of the fields in `extraDetails`. It never logs the body, a problem's `detail`, or the extra detail
+reasons, because they may echo a phone number or a name. If you need to debug, set
+`LogFailedResponseBodies` to log the body of a failure that carries no error IDs.
 
 ## Failed calls
 

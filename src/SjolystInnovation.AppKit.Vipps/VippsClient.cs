@@ -365,30 +365,68 @@ internal sealed partial class VippsClient : IVippsClient
 
         // A failed body may echo a phone number, a name, or an agreement id, so log Vipps's own error ids
         // instead. Log the body only when the app turns that on and the response has no error ids.
-        var (errorCode, errorRef, traceId) = ErrorIds(body);
-        if (errorCode == null && errorRef == null && traceId == null && _options.LogFailedResponseBodies)
+        var ids = ErrorIds(body);
+        if (ids.ErrorCode == null && ids.ErrorRef == null && ids.TraceId == null && _options.LogFailedResponseBodies)
             LogFailedWithBody(_logger, operation, (int)response.StatusCode, body);
         else
-            LogFailed(_logger, operation, (int)response.StatusCode, errorCode ?? "-", errorRef ?? "-", traceId ?? "-", body.Length);
+            LogFailed(_logger, operation, (int)response.StatusCode, ids.ErrorCode ?? "-", ids.ErrorRef ?? "-", ids.TraceId ?? "-",
+                ids.Title ?? "-", ids.Fields ?? "-", body.Length);
         response.EnsureSuccessStatusCode();
         return body;
     }
 
-    internal static (string? ErrorCode, string? ErrorRef, string? TraceId) ErrorIds(string body)
+    // Reads the parts of an error body that carry no personal data. An RFC 7807 problem, which the Recurring
+    // and ePayment APIs answer with, names its problem in the type URL and gives a fixed title. Its detail,
+    // instance, and extra detail reasons can echo the request, so only the names of the fields it blames
+    // are kept.
+    internal static (string? ErrorCode, string? ErrorRef, string? TraceId, string? Title, string? Fields) ErrorIds(string body)
     {
-        if (string.IsNullOrEmpty(body)) return (null, null, null);
+        if (string.IsNullOrEmpty(body)) return default;
         try
         {
             using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.ValueKind != JsonValueKind.Object) return (null, null, null);
-            string? Text(string name) => doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
-            return (Text("errorCode"), Text("errorRef"), Text("traceId"));
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return default;
+            string? Text(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+            var fields = root.TryGetProperty("extraDetails", out var extra) && extra.ValueKind == JsonValueKind.Array
+                ? extra.EnumerateArray()
+                    .Where(d => d.ValueKind == JsonValueKind.Object)
+                    .Select(d => ProblemName(Text(d, "name")))
+                    .OfType<string>()
+                    .Distinct()
+                    .Take(MaxProblemFields)
+                    .ToList()
+                : [];
+            var title = Text(root, "title");
+            return (Text(root, "errorCode") ?? ProblemType(Text(root, "type")),
+                Text(root, "errorRef"),
+                Text(root, "traceId") ?? Text(root, "contextId"),
+                string.IsNullOrWhiteSpace(title) ? null : VippsLimits.Truncate(title, MaxProblemTitleLength),
+                fields.Count == 0 ? null : string.Join(',', fields));
         }
         catch (JsonException)
         {
-            return (null, null, null);
+            return default;
         }
     }
+
+    private const int MaxProblemTitleLength = 100;
+    private const int MaxProblemFields = 10;
+
+    // The problem id at the end of a type URL, such as charge-due-too-soon in ...recurring-api-problems#charge-due-too-soon.
+    private static string? ProblemType(string? type)
+    {
+        if (string.IsNullOrEmpty(type)) return null;
+        var hash = type.LastIndexOf('#');
+        var id = hash >= 0 ? type[(hash + 1)..] : type[(type.TrimEnd('/').LastIndexOf('/') + 1)..].TrimEnd('/');
+        return ProblemName(id);
+    }
+
+    // A name made of letters, digits, dots, dashes, and underscores, which cannot carry a phone number or a name.
+    private static string? ProblemName(string? value) =>
+        value is { Length: > 0 and <= 64 } && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.') && !value.All(char.IsAsciiDigit)
+            ? value
+            : null;
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Vipps access token refreshed ({Environment}), expires in {ExpiresIn}s")]
     private static partial void LogTokenRefreshed(ILogger logger, string environment, int expiresIn);
@@ -396,8 +434,8 @@ internal sealed partial class VippsClient : IVippsClient
     [LoggerMessage(Level = LogLevel.Error, Message = "Vipps {Operation} failed: {Status} body={Body}")]
     private static partial void LogFailedWithBody(ILogger logger, string operation, int status, string body);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Vipps {Operation} failed: {Status} ErrorCode={ErrorCode} ErrorRef={ErrorRef} TraceId={TraceId} BodyLength={BodyLength}")]
-    private static partial void LogFailed(ILogger logger, string operation, int status, string errorCode, string errorRef, string traceId, int bodyLength);
+    [LoggerMessage(Level = LogLevel.Error, Message = "Vipps {Operation} failed: {Status} ErrorCode={ErrorCode} ErrorRef={ErrorRef} TraceId={TraceId} Title={Title} Fields={Fields} BodyLength={BodyLength}")]
+    private static partial void LogFailed(ILogger logger, string operation, int status, string errorCode, string errorRef, string traceId, string title, string fields, int bodyLength);
 
     private sealed class PaymentDto
     {

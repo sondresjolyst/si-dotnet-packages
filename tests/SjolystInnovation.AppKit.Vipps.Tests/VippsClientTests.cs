@@ -517,7 +517,7 @@ public class VippsClientTests
 
         await Assert.ThrowsAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
         var line = Assert.Single(log.Lines, l => l.StartsWith("Error", StringComparison.Ordinal));
-        Assert.Contains("ErrorCode=E1 ErrorRef=R1 TraceId=T1 BodyLength=", line, StringComparison.Ordinal);
+        Assert.Contains("ErrorCode=E1 ErrorRef=R1 TraceId=T1 Title=- Fields=- BodyLength=", line, StringComparison.Ordinal);
         Assert.DoesNotContain("4791234567", line, StringComparison.Ordinal);
         Assert.Contains("get-agreement failed: 400", line, StringComparison.Ordinal);
     }
@@ -529,7 +529,7 @@ public class VippsClientTests
         vipps.Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get" ? (HttpStatusCode.BadRequest, """{"phoneNumber":"4791234567"}""") : (HttpStatusCode.OK, "{}");
         await Assert.ThrowsAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
         var line = Assert.Single(log.Lines, l => l.StartsWith("Error", StringComparison.Ordinal));
-        Assert.Contains("accesstoken/get failed: 400 ErrorCode=- ErrorRef=- TraceId=- BodyLength=28", line, StringComparison.Ordinal);
+        Assert.Contains("accesstoken/get failed: 400 ErrorCode=- ErrorRef=- TraceId=- Title=- Fields=- BodyLength=28", line, StringComparison.Ordinal);
         Assert.DoesNotContain("4791234567", line, StringComparison.Ordinal);
     }
 
@@ -550,5 +550,46 @@ public class VippsClientTests
     [InlineData("{\"errorCode\":5}", null, null, null)]
     [InlineData("{\"errorRef\":\"R\"}", null, "R", null)]
     public void ErrorIds_ReadsOnlyStringIds(string body, string? code, string? reference, string? trace) =>
-        Assert.Equal((code, reference, trace), VippsClient.ErrorIds(body));
+        Assert.Equal((code, reference, trace, (string?)null, (string?)null), VippsClient.ErrorIds(body));
+
+    [Fact]
+    public async Task AFailure_WithAProblemBody_LogsTheProblemTitleAndFields_ButNotItsDetails()
+    {
+        var (client, vipps, _, _, log) = Create();
+        vipps.Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get"
+            ? (HttpStatusCode.OK, """{"access_token":"t"}""")
+            : (HttpStatusCode.BadRequest, """
+                {"type":"https://developer.vippsmobilepay.com/docs/APIs/recurring-api/recurring-api-problems#charge-due-too-soon",
+                 "title":"Charge not creatable","status":400,"detail":"Agreement agr_secret for 4791234567 is not active",
+                 "instance":"/recurring/v3/agreements/agr_secret/charges","contextId":"c0ffee00-0000-4000-8000-000000000001",
+                 "extraDetails":[{"name":"due","reason":"4791234567"},{"name":"due","reason":"x"},{"name":"Ola Nordmann","reason":"y"}]}
+                """);
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => client.CreateChargeAsync("agr_secret",
+            new VippsCreateChargeRequest { AmountInOre = 100, Due = new DateOnly(2026, 12, 1), Description = "x", OrderId = "o" }, "k"));
+
+        var line = Assert.Single(log.Lines, l => l.StartsWith("Error", StringComparison.Ordinal));
+        Assert.Contains("create-charge failed: 400 ErrorCode=charge-due-too-soon ErrorRef=- TraceId=c0ffee00-0000-4000-8000-000000000001 Title=Charge not creatable Fields=due BodyLength=", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("4791234567", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("agr_secret", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ola", line, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("""{"type":"https://developer.vippsmobilepay.com/api-name/v1/validation-error"}""", "validation-error")]
+    [InlineData("""{"type":"https://example.com/problems/conflict/"}""", "conflict")]
+    [InlineData("""{"type":"about:blank#4791234567"}""", null)]
+    [InlineData("""{"type":"https://example.com/problems#Ola Nordmann"}""", null)]
+    [InlineData("""{"errorCode":"E1","type":"https://example.com/problems#other"}""", "E1")]
+    public void ErrorIds_TakesTheErrorCodeFromAProblemType_WhenItIsAPlainName(string body, string? code) =>
+        Assert.Equal(code, VippsClient.ErrorIds(body).ErrorCode);
+
+    [Fact]
+    public void ErrorIds_CutsALongTitle_AndKeepsTenFields()
+    {
+        var fields = string.Join(',', Enumerable.Range(1, 12).Select(i => $$"""{"name":"f{{i}}"}"""));
+        var ids = VippsClient.ErrorIds($$"""{"title":"{{new string('t', 150)}}","extraDetails":[{{fields}}]}""");
+        Assert.Equal(new string('t', 100), ids.Title);
+        Assert.Equal(string.Join(',', Enumerable.Range(1, 10).Select(i => $"f{i}")), ids.Fields);
+    }
 }
