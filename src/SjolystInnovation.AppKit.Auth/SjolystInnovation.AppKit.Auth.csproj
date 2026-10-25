@@ -2,7 +2,7 @@
   <PropertyGroup>
     <PackageId>SjolystInnovation.AppKit.Auth</PackageId>
     <!-- x-release-please-start-version -->
-    <Version>1.1.0</Version>
+    <Version>1.1.1</Version>
     <!-- x-release-please-end -->
     <Description>JWT access tokens, rotating refresh tokens, Identity defaults, reset and verification codes, user administration, and account deletion for ASP.NET Core Identity apps, with stable error codes.</Description>
     <PackageTags>jwt;refresh-token;identity;password-reset;email-verification</PackageTags>

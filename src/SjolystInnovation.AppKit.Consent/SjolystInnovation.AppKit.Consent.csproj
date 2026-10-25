@@ -2,7 +2,7 @@
   <PropertyGroup>
     <PackageId>SjolystInnovation.AppKit.Consent</PackageId>
     <!-- x-release-please-start-version -->
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <!-- x-release-please-end -->
     <Description>A pseudonymous, append-only log of the cookie consent choices a site's banner sends, for ASP.NET Core apps: an anonymous endpoint that adds each choice with the server's time, no IP address and no user agent, and a daily job that deletes old rows.</Description>
     <PackageTags>consent;cookies;cookie-consent;gdpr;privacy;minimal-api</PackageTags>

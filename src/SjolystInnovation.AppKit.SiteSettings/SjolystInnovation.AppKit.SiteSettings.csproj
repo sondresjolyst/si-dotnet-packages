@@ -2,7 +2,7 @@
   <PropertyGroup>
     <PackageId>SjolystInnovation.AppKit.SiteSettings</PackageId>
     <!-- x-release-please-start-version -->
-    <Version>1.1.0</Version>
+    <Version>1.1.1</Version>
     <!-- x-release-please-end -->
     <Description>Admin-managed company details, branding, legal pages, and page sections for ASP.NET Core apps, with Norwegian organization number checks and stable error codes.</Description>
     <PackageTags>settings;company-info;branding;legal-pages;page-sections;cms;organisasjonsnummer;minimal-api</PackageTags>
