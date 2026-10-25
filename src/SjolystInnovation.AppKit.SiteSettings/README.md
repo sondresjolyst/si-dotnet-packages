@@ -89,6 +89,8 @@ public class AppSettings : ICompanySettings, IBrandingSettings
 | `AddAppKitLegalPages` | Maps the `LegalPages` and `LegalPageRevisions` tables in `OnModelCreating`. |
 | `MapAppKitLegalPages<TContext>` | Maps the legal page endpoints. |
 | `SeedAppKitLegalPagesAsync<TContext>` | Writes the starting text of the legal pages that have none. |
+| `FindCurrentLegalPageAsync` | Finds the current text of a legal page in a language, or in the fallback language. |
+| `GetCurrentLegalPageVersionAsync` | Answers the version of that text, or null when there is none. |
 | `AddAppKitPageSections` | Maps the `PageSections` table in `OnModelCreating`. |
 | `MapAppKitPageSections<TContext>` | Maps the page sections endpoints. |
 
@@ -226,7 +228,7 @@ the form the endpoints look pages up by. It does not read the endpoint options, 
 locales that are in `Keys` and `Locales`.
 
 `MapAppKitLegalPages` maps these routes under its prefix, which defaults to `/api/content/legal`. A
-page answers `key`, `locale`, `title`, `bodyMarkdown`, and `updatedAt`.
+page answers `key`, `locale`, `title`, `bodyMarkdown`, `updatedAt`, and `version`.
 
 | Route | Who | What it does |
 | --- | --- | --- |
@@ -262,6 +264,24 @@ maps the new table, so no code changes:
 ```sh
 dotnet ef migrations add LegalPageRevisions
 ```
+
+### Current version
+
+A page's `version` is when it was last saved, in UTC to the microsecond, such as
+`2026-10-19T12:34:56.123456Z`. A save that changes nothing keeps it. A client can send back the
+version it showed, for example when a buyer accepts the terms at checkout, and your app checks it
+against the current one:
+
+```csharp
+string[] locales = ["no", "en"];
+var current = await db.GetCurrentLegalPageVersionAsync("terms", request.Locale, locales, ct);
+if (current is not null && current != request.TermsVersion)
+    return TypedResults.Problem("The terms have changed.", statusCode: StatusCodes.Status409Conflict);
+```
+
+`FindCurrentLegalPageAsync` answers the page itself. Both match the language the way `GET {key}`
+does and fall back to the first of `locales`, so pass the same list as `Locales`.
+`LegalPagesExtensions.LegalPageVersion` answers the version of a page you already have.
 
 ## Page sections
 

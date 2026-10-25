@@ -476,6 +476,128 @@ public class LegalPagesTests
         Assert.Equal("Gamle vilkår", revisions[0].Title);
     }
 
+    // Current version
+
+    private static async Task<LegalPage?> FindAsync(TestApp app, string key, string? locale, IReadOnlyList<string>? locales = null)
+    {
+        using var scope = app.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<TestDbContext>().FindCurrentLegalPageAsync(key, locale, locales ?? ["no", "en"]);
+    }
+
+    private static async Task<string?> VersionAsync(TestApp app, string key, string? locale)
+    {
+        using var scope = app.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<TestDbContext>().GetCurrentLegalPageVersionAsync(key, locale, ["no", "en"]);
+    }
+
+    [Fact]
+    public async Task The_current_page_is_found_in_the_asked_language()
+    {
+        await using var app = await StartAsync();
+        await PutAsync(app, "/api/content/legal/terms/no", "Vilkår");
+        await PutAsync(app, "/api/content/legal/terms/en", "Terms");
+
+        var page = await FindAsync(app, "TERMS", "en-GB");
+
+        Assert.Equal(("terms", "en", "Terms"), (page?.Key, page?.Locale, page?.Title));
+    }
+
+    [Theory]
+    [InlineData("en")]
+    [InlineData("de")]
+    [InlineData(null)]
+    public async Task The_current_page_falls_back_to_the_first_locale(string? locale)
+    {
+        await using var app = await StartAsync();
+        await PutAsync(app, "/api/content/legal/terms/no", "Vilkår");
+
+        var page = await FindAsync(app, "terms", locale, ["NO", "en"]);
+
+        Assert.Equal(("no", "Vilkår"), (page?.Locale, page?.Title));
+    }
+
+    [Theory]
+    [InlineData("nb")]
+    [InlineData("nb-NO")]
+    [InlineData("nn")]
+    public async Task Norwegian_tags_find_the_norwegian_page_even_when_the_fallback_is_another_language(string locale)
+    {
+        await using var app = await StartAsync(o => o.Locales = ["en", "no"]);
+        await PutAsync(app, "/api/content/legal/terms/en", "Terms");
+        await PutAsync(app, "/api/content/legal/terms/no", "Vilkår");
+
+        Assert.Equal("no", (await FindAsync(app, "terms", locale, ["en", "no"]))?.Locale);
+    }
+
+    [Fact]
+    public async Task A_page_with_no_text_has_no_current_version()
+    {
+        await using var app = await StartAsync();
+        await PutAsync(app, "/api/content/legal/cookies/en", "Cookies");
+
+        Assert.Null(await FindAsync(app, "refunds", "no"));
+        Assert.Null(await FindAsync(app, "cookies", "no", ["no"]));
+        Assert.Null(await VersionAsync(app, "terms", "no"));
+    }
+
+    [Theory]
+    [InlineData(DateTimeKind.Utc)]
+    [InlineData(DateTimeKind.Unspecified)]
+    [InlineData(DateTimeKind.Local)]
+    public void The_version_is_the_saved_time_in_utc_to_the_microsecond(DateTimeKind kind)
+    {
+        var page = new LegalPage { Key = "terms", Locale = "no", Title = "Vilkår", UpdatedAt = new DateTime(2026, 10, 19, 12, 34, 56, kind).AddTicks(1_234_567) };
+
+        Assert.Equal("2026-10-19T12:34:56.123456Z", LegalPagesExtensions.LegalPageVersion(page));
+        Assert.Equal("2026-01-02T03:04:05.000000Z", LegalPagesExtensions.LegalPageVersion(new LegalPage { Key = "terms", Locale = "no", Title = "x", UpdatedAt = new DateTime(2026, 1, 2, 3, 4, 5, kind) }));
+    }
+
+    [Fact]
+    public async Task Bad_arguments_are_refused()
+    {
+        await using var app = await StartAsync();
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<TestDbContext>();
+
+        await Assert.ThrowsAsync<ArgumentException>("locales", () => db.FindCurrentLegalPageAsync("terms", "no", []));
+        await Assert.ThrowsAsync<ArgumentNullException>("locales", () => db.FindCurrentLegalPageAsync("terms", "no", null!));
+        await Assert.ThrowsAsync<ArgumentNullException>("key", () => db.GetCurrentLegalPageVersionAsync(null!, "no", ["no"]));
+        Assert.Throws<ArgumentNullException>("page", () => LegalPagesExtensions.LegalPageVersion(null!));
+    }
+
+    [Fact]
+    public async Task A_page_answers_the_version_a_client_sends_back()
+    {
+        await using var app = await StartAsync();
+        app.Time.Advance(TimeSpan.FromTicks(1_234_560));
+        await PutAsync(app, "/api/content/legal/terms/no", "Vilkår");
+
+        var page = await JsonAsync(await app.SendAsync(HttpMethod.Get, "/api/content/legal/terms?locale=en", roles: null));
+
+        Assert.Equal("2026-10-15T12:00:00.123456Z", page.GetProperty("version").GetString());
+        Assert.Equal(await VersionAsync(app, "terms", "en"), page.GetProperty("version").GetString());
+        Assert.Equal(["key", "locale", "title", "bodyMarkdown", "updatedAt", "version"], page.EnumerateObject().Select(p => p.Name));
+    }
+
+    [Fact]
+    public async Task A_save_that_changes_nothing_keeps_the_version()
+    {
+        await using var app = await StartAsync();
+        var saved = await JsonAsync(await PutAsync(app, "/api/content/legal/terms/no", "Vilkår", "## Samme"));
+        app.Time.Advance(TimeSpan.FromHours(1));
+
+        var again = await JsonAsync(await PutAsync(app, "/api/content/legal/terms/no", "Vilkår", "## Samme"));
+        var served = await JsonAsync(await app.SendAsync(HttpMethod.Get, "/api/content/legal/terms", roles: null));
+
+        Assert.Equal("2026-10-15T12:00:00.000000Z", saved.GetProperty("version").GetString());
+        Assert.Equal(saved.GetProperty("version").GetString(), again.GetProperty("version").GetString());
+        Assert.Equal(saved.GetProperty("version").GetString(), served.GetProperty("version").GetString());
+        Assert.Equal("2026-10-15T12:00:00.000000Z", await VersionAsync(app, "terms", "no"));
+
+        await PutAsync(app, "/api/content/legal/terms/no", "Vilkår", "## Endret");
+        Assert.Equal("2026-10-15T13:00:00.000000Z", await VersionAsync(app, "terms", "no"));
+    }
+
     // Locale rules
 
     [Fact]
