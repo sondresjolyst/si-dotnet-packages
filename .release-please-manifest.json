@@ -1,12 +1,12 @@
 {
-  "src/SjolystInnovation.AppKit.Vipps": "1.3.0",
-  "src/SjolystInnovation.AppKit.Auth": "1.1.0",
-  "src/SjolystInnovation.AppKit.Hosting": "1.1.0",
-  "src/SjolystInnovation.AppKit.Email": "1.3.0",
-  "src/SjolystInnovation.AppKit.SiteSettings": "1.1.0",
-  "src/SjolystInnovation.AppKit.AdminStats": "1.0.0",
-  "src/SjolystInnovation.AppKit.Storage": "1.0.0",
-  "src/SjolystInnovation.AppKit.Storage.Images": "1.0.0",
-  "src/SjolystInnovation.AppKit.Pdf": "1.1.0",
-  "src/SjolystInnovation.AppKit.Consent": "1.0.0"
+  "src/SjolystInnovation.AppKit.Vipps": "1.3.1",
+  "src/SjolystInnovation.AppKit.Auth": "1.1.1",
+  "src/SjolystInnovation.AppKit.Hosting": "1.1.1",
+  "src/SjolystInnovation.AppKit.Email": "1.3.1",
+  "src/SjolystInnovation.AppKit.SiteSettings": "1.1.1",
+  "src/SjolystInnovation.AppKit.AdminStats": "1.0.1",
+  "src/SjolystInnovation.AppKit.Storage": "1.0.1",
+  "src/SjolystInnovation.AppKit.Storage.Images": "1.0.1",
+  "src/SjolystInnovation.AppKit.Pdf": "1.1.1",
+  "src/SjolystInnovation.AppKit.Consent": "1.0.1"
 }

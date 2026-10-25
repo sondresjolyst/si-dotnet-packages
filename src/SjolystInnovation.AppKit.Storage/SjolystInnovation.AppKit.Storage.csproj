@@ -2,7 +2,7 @@
   <PropertyGroup>
     <PackageId>SjolystInnovation.AppKit.Storage</PackageId>
     <!-- x-release-please-start-version -->
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <!-- x-release-please-end -->
     <Description>Uploaded files on local disk for ASP.NET Core apps, with the file type checked from its first bytes, size limits, path traversal guards, a correctly encoded Content-Disposition, and the disk use of the stores.</Description>
     <PackageTags>file-storage;uploads;content-disposition;minimal-api</PackageTags>
