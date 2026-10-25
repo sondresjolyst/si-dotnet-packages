@@ -326,8 +326,17 @@ internal sealed partial class VippsClient : IVippsClient
         request.Headers.Add("Ocp-Apim-Subscription-Key", credentials.SubscriptionKey);
         request.Content = new StringContent(string.Empty, Encoding.UTF8, "application/json");
 
-        using var response = await _http.SendAsync(request, cancellationToken);
-        var json = await ReadAsync(response, "accesstoken/get", cancellationToken);
+        // A failure here is told apart from a failure of the call the token was for.
+        string json;
+        try
+        {
+            using var response = await _http.SendAsync(request, cancellationToken);
+            json = await ReadAsync(response, "accesstoken/get", cancellationToken);
+        }
+        catch (HttpRequestException e)
+        {
+            throw new VippsAccessTokenException("Vipps did not issue an access token.", e, e.StatusCode);
+        }
         using var doc = JsonDocument.Parse(json);
         var token = doc.RootElement.GetProperty("access_token").GetString()!;
         var expiresIn = 3600;

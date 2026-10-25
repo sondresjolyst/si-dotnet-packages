@@ -199,6 +199,10 @@ call or whether it may have gone through. `VippsFailures.Classify` sorts the exc
 | `CallerCancelled` | The token you passed was canceled | The operation may have gone through. |
 | `None` | Any other exception | Not a failure of the call to Vipps. |
 
+A failed access token throws `VippsAccessTokenException`, an `HttpRequestException` with the status code
+of the token request. Its 400 or 404 says nothing about the payment or the agreement the call was for, so
+check for it before you read a refusal as one about them.
+
 `HttpClient` reports its own timeout as a cancellation, so `Classify` takes the token you passed to
 the call and counts a cancellation as `CallerCancelled` only when that token was canceled.
 `VippsFailures.IsRefusal`, `IsProviderFailure`, and `IsCallerCancellation` answer the same questions

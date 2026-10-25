@@ -515,7 +515,7 @@ public class VippsClientTests
             ? (HttpStatusCode.OK, """{"access_token":"t"}""")
             : (HttpStatusCode.BadRequest, """{"errorCode":"E1","errorRef":"R1","traceId":"T1","phoneNumber":"4791234567"}""");
 
-        await Assert.ThrowsAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
+        await Assert.ThrowsAnyAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
         var line = Assert.Single(log.Lines, l => l.StartsWith("Error", StringComparison.Ordinal));
         Assert.Contains("ErrorCode=E1 ErrorRef=R1 TraceId=T1 Title=- Fields=- BodyLength=", line, StringComparison.Ordinal);
         Assert.DoesNotContain("4791234567", line, StringComparison.Ordinal);
@@ -527,7 +527,7 @@ public class VippsClientTests
     {
         var (client, vipps, _, _, log) = Create();
         vipps.Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get" ? (HttpStatusCode.BadRequest, """{"phoneNumber":"4791234567"}""") : (HttpStatusCode.OK, "{}");
-        await Assert.ThrowsAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
+        await Assert.ThrowsAnyAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
         var line = Assert.Single(log.Lines, l => l.StartsWith("Error", StringComparison.Ordinal));
         Assert.Contains("accesstoken/get failed: 400 ErrorCode=- ErrorRef=- TraceId=- Title=- Fields=- BodyLength=28", line, StringComparison.Ordinal);
         Assert.DoesNotContain("4791234567", line, StringComparison.Ordinal);
@@ -540,7 +540,7 @@ public class VippsClientTests
         var log = new ListLogger();
         var options = Options.Create(new VippsOptions { LogFailedResponseBodies = true, SystemName = "x" });
         var client = new VippsClient(new HttpClient(vipps), options, new FixedVippsEnvironment(false), log, new FakeTimeProvider(Now));
-        await Assert.ThrowsAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
+        await Assert.ThrowsAnyAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
         Assert.Contains(log.Lines, l => l.Contains("accesstoken/get failed: 401 body=not json", StringComparison.Ordinal));
     }
 
@@ -645,7 +645,7 @@ public class VippsClientTests
         var options = Options.Create(new VippsOptions { LogFailedResponseBodies = true, SystemName = "x" });
         var client = new VippsClient(new HttpClient(vipps), options, new FixedVippsEnvironment(false), log, new FakeTimeProvider(Now));
 
-        await Assert.ThrowsAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
+        await Assert.ThrowsAnyAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
 
         var line = Assert.Single(log.Lines, l => l.StartsWith("Error", StringComparison.Ordinal));
         Assert.Contains("accesstoken/get failed: 400 ErrorCode=- ErrorRef=- TraceId=- Title=- Fields=- BodyLength=", line, StringComparison.Ordinal);
@@ -668,7 +668,7 @@ public class VippsClientTests
         var options = Options.Create(new VippsOptions { LogFailedResponseBodies = true, SystemName = "x" });
         var client = new VippsClient(new HttpClient(vipps), options, new FixedVippsEnvironment(false), log, new FakeTimeProvider(Now));
 
-        await Assert.ThrowsAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
+        await Assert.ThrowsAnyAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
 
         var line = Assert.Single(log.Lines, l => l.StartsWith("Error", StringComparison.Ordinal));
         Assert.DoesNotContain("body=", line, StringComparison.Ordinal);
@@ -684,9 +684,48 @@ public class VippsClientTests
         var options = Options.Create(new VippsOptions { LogFailedResponseBodies = true, SystemName = "x" });
         var client = new VippsClient(new HttpClient(vipps), options, new FixedVippsEnvironment(false), log, new FakeTimeProvider(Now));
 
-        await Assert.ThrowsAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
+        await Assert.ThrowsAnyAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
 
         Assert.Contains(log.Lines, l => l.Contains("""accesstoken/get failed: 400 body={"error":"invalid_client"}""", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest)]
+    [InlineData(HttpStatusCode.NotFound)]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    public async Task AFailedAccessToken_ThrowsVippsAccessTokenException_WithItsStatus(HttpStatusCode status)
+    {
+        var (client, vipps, _, _, _) = Create();
+        vipps.Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get" ? (status, "{}") : (HttpStatusCode.OK, "{}");
+
+        var e = await Assert.ThrowsAsync<VippsAccessTokenException>(() => client.GetAgreementAsync("agr_1"));
+
+        Assert.Equal(status, e.StatusCode);
+        Assert.Equal(VippsFailureKind.Refused, VippsFailures.Classify(e, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task AFailedAccessTokenRequest_InTransport_ThrowsVippsAccessTokenException()
+    {
+        var (client, vipps, _, _, _) = Create();
+        vipps.Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get" ? throw new HttpRequestException("down") : (HttpStatusCode.OK, "{}");
+
+        var e = await Assert.ThrowsAsync<VippsAccessTokenException>(() => client.GetAgreementAsync("agr_1"));
+
+        Assert.Null(e.StatusCode);
+        Assert.Equal(VippsFailureKind.Uncertain, VippsFailures.Classify(e, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task AFailedCall_AfterTheToken_IsAPlainHttpRequestException()
+    {
+        var (client, vipps, _, _, _) = Create();
+        vipps.Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get" ? (HttpStatusCode.OK, """{"access_token":"t"}""") : (HttpStatusCode.NotFound, "{}");
+
+        var e = await Assert.ThrowsAnyAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
+
+        Assert.IsNotType<VippsAccessTokenException>(e);
+        Assert.Equal(HttpStatusCode.NotFound, e.StatusCode);
     }
 
     [Fact]
