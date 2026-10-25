@@ -443,9 +443,11 @@ internal sealed partial class VippsClient : IVippsClient
             ? value
             : null;
 
-    private static readonly string[] ErrorIdNames = ["errorCode", "errorRef", "traceId"];
+    private static readonly string[] ErrorIdNames =
+        ["errorCode", "errorRef", "traceId", "type", "title", "detail", "instance", "contextId", "extraDetails"];
 
-    // Whether the body has an errorCode, errorRef, or traceId string, whatever its value.
+    // Whether the body has error ids or is an RFC 7807 problem, whatever the values and their JSON types. Such a
+    // body is never logged whole, since a problem's detail and reasons can echo the request.
     internal static bool HasErrorIds(string body)
     {
         if (string.IsNullOrEmpty(body)) return false;
@@ -453,7 +455,7 @@ internal sealed partial class VippsClient : IVippsClient
         {
             using var doc = JsonDocument.Parse(body);
             return doc.RootElement.ValueKind == JsonValueKind.Object
-                && ErrorIdNames.Any(n => doc.RootElement.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.String);
+                && ErrorIdNames.Any(n => doc.RootElement.TryGetProperty(n, out _));
         }
         catch (JsonException)
         {

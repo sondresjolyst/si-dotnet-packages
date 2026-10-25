@@ -138,7 +138,7 @@ the same with a `Test` prefix. A missing base URL keeps its default.
 | `Test` | Base URL `https://apitest.vipps.no` | The test credentials. |
 | `SystemName` | Empty | The `Vipps-System-Name` header, such as the app's name. At most 30 characters are sent. |
 | `SystemVersion` | `1.0.0` | The `Vipps-System-Version` header. Build metadata after a `+` is left out, and at most 30 characters are sent. |
-| `LogFailedResponseBodies` | `false` | Whether to log the body of a failed response that carries no Vipps error IDs. For debugging only. |
+| `LogFailedResponseBodies` | `false` | Whether to log the body of a failed response that carries no Vipps error IDs and is not an RFC 7807 problem. For debugging only. |
 
 Calls go to the live environment unless your app registers its own `IVippsEnvironment`, such as one
 that reads an admin setting. `FixedVippsEnvironment` is the default, which always answers live. A call
@@ -184,7 +184,8 @@ names of the fields in `extraDetails`. It never logs the body, a problem's `deta
 reasons, because they may echo a phone number or a name. An id is logged only when it is a GUID or a
 plain name with fewer than seven digits, and a title only when it is plain words without
 digits. Anything else logs as `-`. If you need to debug, set
-`LogFailedResponseBodies` to log the body of a failure that carries no error IDs.
+`LogFailedResponseBodies` to log the body of a failure that carries no error IDs and is not an RFC 7807
+problem.
 
 ## Failed calls
 
