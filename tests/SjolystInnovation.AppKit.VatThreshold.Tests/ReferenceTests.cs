@@ -39,11 +39,17 @@ public class ReferenceTests
         return null;
     }
 
-    private static long DirectTurnover(IReadOnlyList<VatSale> sales, IReadOnlyDictionary<DateOnly, long> outside, DateOnly today)
+    private static List<VatTurnoverMonth> DirectMonths(IReadOnlyList<VatSale> sales, IReadOnlyDictionary<DateOnly, long> outside, DateOnly today)
     {
         var start = VatRegistrationThreshold.WindowStart(today);
-        var shop = sales.Where(s => DayOf(s.AtUtc) >= start && DayOf(s.AtUtc) <= today).Sum(s => Kept(s, r => DayOf(r.AtUtc) <= today));
-        return shop + outside.Where(m => Overlaps(m.Key, start, today)).Sum(m => m.Value);
+        var shopByMonth = sales
+            .Where(s => DayOf(s.AtUtc) >= start && DayOf(s.AtUtc) <= today)
+            .GroupBy(s => new DateOnly(DayOf(s.AtUtc).Year, DayOf(s.AtUtc).Month, 1))
+            .ToDictionary(g => g.Key, g => g.Sum(s => Kept(s, r => DayOf(r.AtUtc) <= today)));
+        var months = new List<VatTurnoverMonth>();
+        for (var month = new DateOnly(start.Year, start.Month, 1); month <= today; month = month.AddMonths(1))
+            months.Add(new VatTurnoverMonth(month, shopByMonth.GetValueOrDefault(month), outside.GetValueOrDefault(month)));
+        return months;
     }
 
     [Theory]
@@ -69,7 +75,14 @@ public class ReferenceTests
                 var refunds = new List<VatRefund>();
                 for (var r = random.Next(0, 3); r > 0; r--)
                 {
-                    var refundAt = random.Next(0, 6) == 0 ? at.AddDays(-random.Next(0, 5)) : at.AddHours(random.Next(0, 24 * 200));
+                    // Some refunds are dated before their sale, a few minutes or a few days, the rest after it.
+                    var refundAt = random.Next(0, 8) switch
+                    {
+                        0 => at.AddDays(-random.Next(0, 5)),
+                        1 => at.AddMinutes(-random.Next(1, 60)),
+                        2 => at.AddMinutes(random.Next(0, 120)),
+                        _ => at.AddHours(random.Next(0, 24 * 200)),
+                    };
                     refunds.Add(new VatRefund(refundAt, random.Next(0, 1_500_000)));
                 }
                 sales.Add(new VatSale($"s{i}", at, random.Next(0, 2_000_000), refunds));
@@ -84,7 +97,10 @@ public class ReferenceTests
 
             Assert.Equal(expected?.Day, actual?.Day);
             Assert.Same(expected?.Sale, actual?.Sale);
-            Assert.Equal(DirectTurnover(sales, outside, today), VatRegistrationThreshold.TurnoverOn(today, sales, outside, Oslo.Zone).TotalInOre);
+            var months = DirectMonths(sales, outside, today);
+            var turnover = VatRegistrationThreshold.TurnoverOn(today, sales, outside, Oslo.Zone);
+            Assert.Equal(months, turnover.Months);
+            Assert.Equal(months.Sum(m => m.SalesInOre + m.OutsideInOre), turnover.TotalInOre);
             if (actual is not null) crossings++;
         }
 

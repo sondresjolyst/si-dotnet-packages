@@ -557,6 +557,20 @@ public class VatRegistrationThresholdTests
     }
 
     [Fact]
+    public void AnEmptySaleOrRefund_IsRefused()
+    {
+        var day = new DateOnly(2026, 10, 1);
+        List<VatSale> emptySale = [Sale("a", Utc(2026, 9, 1), 1), null!];
+        List<VatSale> emptyRefund = [new VatSale("a", Utc(2026, 9, 1), 1, [null!])];
+
+        foreach (var sales in new[] { emptySale, emptyRefund })
+        {
+            Assert.Equal("sales", Assert.Throws<ArgumentException>(() => VatRegistrationThreshold.FindCrossing(sales, NoOutside(), Zone, day)).ParamName);
+            Assert.Equal("sales", Assert.Throws<ArgumentException>(() => VatRegistrationThreshold.TurnoverOn(day, sales, NoOutside(), Zone)).ParamName);
+        }
+    }
+
+    [Fact]
     public void NoSalesAndNoOutsideSales_NeverPassTheThreshold()
     {
         var status = StatusAt([], NoOutside(), Now);

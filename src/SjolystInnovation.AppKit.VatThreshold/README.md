@@ -38,6 +38,8 @@ Amounts are in øre. `LimitInOre` is 5 000 000.
 
 ## How turnover is counted
 
+- Amounts are net turnover covered by the act, without VAT. Merverdiavgiftshåndboken 2-1.3 calls it
+  "nettoomsetningen".
 - Days are counted in the time zone you pass. A period ends on a day and starts the day after the same
   date twelve months earlier. Both days are included.
 - A sale counts on the day it was made. Its amount is the sale less its refunds, never below zero. A

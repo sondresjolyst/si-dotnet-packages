@@ -51,7 +51,7 @@ public static class VatRegistrationThreshold
         IReadOnlyDictionary<DateOnly, long> outsideByMonth,
         TimeZoneInfo zone)
     {
-        ArgumentNullException.ThrowIfNull(sales);
+        CheckSales(sales);
         CheckMonths(outsideByMonth);
         ArgumentNullException.ThrowIfNull(zone);
 
@@ -94,7 +94,7 @@ public static class VatRegistrationThreshold
         TimeZoneInfo zone,
         DateOnly until)
     {
-        ArgumentNullException.ThrowIfNull(sales);
+        CheckSales(sales);
         CheckMonths(outsideByMonth);
         ArgumentNullException.ThrowIfNull(zone);
 
@@ -206,6 +206,17 @@ public static class VatRegistrationThreshold
         Math.Max(0, sale.AmountInOre - (sale.Refunds ?? []).Where(made).Sum(r => r.AmountInOre));
 
     private static DateOnly FirstOfMonth(DateOnly day) => new(day.Year, day.Month, 1);
+
+    private static void CheckSales(IReadOnlyList<VatSale> sales)
+    {
+        ArgumentNullException.ThrowIfNull(sales);
+        foreach (var sale in sales)
+        {
+            if (sale is null) throw new ArgumentException("The sales hold an empty sale.", nameof(sales));
+            if (sale.Refunds?.Any(r => r is null) == true)
+                throw new ArgumentException($"The sale {sale.Reference} holds an empty refund.", nameof(sales));
+        }
+    }
 
     private static void CheckMonths(IReadOnlyDictionary<DateOnly, long> outsideByMonth)
     {
