@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Vipps-v1.3.1...SjolystInnovation.AppKit.Vipps-v1.4.0) (2026-10-25)
+
+
+### Features
+
+* **vipps:** log safe problem details and tell access token failures apart ([#135](https://github.com/sondresjolyst/si-dotnet-packages/issues/135)) ([31732b7](https://github.com/sondresjolyst/si-dotnet-packages/commit/31732b7b71c9fc5a26de3146678797fbd9597ef5))
+
 ## [1.3.1](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Vipps-v1.3.0...SjolystInnovation.AppKit.Vipps-v1.3.1) (2026-10-25)
 
 
