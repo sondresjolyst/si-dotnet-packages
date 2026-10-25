@@ -585,11 +585,47 @@ public class VippsClientTests
         Assert.Equal(code, VippsClient.ErrorIds(body).ErrorCode);
 
     [Fact]
-    public void ErrorIds_CutsALongTitle_AndKeepsTenFields()
+    public void ErrorIds_KeepsTenFields()
     {
         var fields = string.Join(',', Enumerable.Range(1, 12).Select(i => $$"""{"name":"f{{i}}"}"""));
-        var ids = VippsClient.ErrorIds($$"""{"title":"{{new string('t', 150)}}","extraDetails":[{{fields}}]}""");
-        Assert.Equal(new string('t', 100), ids.Title);
-        Assert.Equal(string.Join(',', Enumerable.Range(1, 10).Select(i => $"f{i}")), ids.Fields);
+        Assert.Equal(string.Join(',', Enumerable.Range(1, 10).Select(i => $"f{i}")), VippsClient.ErrorIds($$"""{"extraDetails":[{{fields}}]}""").Fields);
     }
+
+    [Theory]
+    [InlineData("Charge not creatable", "Charge not creatable")]
+    [InlineData("Your request parameters didn't validate.", "Your request parameters didn't validate.")]
+    [InlineData("Agreement cannot be updated (stopped)", "Agreement cannot be updated (stopped)")]
+    [InlineData("Charge for 4791234567 failed", null)]
+    [InlineData("Charge 50000 too high", null)]
+    [InlineData("Order ola@example.com refused", null)]
+    [InlineData("Agreement agr_secret refused", null)]
+    [InlineData("   ", null)]
+    [InlineData("", null)]
+    public void ErrorIds_LogsATitleOnlyWhenItIsPlainWords(string title, string? logged) =>
+        Assert.Equal(logged, VippsClient.ErrorIds(JsonSerializer.Serialize(new { title })).Title);
+
+    [Fact]
+    public void ErrorIds_LeavesOutALongTitle() =>
+        Assert.Null(VippsClient.ErrorIds(JsonSerializer.Serialize(new { title = new string('t', 101) })).Title);
+
+    [Theory]
+    [InlineData("c0ffee00-0000-4000-8000-000000000001", "c0ffee00-0000-4000-8000-000000000001")]
+    [InlineData("00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000000")]
+    [InlineData("trace_1.a-b", "trace_1.a-b")]
+    [InlineData("4791234567", null)]
+    [InlineData("ref-12345678", null)]
+    [InlineData("Ola Nordmann", null)]
+    [InlineData("ola@example.com", null)]
+    [InlineData("/recurring/v3/agreements/agr_1", null)]
+    public void ErrorIds_LogsIdsOnlyWhenTheyAreAGuidOrAPlainName(string id, string? logged)
+    {
+        Assert.Equal(logged, VippsClient.ErrorIds(JsonSerializer.Serialize(new { traceId = id })).TraceId);
+        Assert.Equal(logged, VippsClient.ErrorIds(JsonSerializer.Serialize(new { contextId = id })).TraceId);
+        Assert.Equal(logged, VippsClient.ErrorIds(JsonSerializer.Serialize(new { errorRef = id })).ErrorRef);
+        Assert.Equal(logged, VippsClient.ErrorIds(JsonSerializer.Serialize(new { errorCode = id })).ErrorCode);
+    }
+
+    [Fact]
+    public void ErrorIds_LeavesOutAFieldNameWithADigitRun() =>
+        Assert.Equal("due", VippsClient.ErrorIds("""{"extraDetails":[{"name":"due"},{"name":"p4791234567"}]}""").Fields);
 }

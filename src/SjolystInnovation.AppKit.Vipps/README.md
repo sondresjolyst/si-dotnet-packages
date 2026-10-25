@@ -181,7 +181,9 @@ A failed call throws `HttpRequestException`. It logs the Vipps error code, error
 and body length. For an RFC 7807 problem, the answer of the Recurring and ePayment APIs, the error code
 is the problem id from its `type`, the trace ID is its `contextId`, and it also logs the `title` and the
 names of the fields in `extraDetails`. It never logs the body, a problem's `detail`, or the extra detail
-reasons, because they may echo a phone number or a name. If you need to debug, set
+reasons, because they may echo a phone number or a name. An id is logged only when it is a GUID or a
+plain name without a run of seven or more digits, and a title only when it is plain words without
+digits. Anything else logs as `-`. If you need to debug, set
 `LogFailedResponseBodies` to log the body of a failure that carries no error IDs.
 
 ## Failed calls

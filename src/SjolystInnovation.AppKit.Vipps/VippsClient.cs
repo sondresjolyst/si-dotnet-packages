@@ -376,9 +376,10 @@ internal sealed partial class VippsClient : IVippsClient
     }
 
     // Reads the parts of an error body that carry no personal data. An RFC 7807 problem, which the Recurring
-    // and ePayment APIs answer with, names its problem in the type URL and gives a fixed title. Its detail,
+    // and ePayment APIs answer with, names its problem in the type URL and gives a title. Its detail,
     // instance, and extra detail reasons can echo the request, so only the names of the fields it blames
-    // are kept.
+    // are kept. Every value is checked, and one that could carry request data, such as a run of digits, is
+    // left out.
     internal static (string? ErrorCode, string? ErrorRef, string? TraceId, string? Title, string? Fields) ErrorIds(string body)
     {
         if (string.IsNullOrEmpty(body)) return default;
@@ -397,11 +398,10 @@ internal sealed partial class VippsClient : IVippsClient
                     .Take(MaxProblemFields)
                     .ToList()
                 : [];
-            var title = Text(root, "title");
-            return (Text(root, "errorCode") ?? ProblemType(Text(root, "type")),
-                Text(root, "errorRef"),
-                Text(root, "traceId") ?? Text(root, "contextId"),
-                string.IsNullOrWhiteSpace(title) ? null : VippsLimits.Truncate(title, MaxProblemTitleLength),
+            return (PlainId(Text(root, "errorCode")) ?? ProblemType(Text(root, "type")),
+                PlainId(Text(root, "errorRef")),
+                PlainId(Text(root, "traceId")) ?? PlainId(Text(root, "contextId")),
+                ProblemTitle(Text(root, "title")),
                 fields.Count == 0 ? null : string.Join(',', fields));
         }
         catch (JsonException)
@@ -422,11 +422,35 @@ internal sealed partial class VippsClient : IVippsClient
         return ProblemName(id);
     }
 
-    // A name made of letters, digits, dots, dashes, and underscores, which cannot carry a phone number or a name.
+    // A name made of letters, digits, dots, dashes, and underscores, with no run of seven or more digits, so it
+    // cannot carry a phone number, an account number, or a name with spaces.
     private static string? ProblemName(string? value) =>
-        value is { Length: > 0 and <= 64 } && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.') && !value.All(char.IsAsciiDigit)
+        value is { Length: > 0 and <= 64 } && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.') && !HasDigitRun(value)
             ? value
             : null;
+
+    // A GUID, or a plain name as above.
+    private static string? PlainId(string? value) =>
+        value is { Length: 36 } && Guid.TryParseExact(value, "D", out _) ? value : ProblemName(value);
+
+    // A short sentence of letters, spaces, and plain punctuation, without digits, such as "Charge not creatable".
+    private static string? ProblemTitle(string? value) =>
+        value is { Length: > 0 and <= MaxProblemTitleLength }
+        && value.Any(char.IsAsciiLetter)
+        && value.All(c => char.IsAsciiLetter(c) || c is ' ' or '.' or ',' or '\'' or '-' or '(' or ')' or ':')
+            ? value
+            : null;
+
+    private static bool HasDigitRun(string value)
+    {
+        var run = 0;
+        foreach (var c in value)
+        {
+            run = char.IsAsciiDigit(c) ? run + 1 : 0;
+            if (run >= 7) return true;
+        }
+        return false;
+    }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Vipps access token refreshed ({Environment}), expires in {ExpiresIn}s")]
     private static partial void LogTokenRefreshed(ILogger logger, string environment, int expiresIn);
