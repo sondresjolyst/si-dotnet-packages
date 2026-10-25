@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>SjolystInnovation.AppKit.VatThreshold</PackageId>
+    <!-- x-release-please-start-version -->
+    <Version>1.0.0</Version>
+    <!-- x-release-please-end -->
+    <Description>The Norwegian VAT registration threshold of 50 000 kroner in any period of twelve months (merverdiavgiftsloven § 2-1), as plain code: turnover for the period ending on a day, the first day and sale that passed the threshold, and warning levels.</Description>
+    <PackageTags>vat;mva;merverdiavgift;norway;threshold;registration</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <InternalsVisibleTo Include="SjolystInnovation.AppKit.VatThreshold.Tests" />
+  </ItemGroup>
+</Project>

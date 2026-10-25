@@ -18,6 +18,7 @@ on NuGet under the Apache-2.0 license.
 | [SjolystInnovation.AppKit.SiteSettings](src/SjolystInnovation.AppKit.SiteSettings/README.md) | Admin-managed company details, branding, legal pages, and page sections, with stable error codes. |
 | [SjolystInnovation.AppKit.Storage](src/SjolystInnovation.AppKit.Storage/README.md) | Uploaded files on local disk, checked by their first bytes and served with a safe `Content-Disposition`, and the disk use of the stores. |
 | [SjolystInnovation.AppKit.Storage.Images](src/SjolystInnovation.AppKit.Storage.Images/README.md) | Content images with resized WebP renditions, EXIF orientation, cache-friendly serving, and orphan cleanup. |
+| [SjolystInnovation.AppKit.VatThreshold](src/SjolystInnovation.AppKit.VatThreshold/README.md) | The Norwegian VAT registration threshold of 50 000 kroner in any period of twelve months, with turnover, the sale that passed it, and warning levels, as plain code. |
 | [SjolystInnovation.AppKit.Vipps](src/SjolystInnovation.AppKit.Vipps/README.md) | A Vipps MobilePay client with signed webhook endpoints, webhook registration, and phone number checks. |
 
 ## Get started
