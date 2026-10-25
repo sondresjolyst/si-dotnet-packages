@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.SiteSettings-v1.1.1...SjolystInnovation.AppKit.SiteSettings-v1.2.0) (2026-10-25)
+
+
+### Features
+
+* **site-settings:** look up the current legal page version ([#132](https://github.com/sondresjolyst/si-dotnet-packages/issues/132)) ([672b9fb](https://github.com/sondresjolyst/si-dotnet-packages/commit/672b9fb4a1c1f938a83deed192939dda0458c8fa)), closes [#107](https://github.com/sondresjolyst/si-dotnet-packages/issues/107)
+
 ## [1.1.1](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.SiteSettings-v1.1.0...SjolystInnovation.AppKit.SiteSettings-v1.1.1) (2026-10-25)
 
 
