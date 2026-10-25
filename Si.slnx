@@ -9,6 +9,7 @@
     <Project Path="src/SjolystInnovation.AppKit.SiteSettings/SjolystInnovation.AppKit.SiteSettings.csproj" />
     <Project Path="src/SjolystInnovation.AppKit.Storage/SjolystInnovation.AppKit.Storage.csproj" />
     <Project Path="src/SjolystInnovation.AppKit.Storage.Images/SjolystInnovation.AppKit.Storage.Images.csproj" />
+    <Project Path="src/SjolystInnovation.AppKit.VatThreshold/SjolystInnovation.AppKit.VatThreshold.csproj" />
     <Project Path="src/SjolystInnovation.AppKit.Vipps/SjolystInnovation.AppKit.Vipps.csproj" />
   </Folder>
   <Folder Name="/tests/">
@@ -21,6 +22,7 @@
     <Project Path="tests/SjolystInnovation.AppKit.SiteSettings.Tests/SjolystInnovation.AppKit.SiteSettings.Tests.csproj" />
     <Project Path="tests/SjolystInnovation.AppKit.Storage.Tests/SjolystInnovation.AppKit.Storage.Tests.csproj" />
     <Project Path="tests/SjolystInnovation.AppKit.Storage.Images.Tests/SjolystInnovation.AppKit.Storage.Images.Tests.csproj" />
+    <Project Path="tests/SjolystInnovation.AppKit.VatThreshold.Tests/SjolystInnovation.AppKit.VatThreshold.Tests.csproj" />
     <Project Path="tests/SjolystInnovation.AppKit.Vipps.Tests/SjolystInnovation.AppKit.Vipps.Tests.csproj" />
   </Folder>
 </Solution>

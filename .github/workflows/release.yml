@@ -19,6 +19,7 @@ on:
           - src/SjolystInnovation.AppKit.SiteSettings
           - src/SjolystInnovation.AppKit.Storage
           - src/SjolystInnovation.AppKit.Storage.Images
+          - src/SjolystInnovation.AppKit.VatThreshold
           - src/SjolystInnovation.AppKit.Vipps
         required: true
 
