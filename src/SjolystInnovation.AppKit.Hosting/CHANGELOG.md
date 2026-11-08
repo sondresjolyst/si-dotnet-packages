@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.1.2](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Hosting-v1.1.1...SjolystInnovation.AppKit.Hosting-v1.1.2) (2026-11-08)
+
+
+### Dependencies
+
+* **nuget:** update Microsoft.AspNetCore.Authentication.JwtBearer from 10.0.13 to 10.0.14 ([8a335ce](https://github.com/sondresjolyst/si-dotnet-packages/commit/8a335cee5916ea6feb096301c497bc355231481c))
+* **nuget:** update Microsoft.AspNetCore.Identity.EntityFrameworkCore from 10.0.13 to 10.0.14 ([8a335ce](https://github.com/sondresjolyst/si-dotnet-packages/commit/8a335cee5916ea6feb096301c497bc355231481c))
+* **nuget:** update Microsoft.AspNetCore.TestHost from 10.0.13 to 10.0.14 ([8a335ce](https://github.com/sondresjolyst/si-dotnet-packages/commit/8a335cee5916ea6feb096301c497bc355231481c))
+* **nuget:** update Microsoft.EntityFrameworkCore from 10.0.13 to 10.0.14 ([8a335ce](https://github.com/sondresjolyst/si-dotnet-packages/commit/8a335cee5916ea6feb096301c497bc355231481c))
+* **nuget:** update Microsoft.EntityFrameworkCore.InMemory from 10.0.13 to 10.0.14 ([8a335ce](https://github.com/sondresjolyst/si-dotnet-packages/commit/8a335cee5916ea6feb096301c497bc355231481c))
+* **nuget:** update Microsoft.EntityFrameworkCore.Relational from 10.0.13 to 10.0.14 ([8a335ce](https://github.com/sondresjolyst/si-dotnet-packages/commit/8a335cee5916ea6feb096301c497bc355231481c))
+* **nuget:** update Microsoft.EntityFrameworkCore.Sqlite from 10.0.13 to 10.0.14 ([8a335ce](https://github.com/sondresjolyst/si-dotnet-packages/commit/8a335cee5916ea6feb096301c497bc355231481c))
+* **nuget:** update Microsoft.Extensions.Configuration from 10.0.13 to 10.0.14 ([8a335ce](https://github.com/sondresjolyst/si-dotnet-packages/commit/8a335cee5916ea6feb096301c497bc355231481c))
+* **nuget:** update Microsoft.Extensions.DependencyInjection from 10.0.13 to 10.0.14 ([8a335ce](https://github.com/sondresjolyst/si-dotnet-packages/commit/8a335cee5916ea6feb096301c497bc355231481c))
+* **nuget:** update Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore from 10.0.13 to 10.0.14 ([8a335ce](https://github.com/sondresjolyst/si-dotnet-packages/commit/8a335cee5916ea6feb096301c497bc355231481c))
+* **nuget:** update Microsoft.Extensions.Hosting from 10.0.12 to 10.0.14 ([8a335ce](https://github.com/sondresjolyst/si-dotnet-packages/commit/8a335cee5916ea6feb096301c497bc355231481c))
+* **nuget:** update PuppeteerSharp from 25.13.1 to 25.15.0 ([8a335ce](https://github.com/sondresjolyst/si-dotnet-packages/commit/8a335cee5916ea6feb096301c497bc355231481c))
+* **nuget:** update SkiaSharp from 4.153.1 to 4.154.0 ([8a335ce](https://github.com/sondresjolyst/si-dotnet-packages/commit/8a335cee5916ea6feb096301c497bc355231481c))
+* **nuget:** update SkiaSharp.NativeAssets.Linux.NoDependencies from 4.153.1 to 4.154.0 ([8a335ce](https://github.com/sondresjolyst/si-dotnet-packages/commit/8a335cee5916ea6feb096301c497bc355231481c))
+
 ## [1.1.1](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Hosting-v1.1.0...SjolystInnovation.AppKit.Hosting-v1.1.1) (2026-10-25)
 
 
