@@ -19,7 +19,7 @@ public class ContentImageEndpointTests
     }
 
     private static async Task<JsonElement> JsonAsync(HttpResponseMessage response) =>
-        JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        JsonElement.Parse(await response.Content.ReadAsStringAsync());
 
     private static async Task<string> UploadAsync(TestApp app, byte[] file, string name = "photo.png")
     {

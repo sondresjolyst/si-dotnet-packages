@@ -10,7 +10,7 @@ namespace SjolystInnovation.AppKit.SiteSettings.Tests;
 public class LegalPagesTests
 {
     private static async Task<JsonElement> JsonAsync(HttpResponseMessage response) =>
-        JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        JsonElement.Parse(await response.Content.ReadAsStringAsync());
 
     private static Task<TestApp> StartAsync(Action<AppKitLegalPagesOptions>? legal = null) =>
         TestApp.StartAsync(legal: legal ?? (o => o.Locales = ["no", "en"]));

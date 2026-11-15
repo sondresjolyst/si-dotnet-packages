@@ -7,7 +7,7 @@ namespace SjolystInnovation.AppKit.Auth.Tests;
 internal static class ErrorJson
 {
     private static async Task<JsonElement> ReadAsync(HttpResponseMessage response) =>
-        JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        JsonElement.Parse(await response.Content.ReadAsStringAsync());
 
     public static async Task<string> CodeAsync(HttpResponseMessage response) =>
         (await ReadAsync(response)).GetProperty("code").GetString()!;

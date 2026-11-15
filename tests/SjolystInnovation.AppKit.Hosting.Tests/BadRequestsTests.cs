@@ -103,7 +103,7 @@ public sealed class BadRequestsTests
     {
         Assert.Equal(status, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
-        var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        var problem = JsonElement.Parse(await response.Content.ReadAsStringAsync());
         Assert.Equal((int)status, problem.GetProperty("status").GetInt32());
         Assert.False(string.IsNullOrEmpty(problem.GetProperty("title").GetString()));
         Assert.False(problem.TryGetProperty("detail", out _));
@@ -474,7 +474,7 @@ public sealed class BadRequestsTests
 
         Assert.Equal("x", await json.Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.UnsupportedMediaType, text.StatusCode);
-        var problem = JsonDocument.Parse(await text.Content.ReadAsStringAsync()).RootElement;
+        var problem = JsonElement.Parse(await text.Content.ReadAsStringAsync());
         Assert.Equal(MvcTitle, problem.GetProperty("title").GetString());
     }
 

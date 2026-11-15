@@ -45,7 +45,7 @@ public sealed class BrevoClientTests : IDisposable
             Sandbox = sandbox,
         }), _logger);
 
-    private JsonElement SentBody() => JsonDocument.Parse(Assert.Single(_brevo.Sent).Body).RootElement;
+    private JsonElement SentBody() => JsonElement.Parse(Assert.Single(_brevo.Sent).Body);
 
     [Fact]
     public async Task Sends_one_email_to_brevo_with_the_key_and_the_sender()

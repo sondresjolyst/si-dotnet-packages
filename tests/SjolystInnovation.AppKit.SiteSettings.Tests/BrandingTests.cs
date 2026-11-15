@@ -35,7 +35,7 @@ public class BrandingTests
     }
 
     private static async Task<JsonElement> JsonAsync(HttpResponseMessage response) =>
-        JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        JsonElement.Parse(await response.Content.ReadAsStringAsync());
 
     private const string InvalidImage = "Invalid file format. Upload a PNG, JPEG, WebP, GIF or ICO image.";
     private const string ImageTooLarge = "The file is too large. Upload a file of 2 MB or less.";

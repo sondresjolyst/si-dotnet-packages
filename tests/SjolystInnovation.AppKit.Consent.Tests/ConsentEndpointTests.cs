@@ -15,7 +15,7 @@ public class ConsentEndpointTests
     private const string Id = "3f2a6c1e-0b7d-4e8a-9c55-1d2e3f4a5b6c";
 
     private static async Task<JsonElement> JsonAsync(HttpResponseMessage response) =>
-        JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        JsonElement.Parse(await response.Content.ReadAsStringAsync());
 
     private static object Body(string? consentId = Id, bool? marketing = true, string? noticeVersion = "2026-10-24", int? schemaVersion = 1,
         string? source = "banner") =>
