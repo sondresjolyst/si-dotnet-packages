@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.3](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Storage.Images-v1.0.2...SjolystInnovation.AppKit.Storage.Images-v1.0.3) (2026-11-15)
+
+
+### Dependencies
+
+* **nuget:** update SkiaSharp from 4.154.0 to 4.155.0 ([4088f7f](https://github.com/sondresjolyst/si-dotnet-packages/commit/4088f7f601712dd152f4a472676fbf16336d7283))
+* **nuget:** update SkiaSharp.NativeAssets.Linux.NoDependencies from 4.154.0 to 4.155.0 ([4088f7f](https://github.com/sondresjolyst/si-dotnet-packages/commit/4088f7f601712dd152f4a472676fbf16336d7283))
+
 ## [1.0.2](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Storage.Images-v1.0.1...SjolystInnovation.AppKit.Storage.Images-v1.0.2) (2026-11-08)
 
 
