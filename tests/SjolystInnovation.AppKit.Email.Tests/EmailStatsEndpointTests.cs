@@ -130,7 +130,7 @@ public sealed class EmailStatsEndpointTests : IAsyncDisposable
 
         var response = await GetAsync("/api/admin/email-stats?days=7");
 
-        Assert.Equal(7, JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("days").GetInt32());
+        Assert.Equal(7, JsonElement.Parse(await response.Content.ReadAsStringAsync()).GetProperty("days").GetInt32());
         Assert.Equal([7], _stats.Asked);
     }
 
@@ -144,7 +144,7 @@ public sealed class EmailStatsEndpointTests : IAsyncDisposable
         var response = await GetAsync($"/api/admin/email-stats?days={days}");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        var errors = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("errors");
+        var errors = JsonElement.Parse(await response.Content.ReadAsStringAsync()).GetProperty("errors");
         Assert.Equal("Must be at least 1.", errors.GetProperty("days")[0].GetString());
         Assert.Empty(_stats.Asked);
     }
@@ -159,7 +159,7 @@ public sealed class EmailStatsEndpointTests : IAsyncDisposable
         var response = await GetAsync($"/api/admin/email-stats?days={days}");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        var errors = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("errors");
+        var errors = JsonElement.Parse(await response.Content.ReadAsStringAsync()).GetProperty("errors");
         Assert.Equal("Must be at most 90.", errors.GetProperty("days")[0].GetString());
         Assert.Empty(_stats.Asked);
     }
@@ -174,7 +174,7 @@ public sealed class EmailStatsEndpointTests : IAsyncDisposable
         var response = await GetAsync("/api/admin/email-stats?days=8");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        var errors = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("errors");
+        var errors = JsonElement.Parse(await response.Content.ReadAsStringAsync()).GetProperty("errors");
         Assert.Equal("Must be at most 7.", errors.GetProperty("days")[0].GetString());
         Assert.Equal([7], _stats.Asked);
     }
@@ -217,7 +217,7 @@ public sealed class EmailStatsEndpointTests : IAsyncDisposable
         var response = await GetAsync();
 
         Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
-        var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        var body = JsonElement.Parse(await response.Content.ReadAsStringAsync());
         Assert.Equal("Failed to fetch email stats from Brevo.", body.GetProperty("detail").GetString());
         Assert.Equal(502, body.GetProperty("status").GetInt32());
         var log = Assert.Single(_logs.GetSnapshot(), r => r.Category == "SjolystInnovation.AppKit.Email.Stats");

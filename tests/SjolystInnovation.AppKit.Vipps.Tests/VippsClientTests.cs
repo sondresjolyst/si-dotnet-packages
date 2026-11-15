@@ -36,7 +36,7 @@ public class VippsClientTests
         };
 
         public IEnumerable<(HttpRequestMessage Request, string Body)> Api => Sent.Where(s => s.Request.RequestUri!.AbsolutePath != "/accesstoken/get");
-        public JsonElement Body(string path) => JsonDocument.Parse(Sent.Single(s => s.Request.RequestUri!.AbsolutePath == path).Body).RootElement;
+        public JsonElement Body(string path) => JsonElement.Parse(Sent.Single(s => s.Request.RequestUri!.AbsolutePath == path).Body);
     }
 
     private sealed class ListLogger : ILogger<VippsClient>
@@ -170,7 +170,7 @@ public class VippsClientTests
         var (request, body) = vipps.Api.Single();
         Assert.Equal(HttpMethod.Patch, request.Method);
         Assert.Equal("/recurring/v3/agreements/agr_1", request.RequestUri!.AbsolutePath);
-        Assert.Equal(59800, JsonDocument.Parse(body).RootElement.GetProperty("pricing").GetProperty("suggestedMaxAmount").GetInt32());
+        Assert.Equal(59800, JsonElement.Parse(body).GetProperty("pricing").GetProperty("suggestedMaxAmount").GetInt32());
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => client.UpdateAgreementMaxAmountAsync("agr_1", VippsLimits.MaxAgreementAmountInOre + 1, "key-3"));
         Assert.Single(vipps.Api);
@@ -501,8 +501,8 @@ public class VippsClientTests
         await client.DeleteWebhookAsync("wh_1", isTest: true);
 
         var register = vipps.Api.First();
-        Assert.Equal("https://x/a", JsonDocument.Parse(register.Body).RootElement.GetProperty("url").GetString());
-        Assert.Equal(VippsEvents.Payments, JsonDocument.Parse(register.Body).RootElement.GetProperty("events").EnumerateArray().Select(e => e.GetString()!));
+        Assert.Equal("https://x/a", JsonElement.Parse(register.Body).GetProperty("url").GetString());
+        Assert.Equal(VippsEvents.Payments, JsonElement.Parse(register.Body).GetProperty("events").EnumerateArray().Select(e => e.GetString()!));
         Assert.True(Guid.TryParse(register.Request.Headers.GetValues("Idempotency-Key").Single(), out _));
         Assert.Equal("DELETE /webhooks/v1/webhooks/wh_1", $"{vipps.Api.Last().Request.Method} {vipps.Api.Last().Request.RequestUri!.AbsolutePath}");
     }

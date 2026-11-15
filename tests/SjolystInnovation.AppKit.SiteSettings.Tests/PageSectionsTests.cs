@@ -230,7 +230,7 @@ public class PageSectionsTests
         var response = await PutAsync(app, "/api/content/home", json);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal("Expected a JSON array of sections.", JsonDocument.Parse(await BodyAsync(response)).RootElement.GetProperty("detail").GetString());
+        Assert.Equal("Expected a JSON array of sections.", JsonElement.Parse(await BodyAsync(response)).GetProperty("detail").GetString());
         Assert.Empty(await RowsAsync(app));
     }
 
@@ -245,7 +245,7 @@ public class PageSectionsTests
         var response = await PutAsync(app, $"/api/content/home?locale={Uri.EscapeDataString(locale)}");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal("Unsupported locale.", JsonDocument.Parse(await BodyAsync(response)).RootElement.GetProperty("detail").GetString());
+        Assert.Equal("Unsupported locale.", JsonElement.Parse(await BodyAsync(response)).GetProperty("detail").GetString());
         Assert.Empty(await RowsAsync(app));
     }
 

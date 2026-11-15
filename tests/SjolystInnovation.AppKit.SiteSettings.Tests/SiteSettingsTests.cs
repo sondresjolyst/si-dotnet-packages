@@ -28,7 +28,7 @@ public class SiteSettingsTests
     }
 
     private static async Task<JsonElement> JsonAsync(HttpResponseMessage response) =>
-        JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        JsonElement.Parse(await response.Content.ReadAsStringAsync());
 
     private static async Task<string[]> ErrorsAsync(HttpResponseMessage response)
     {

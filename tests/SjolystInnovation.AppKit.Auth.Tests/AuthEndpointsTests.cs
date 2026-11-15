@@ -96,7 +96,7 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
     private Task<HttpResponseMessage> PostAsync(string path, object body) => _client.PostAsJsonAsync($"/api/auth/{path}", body);
 
     private static async Task<JsonElement> JsonAsync(HttpResponseMessage response) =>
-        JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        JsonElement.Parse(await response.Content.ReadAsStringAsync());
 
     private static async Task<string> MessageAsync(HttpResponseMessage response) =>
         (await JsonAsync(response)).GetProperty("message").GetString()!;

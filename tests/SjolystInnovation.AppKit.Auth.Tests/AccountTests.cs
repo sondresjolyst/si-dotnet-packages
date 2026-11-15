@@ -188,7 +188,7 @@ public sealed class AccountTests : IAsyncDisposable
     }
 
     private static async Task<JsonElement> JsonAsync(HttpResponseMessage response) =>
-        JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        JsonElement.Parse(await response.Content.ReadAsStringAsync());
 
     // The deleter
 
