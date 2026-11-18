@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -56,7 +57,7 @@ public static partial class AuthEndpointsExtensions
     /// Identity with a <see cref="SignInManager{TUser}"/>, <see cref="AuthServiceCollectionExtensions.AddAppKitAuth{TContext}"/>,
     /// and an <see cref="IAuthEmails{TUser}"/>. An error returns a <c>message</c> and a <c>code</c>. A
     /// missing or malformed field, or a password Identity rejects, returns a validation problem with a
-    /// code for each field error. A reset whose result cannot be saved answers 409 <c>tryAgain</c>. <see cref="AuthErrorCodes"/> lists the codes.
+    /// code for each field error. A reset whose result cannot be saved answers 409 <c>tryAgain</c>. When the app called <see cref="SelfRegistrationServiceCollectionExtensions.AddAppKitSelfRegistration{TUser, TContext}"/>, a right reset code on an account with an unconfirmed email also confirms the email and runs the <see cref="IEmailVerifiedHandler{TUser}"/> handlers, and the access tokens issued before the reset stop working at once. <see cref="AuthErrorCodes"/> lists the codes.
     /// </summary>
     public static RouteGroupBuilder MapAppKitAuth<TUser, TContext>(this IEndpointRouteBuilder endpoints,
         string prefix = "/api/auth", Action<AppKitAuthEndpointOptions<TUser>>? configure = null)
@@ -250,12 +251,42 @@ internal sealed class AuthHandlers<TUser, TContext>(AppKitAuthEndpointOptions<TU
             return new AuthFieldErrors().Password("NewPassword", result.Errors, Get<IOptions<IdentityOptions>>(http).Value.Password.RequiredLength).ToResult();
 
         PasswordResetCodes.Complete(user!);
+        // An app that opted in to sign-up also takes the reset code as proof of the mailbox, so the reset confirms the email.
+        var confirmed = http.RequestServices.GetService<SelfRegistrationRegistered>() is not null && ConfirmEmail(user!);
         var completed = await users.UpdateAsync(user!);
         // A new password ends every session, so a session that someone took over cannot continue.
         var sessions = await refreshTokens.RevokeAllForUserAsync(user!.Id, http.RequestAborted);
         AuthEndpointsExtensions.Log.PasswordReset(logger, user.Id, sessions);
         if (!completed.Succeeded)
             return AuthResults.TryAgain();
+
+        if (http.RequestServices.GetService<SelfRegistrationRegistered>() is not null)
+        {
+            // Resetting the password rotated the security stamp. Drop the user from the bearer check cache, so the earlier
+            // access tokens stop working at once on this instance.
+            http.RequestServices.GetService<IMemoryCache>()?.Remove(IdentityAndBearerExtensions.UserCheckKey(user.Id));
+            if (confirmed)
+            {
+                AuthEndpointsExtensions.Log.EmailVerified(logger, user.Id);
+                foreach (var handler in http.RequestServices.GetServices<IEmailVerifiedHandler<TUser>>())
+                    await handler.OnEmailVerifiedAsync(user, http.RequestAborted);
+            }
+        }
         return TypedResults.Ok(new MessageResponse("Password reset successfully."));
+    }
+
+    // Confirms an unconfirmed email and clears its verification code. Returns whether it changed anything.
+    private static bool ConfirmEmail(TUser user)
+    {
+        if (user.EmailConfirmed)
+            return false;
+        user.EmailConfirmed = true;
+        if (user is IEmailVerificationUser verification)
+        {
+            verification.EmailVerificationCodeHash = null;
+            verification.EmailVerificationCodeExpiration = null;
+            verification.EmailVerificationAttempts = 0;
+        }
+        return true;
     }
 }
