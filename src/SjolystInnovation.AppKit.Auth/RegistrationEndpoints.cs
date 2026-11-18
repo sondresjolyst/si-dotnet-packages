@@ -40,7 +40,7 @@ public static partial class AuthEndpointsExtensions
     /// because the user name defaults to the email and a chosen one could otherwise take another person's email.
     /// It also maps <c>POST verify-email</c> with the body <c>code</c> and <c>POST resend-verification</c> with no body.
     /// Both need a signed-in user, the account that is being verified. A right code confirms the email, ends every
-    /// session of the user, and answers 200. A wrong or expired code answers 400 <c>invalidCode</c>, a verified
+    /// session of the user, and answers 200. A check whose result cannot be saved answers 409 <c>tryAgain</c>. A wrong or expired code answers 400 <c>invalidCode</c>, a verified
     /// account 409 <c>alreadyVerified</c>, and five wrong codes 429 <c>tooManyAttempts</c>. A resend answers 200,
     /// or 429 <c>tooManyRequests</c> inside the cooldown, or 429 <c>tooManyAttempts</c> until the locked code has
     /// expired. It needs Identity, <see cref="AuthServiceCollectionExtensions.AddAppKitAuth{TContext}"/>, an

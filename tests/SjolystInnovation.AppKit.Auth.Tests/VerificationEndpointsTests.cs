@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -44,6 +45,17 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
             Task.CompletedTask;
     }
 
+    // Makes the next saves of a user fail like a lost race on the concurrency stamp.
+    internal sealed class LostRace : SaveChangesInterceptor
+    {
+        public volatile bool Active;
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default) =>
+            Active && eventData.Context!.ChangeTracker.Entries<IdentityTestUser>().Any(e => e.State == EntityState.Modified)
+                ? throw new DbUpdateConcurrencyException("Lost the race.")
+                : base.SavingChangesAsync(eventData, result, cancellationToken);
+    }
+
     private sealed class VerifiedLog
     {
         public List<(string UserId, bool Confirmed, bool InTransaction)> Calls { get; } = [];
@@ -65,6 +77,8 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
     private readonly FakeTimeProvider _time = new(DateTimeOffset.UtcNow);
     private readonly FakeEmails _emails = new();
     private readonly VerifiedLog _verified = new();
+    private readonly LostRace _lostRace = new();
+    private string? _file;
     private IHost? _host;
     private HttpClient _client = default!;
 
@@ -78,10 +92,18 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
             _host.Dispose();
         }
         await _connection.DisposeAsync();
+        if (_file is not null)
+        {
+            SqliteConnection.ClearAllPools();
+            File.Delete(_file);
+        }
     }
 
-    private async Task StartAsync(Action<AppKitRegistrationOptions<IdentityTestUser>>? configure = null)
+    private async Task StartAsync(Action<AppKitRegistrationOptions<IdentityTestUser>>? configure = null, bool fileDb = false)
     {
+        // Parallel requests need their own connections, so they run on a database file.
+        if (fileDb)
+            _file = Path.Combine(Path.GetTempPath(), $"appkit-auth-{Guid.NewGuid():N}.db");
         _host = new HostBuilder()
             .ConfigureWebHost(web => web
                 .UseTestServer()
@@ -90,7 +112,14 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
                 .ConfigureServices((context, s) =>
                 {
                     s.AddSingleton<TimeProvider>(_time);
-                    s.AddDbContext<RegistrationTestDbContext>(o => o.UseSqlite(_connection));
+                    s.AddDbContext<RegistrationTestDbContext>(o =>
+                    {
+                        if (_file is null)
+                            o.UseSqlite(_connection);
+                        else
+                            o.UseSqlite($"Data Source={_file};Pooling=False");
+                        o.AddInterceptors(_lostRace);
+                    });
                     s.AddAppKitIdentity<IdentityTestUser, RegistrationTestDbContext>();
                     s.AddAppKitAuth<RegistrationTestDbContext>(context.Configuration.GetSection("Jwt"));
                     s.AddAppKitJwtBearer<IdentityTestUser>(u => !u.IsDeleted);
@@ -357,6 +386,59 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
 
         var call = Assert.Single(_verified.Calls);
         Assert.Equal(("u1", true, false), call);
+    }
+
+    // A check whose write is lost
+
+    [Fact]
+    public async Task A_wrong_code_whose_attempt_cannot_be_saved_answers_409_tryAgain()
+    {
+        await StartAsync();
+        await SeedAsync("u1");
+        var token = await AccessTokenAsync("u1");
+        _lostRace.Active = true;
+
+        var response = await VerifyAsync("WRONG1", token);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("tryAgain", await ErrorJson.CodeAsync(response));
+        Assert.Equal(0, Stored("u1").EmailVerificationAttempts);
+    }
+
+    [Fact]
+    public async Task A_right_code_whose_confirmation_cannot_be_saved_answers_409_tryAgain()
+    {
+        await StartAsync();
+        var code = await SeedAsync("u1");
+        var token = await AccessTokenAsync("u1");
+        _lostRace.Active = true;
+
+        var response = await VerifyAsync(code, token);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("tryAgain", await ErrorJson.CodeAsync(response));
+        Assert.False(Stored("u1").EmailConfirmed);
+        Assert.Empty(_verified.Calls);
+    }
+
+    [Fact]
+    public async Task Parallel_wrong_guesses_never_get_more_invalidCode_answers_than_stored_attempts()
+    {
+        await StartAsync(fileDb: true);
+        await SeedAsync("u1");
+        var token = await AccessTokenAsync("u1");
+        var invalid = 0;
+        for (var round = 0; round < 30 && Stored("u1").EmailVerificationAttempts < VerificationCodes.MaxAttempts; round++)
+        {
+            var responses = await Task.WhenAll(Enumerable.Range(0, 12).Select(i => VerifyAsync($"WRONG{i}", token)));
+            invalid += responses.Count(r => r.StatusCode == HttpStatusCode.BadRequest);
+            Assert.All(responses, r => Assert.Contains(r.StatusCode, new[] { HttpStatusCode.BadRequest, HttpStatusCode.Conflict, HttpStatusCode.TooManyRequests }));
+            Assert.True(invalid <= Stored("u1").EmailVerificationAttempts);
+        }
+
+        Assert.Equal(VerificationCodes.MaxAttempts, Stored("u1").EmailVerificationAttempts);
+        var after = await Task.WhenAll(Enumerable.Range(0, 10).Select(i => VerifyAsync($"LATE{i}", token)));
+        Assert.All(after, r => Assert.Equal(HttpStatusCode.TooManyRequests, r.StatusCode));
     }
 
     // Sessions

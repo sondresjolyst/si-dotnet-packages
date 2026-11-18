@@ -93,7 +93,9 @@ internal sealed class VerificationHandlers<TUser, TContext>(ILogger logger)
             case CodeCheck.TooManyAttempts:
                 return AuthResults.Error(AuthErrorCodes.TooManyAttempts, "Too many attempts. Wait until the code has expired, then request a new one.", StatusCodes.Status429TooManyRequests);
             case CodeCheck.Invalid:
-                await users.UpdateAsync(user);
+                // Only a request whose attempt was stored learns that the code was wrong.
+                if (!(await users.UpdateAsync(user)).Succeeded)
+                    return AuthResults.TryAgain();
                 return AuthResults.Error(AuthErrorCodes.InvalidCode, "Invalid or expired verification code.", StatusCodes.Status400BadRequest);
         }
 
@@ -106,10 +108,7 @@ internal sealed class VerificationHandlers<TUser, TContext>(ILogger logger)
             if (!rotated.Succeeded)
             {
                 await tx.RollbackAsync(cancellationToken);
-                // Another request confirmed the same account first.
-                if (rotated.Errors.Any(e => e.Code == nameof(IdentityErrorDescriber.ConcurrencyFailure)))
-                    return AuthResults.Error(AuthErrorCodes.AlreadyVerified, "The email address is already verified.", StatusCodes.Status409Conflict);
-                throw new InvalidOperationException("Verifying the email failed: " + string.Join(" ", rotated.Errors.Select(e => e.Description)));
+                return AuthResults.TryAgain();
             }
             await Get<IRefreshTokenService>(http).RevokeAllForUserAsync(user.Id, cancellationToken);
             await tx.CommitAsync(cancellationToken);

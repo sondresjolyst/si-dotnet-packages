@@ -135,6 +135,9 @@ public static class AuthErrorCodes
 
     /// <summary>The request came too soon after the last one of its kind. Try again after the cooldown.</summary>
     public const string TooManyRequests = "tooManyRequests";
+
+    /// <summary>The request could not be saved, for example because another request changed the same account at the same time. Try again.</summary>
+    public const string TryAgain = "tryAgain";
 }
 
 /// <summary>The body of an error that belongs to no field: the English message and its code.</summary>
@@ -144,6 +147,10 @@ internal static class AuthResults
 {
     public static JsonHttpResult<AuthError> Error(string code, string message, int status) =>
         TypedResults.Json(new AuthError(message, code), statusCode: status);
+
+    /// <summary>The answer when a check could not store its result, so the caller learns nothing about the code.</summary>
+    public static JsonHttpResult<AuthError> TryAgain() =>
+        Error(AuthErrorCodes.TryAgain, "The request could not be completed. Try again.", StatusCodes.Status409Conflict);
 }
 
 /// <summary>The field errors of one request, with a code for each message and the limit that goes with a code.</summary>
