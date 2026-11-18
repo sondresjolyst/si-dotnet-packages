@@ -1,13 +1,27 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace SjolystInnovation.AppKit.Auth;
 
+// What the bearer check and the sign-in answers need to know about a user's consents. Registered only when the app opted in to sign-up.
+internal interface IPendingConsentReader
+{
+    // The documents the user must accept again right now, each with the version that is current, in document order.
+    Task<IReadOnlyList<PendingConsent>> GetPendingAsync(string userId, CancellationToken cancellationToken = default);
+}
+
 // Records acceptances and tells whether a user must accept a document again. Time comes from the TimeProvider.
-internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider time)
+// The requirement rows are cached for a short time when a cache is given. Marking a requirement clears them.
+internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider time, IMemoryCache? cache = null) : IPendingConsentReader
     where TContext : DbContext, IAccountConsentDbContext
 {
+    internal const string RequirementsCacheKey = "SjolystInnovation.AppKit.Auth:consent-requirements";
+    private static readonly TimeSpan RequirementsCacheDuration = TimeSpan.FromMinutes(1);
+
     // Adds the acceptance and saves. Returns false when the user already accepted this version of the document,
-    // which includes a request that lost a race on the unique index. The first row stays as it was.
+    // which includes a request that lost a race on the unique index. The first row stays as it was. The caller must
+    // not hold a transaction around this call. A failed insert aborts a Postgres transaction, and then the check
+    // for the row that won the race fails too.
     public async Task<bool> RecordAsync(
         string userId, string document, string version, string source,
         string? locale = null, string? ip = null, CancellationToken cancellationToken = default)
@@ -54,17 +68,29 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
     }
 
     // The documents the user must accept again right now, in name order.
-    public async Task<IReadOnlyList<string>> PendingDocumentsAsync(string userId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<string>> PendingDocumentsAsync(string userId, CancellationToken cancellationToken = default) =>
+        [.. (await GetPendingAsync(userId, cancellationToken)).Select(p => p.Document)];
+
+    // Each document the user must accept again, with the version of its newest requirement in effect.
+    public async Task<IReadOnlyList<PendingConsent>> GetPendingAsync(string userId, CancellationToken cancellationToken = default)
     {
         var latest = await LatestAcceptancesAsync(userId, cancellationToken);
         var now = time.GetUtcNow().UtcDateTime;
-        var requirements = await db.ConsentRequirements.AsNoTracking().ToListAsync(cancellationToken);
-        return requirements
+        var requirements = await RequirementsAsync(cancellationToken);
+        return [.. requirements
             .GroupBy(r => r.Document)
             .Where(g => MustAcceptAgain(latest.TryGetValue(g.Key, out var at) ? at : null, g, now))
-            .Select(g => g.Key)
-            .Order(StringComparer.Ordinal)
-            .ToList();
+            .Select(g => new PendingConsent(g.Key, g.Where(r => r.EffectiveFrom <= now).OrderByDescending(r => r.MarkedAt).ThenByDescending(r => r.Id).First().Version))
+            .OrderBy(p => p.Document, StringComparer.Ordinal)];
+    }
+
+    private async Task<IReadOnlyList<ConsentRequirement>> RequirementsAsync(CancellationToken cancellationToken)
+    {
+        if (cache is not null && cache.TryGetValue(RequirementsCacheKey, out IReadOnlyList<ConsentRequirement>? cached) && cached is not null)
+            return cached;
+        IReadOnlyList<ConsentRequirement> rows = await db.ConsentRequirements.AsNoTracking().ToListAsync(cancellationToken);
+        cache?.Set(RequirementsCacheKey, rows, RequirementsCacheDuration);
+        return rows;
     }
 
     // A requirement binds from EffectiveFrom. The user is pending when the latest acceptance is older than the

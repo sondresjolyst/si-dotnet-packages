@@ -43,7 +43,10 @@ public static partial class AuthEndpointsExtensions
     /// session of the user, and answers 200. A check whose result cannot be saved answers 409 <c>tryAgain</c>. A wrong or expired code answers 400 <c>invalidCode</c>, a verified
     /// account 409 <c>alreadyVerified</c>, and five wrong codes 429 <c>tooManyAttempts</c>. A resend answers 200,
     /// or 429 <c>tooManyRequests</c> inside the cooldown, or 429 <c>tooManyAttempts</c> until the locked code has
-    /// expired. It needs Identity, <see cref="AuthServiceCollectionExtensions.AddAppKitAuth{TContext}"/>, an
+    /// expired. It also maps <c>POST accept-terms</c> with the body <c>termsVersion</c> and optional <c>locale</c>, for a signed-in
+    /// user whether the email is verified or not. A blank version is a field error, and a version that is not the current
+    /// one answers 409 <c>termsChanged</c>. It records the acceptance with the source <c>reaccept</c>, answers 204, and
+    /// answers 204 again for a version the user already accepted. It needs Identity, <see cref="AuthServiceCollectionExtensions.AddAppKitAuth{TContext}"/>, an
     /// <see cref="IRegistrationEmails{TUser}"/> and
     /// <see cref="SelfRegistrationServiceCollectionExtensions.AddAppKitSelfRegistration{TUser, TContext}"/>.
     /// An account counts as inactive when <typeparamref name="TUser"/> implements <see cref="IAppKitAccount"/> and
@@ -70,6 +73,7 @@ public static partial class AuthEndpointsExtensions
         var signedIn = endpoints.MapGroup(prefix).RequireAuthorization();
         signedIn.MapPost("verify-email", (VerifyEmailRequest request, HttpContext http) => verification.VerifyAsync(request, http));
         signedIn.MapPost("resend-verification", (HttpContext http, CancellationToken _) => verification.ResendAsync(http));
+        signedIn.MapPost("accept-terms", (AcceptTermsRequest request, HttpContext http) => ConsentHandlers<TUser, TContext>.AcceptTermsAsync(request, http));
         return group;
     }
 

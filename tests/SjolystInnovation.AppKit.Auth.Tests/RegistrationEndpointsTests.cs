@@ -741,7 +741,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
     }
 
     [Fact]
-    public void Mapping_with_the_opt_in_maps_three_routes_under_the_prefix()
+    public void Mapping_with_the_opt_in_maps_four_routes_under_the_prefix()
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -751,6 +751,6 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
         app.MapAppKitRegistration<IdentityTestUser, RegistrationTestDbContext>("/custom");
 
         var routes = ((IEndpointRouteBuilder)app).DataSources.SelectMany(s => s.Endpoints).OfType<RouteEndpoint>().Select(r => r.RoutePattern.RawText).ToList();
-        Assert.Equal(["/custom/register", "/custom/resend-verification", "/custom/verify-email"], routes.Order());
+        Assert.Equal(["/custom/accept-terms", "/custom/register", "/custom/resend-verification", "/custom/verify-email"], routes.Order());
     }
 }

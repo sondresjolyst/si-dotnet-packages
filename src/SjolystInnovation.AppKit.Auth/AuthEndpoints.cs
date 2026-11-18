@@ -29,6 +29,8 @@ internal sealed record LogoutRequest(string? RefreshToken);
 internal sealed record PasswordResetRequest(string? Email);
 internal sealed record ResetPasswordRequest(string? Email, string? Code, string? NewPassword);
 internal sealed record TokenResponse(string Token, string RefreshToken);
+// The answer for an app that opted in to sign-up. An app that did not keeps the body of TokenResponse as it was.
+internal sealed record SignUpTokenResponse(string Token, string RefreshToken, bool EmailVerified, IReadOnlyList<PendingConsent> PendingConsents);
 internal sealed record MessageResponse(string Message);
 
 /// <summary>The options for <see cref="AuthEndpointsExtensions.MapAppKitAuth{TUser, TContext}"/>.</summary>
@@ -47,7 +49,10 @@ public static partial class AuthEndpointsExtensions
 {
     /// <summary>
     /// Maps <c>login</c>, <c>refresh-token</c>, <c>logout</c>, <c>request-password-reset</c>, and
-    /// <c>reset-password</c> under <paramref name="prefix"/>. All are anonymous POST endpoints. They need
+    /// <c>reset-password</c> under <paramref name="prefix"/>. All are anonymous POST endpoints. When the app called
+    /// <see cref="SelfRegistrationServiceCollectionExtensions.AddAppKitSelfRegistration{TUser, TContext}"/>, the answers of
+    /// <c>login</c> and <c>refresh-token</c> also hold <c>emailVerified</c> and <c>pendingConsents</c>, a list of
+    /// <c>document</c> and <c>version</c>. Other apps get <c>token</c> and <c>refreshToken</c> only. They need
     /// Identity with a <see cref="SignInManager{TUser}"/>, <see cref="AuthServiceCollectionExtensions.AddAppKitAuth{TContext}"/>,
     /// and an <see cref="IAuthEmails{TUser}"/>. An error returns a <c>message</c> and a <c>code</c>. A
     /// missing or malformed field, or a password Identity rejects, returns a validation problem with a
@@ -151,7 +156,15 @@ internal sealed class AuthHandlers<TUser, TContext>(AppKitAuthEndpointOptions<TU
         var token = jwt.Build(user, await users.GetRolesAsync(user));
         var refreshToken = await refreshTokens.IssueAsync(user.Id, http.RequestAborted);
         await db.SaveChangesAsync(http.RequestAborted);
-        return TypedResults.Ok(new TokenResponse(token, refreshToken));
+        return await TokensAsync(http, user, token, refreshToken);
+    }
+
+    // An app that opted in to sign-up also tells the client whether the email is confirmed and which documents to accept again.
+    private static async Task<IResult> TokensAsync(HttpContext http, TUser user, string token, string refreshToken)
+    {
+        if (http.RequestServices.GetService<IPendingConsentReader>() is not { } reader)
+            return TypedResults.Ok(new TokenResponse(token, refreshToken));
+        return TypedResults.Ok(new SignUpTokenResponse(token, refreshToken, user.EmailConfirmed, await reader.GetPendingAsync(user.Id, http.RequestAborted)));
     }
 
     public async Task<IResult> RefreshAsync(RefreshTokenRequest request, HttpContext http)
@@ -175,7 +188,7 @@ internal sealed class AuthHandlers<TUser, TContext>(AppKitAuthEndpointOptions<TU
             return Error(AuthErrorCodes.InvalidRefreshToken, "Invalid or expired refresh token", StatusCodes.Status401Unauthorized);
         }
 
-        return TypedResults.Ok(new TokenResponse(jwt.Build(user, await users.GetRolesAsync(user)), rotation.RefreshToken!));
+        return await TokensAsync(http, user, jwt.Build(user, await users.GetRolesAsync(user)), rotation.RefreshToken!);
     }
 
     public static async Task<IResult> LogoutAsync(LogoutRequest request, HttpContext http)

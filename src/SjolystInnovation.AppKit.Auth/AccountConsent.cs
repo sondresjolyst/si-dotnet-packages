@@ -44,6 +44,11 @@ public class ConsentRequirement
     public DateTime EffectiveFrom { get; set; }
 }
 
+/// <summary>A document the user must accept again, with the version that is current.</summary>
+/// <param name="Document">The document, such as <c>terms</c>.</param>
+/// <param name="Version">The version to accept.</param>
+public sealed record PendingConsent(string Document, string Version);
+
 /// <summary>A DbContext that holds account consents. The app's DbContext implements it.</summary>
 public interface IAccountConsentDbContext
 {

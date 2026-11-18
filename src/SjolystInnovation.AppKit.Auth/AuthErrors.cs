@@ -110,7 +110,7 @@ public static class AuthErrorCodes
     /// <summary>The person did not confirm the minimum age. The error is keyed by <c>AgeConfirmed</c>.</summary>
     public const string AgeNotConfirmed = "ageNotConfirmed";
 
-    /// <summary>The person did not accept the terms. The error is keyed by <c>TermsAccepted</c>.</summary>
+    /// <summary>The person did not accept the terms. At sign-up the error is keyed by <c>TermsAccepted</c>. As a 403 from <c>RequireCurrentTerms</c> it means the user must accept a document again.</summary>
     public const string TermsNotAccepted = "termsNotAccepted";
 
     /// <summary>The user name is already taken by another account. The error is keyed by <c>UserName</c>.</summary>
@@ -138,6 +138,9 @@ public static class AuthErrorCodes
 
     /// <summary>The request could not be saved, for example because another request changed the same account at the same time. Try again.</summary>
     public const string TryAgain = "tryAgain";
+
+    /// <summary>The signed-in user has not confirmed the email address, and the endpoint needs that. The answer is 403.</summary>
+    public const string EmailNotVerified = "emailNotVerified";
 }
 
 /// <summary>The body of an error that belongs to no field: the English message and its code.</summary>

@@ -26,6 +26,7 @@ public class OptInSurfaceTests
         "AccountConsent", "AccountConsentModelBuilderExtensions", "AppKitRegistration", "AppKitRegistrationOptions",
         "IAccountConsentDbContext", "IConsentRequirements", "IConsentVersionSource", "IEmailVerifiedHandler",
         "IRegistrationEmails", "IRegistrationHandler", "ConsentRequirement", "SelfRegistrationServiceCollectionExtensions",
+        "PendingConsent", "AppKitEndpointFilterExtensions",
     ];
 
     private static string[] PublicNames() =>

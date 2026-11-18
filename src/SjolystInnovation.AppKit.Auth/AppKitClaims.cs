@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Text.Json;
 
 namespace SjolystInnovation.AppKit.Auth;
 
@@ -40,5 +41,46 @@ public static class AppKitClaims
         ArgumentNullException.ThrowIfNull(principal);
         ArgumentNullException.ThrowIfNull(roles);
         return roles.Any(principal.IsInRole);
+    }
+
+    // Written by the bearer check for apps that opted in to sign-up, and replaced on every request, like the roles.
+    internal const string EmailVerifiedClaim = "appkit:email_verified";
+    internal const string PendingConsentClaim = "appkit:pending_consent";
+
+    private static readonly JsonSerializerOptions PendingJson = new(JsonSerializerDefaults.Web);
+
+    internal static string PendingToClaim(PendingConsent pending) => JsonSerializer.Serialize(pending, PendingJson);
+
+    /// <summary>
+    /// Checks whether the signed-in user has confirmed the email address. The bearer check sets this fact on each
+    /// request from the same cached user check as the roles, and only for an app that called
+    /// <see cref="SelfRegistrationServiceCollectionExtensions.AddAppKitSelfRegistration{TUser, TContext}"/>. For any
+    /// other principal the answer is false.
+    /// </summary>
+    /// <param name="principal">The signed-in user.</param>
+    /// <returns>True when the email is confirmed.</returns>
+    public static bool IsEmailVerified(this ClaimsPrincipal principal)
+    {
+        ArgumentNullException.ThrowIfNull(principal);
+        return principal.HasClaim(EmailVerifiedClaim, "true");
+    }
+
+    /// <summary>
+    /// Gets the documents the signed-in user must accept again, each with the version that is current. The bearer
+    /// check sets them like <see cref="IsEmailVerified"/>. The list is empty when nothing is pending and for any
+    /// principal the check did not see.
+    /// </summary>
+    /// <param name="principal">The signed-in user.</param>
+    /// <returns>The pending documents, in document order.</returns>
+    public static IReadOnlyList<PendingConsent> GetPendingConsents(this ClaimsPrincipal principal)
+    {
+        ArgumentNullException.ThrowIfNull(principal);
+        List<PendingConsent> pending = [];
+        foreach (var claim in principal.FindAll(PendingConsentClaim))
+        {
+            if (JsonSerializer.Deserialize<PendingConsent>(claim.Value, PendingJson) is { } item)
+                pending.Add(item);
+        }
+        return pending;
     }
 }

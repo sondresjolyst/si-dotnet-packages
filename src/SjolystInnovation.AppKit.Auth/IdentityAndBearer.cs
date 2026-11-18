@@ -69,7 +69,10 @@ public static class IdentityAndBearerExtensions
     /// its user no longer exists or <paramref name="isActive"/> returns false for the user, so a deleted
     /// account stops working within <see cref="AppKitJwtBearerOptions.UserCheckCacheDuration"/>. The same
     /// check replaces the token's role claims with the user's current roles, so a removed role stops
-    /// counting within that time too.
+    /// counting within that time too. An app that called
+    /// <see cref="SelfRegistrationServiceCollectionExtensions.AddAppKitSelfRegistration{TUser, TContext}"/> also gets the facts
+    /// that <see cref="AppKitClaims.IsEmailVerified"/> and <see cref="AppKitClaims.GetPendingConsents"/> read, refreshed in
+    /// the same way.
     /// </summary>
     public static AuthenticationBuilder AddAppKitJwtBearer<TUser>(this IServiceCollection services,
         Func<TUser, bool>? isActive = null, Action<AppKitJwtBearerOptions>? configure = null)
@@ -124,8 +127,10 @@ public static class IdentityAndBearerExtensions
     /// <summary>Builds the cache key for a user's bearer check result. Callers remove it when the user's roles or account change.</summary>
     internal static string UserCheckKey(string userId) => $"SjolystInnovation.AppKit.Auth:user-check:{userId}";
 
-    // What the bearer check keeps per user: the current roles and the hash of the security stamp. Null roles mean the user is gone or not active.
-    private sealed record UserCheck(IReadOnlyList<string>? Roles, string? StampHash);
+    // What the bearer check keeps per user: the current roles, the hash of the security stamp, whether the email is confirmed
+    // and the documents to accept again. The last two are only filled for an app that opted in to sign-up. Null roles mean
+    // the user is gone or not active.
+    private sealed record UserCheck(IReadOnlyList<string>? Roles, string? StampHash, bool EmailVerified, IReadOnlyList<PendingConsent> Pending);
 
     private static async Task CheckUserAsync<TUser>(TokenValidatedContext context, Func<TUser, bool>? isActive, TimeSpan cacheFor)
         where TUser : IdentityUser
@@ -146,7 +151,12 @@ public static class IdentityAndBearerExtensions
             var user = await users.FindByIdAsync(userId);
             // Null roles mean the user is gone or not active.
             var active = user is not null && (isActive is null || isActive(user));
-            check = new UserCheck(active ? [.. await users.GetRolesAsync(user!)] : null, user?.SecurityStamp is { } stamp ? StampClaim.Hash(stamp) : null);
+            // An app that did not opt in has no reader, so it reads nothing from the consent tables.
+            var pending = active && services.GetService<IPendingConsentReader>() is { } reader
+                ? await reader.GetPendingAsync(user!.Id, context.HttpContext.RequestAborted)
+                : [];
+            check = new UserCheck(active ? [.. await users.GetRolesAsync(user!)] : null, user?.SecurityStamp is { } stamp ? StampClaim.Hash(stamp) : null,
+                user?.EmailConfirmed ?? false, pending);
             cache.Set(key, check, cacheFor);
         }
         if (check.Roles is not { } roles)
@@ -172,6 +182,16 @@ public static class IdentityAndBearerExtensions
                 identity.RemoveClaim(claim);
             foreach (var role in roles)
                 identity.AddClaim(new Claim(identity.RoleClaimType, role));
+
+            // The two sign-up facts travel the same way. Only an app that opted in has them.
+            if (services.GetService<SelfRegistrationRegistered>() is not null)
+            {
+                foreach (var claim in identity.FindAll(c => c.Type is AppKitClaims.EmailVerifiedClaim or AppKitClaims.PendingConsentClaim).ToList())
+                    identity.RemoveClaim(claim);
+                identity.AddClaim(new Claim(AppKitClaims.EmailVerifiedClaim, check.EmailVerified ? "true" : "false"));
+                foreach (var pending in check.Pending)
+                    identity.AddClaim(new Claim(AppKitClaims.PendingConsentClaim, AppKitClaims.PendingToClaim(pending)));
+            }
         }
     }
 }
