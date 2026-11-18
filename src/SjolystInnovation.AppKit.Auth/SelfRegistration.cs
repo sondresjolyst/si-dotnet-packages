@@ -17,7 +17,7 @@ public static class SelfRegistrationServiceCollectionExtensions
     /// positive, when the resend cooldown is negative, when a reminder offset is not positive and shorter than
     /// the lifetime, or when the terms document name is blank. It registers an <see cref="IRegistrationEmails{TUser}"/>
     /// that sends the verification email through <see cref="IVerificationEmails{TUser}"/> and skips the other two with
-    /// one warning, unless the app registered its own first. An app that never calls this sees no change.
+    /// one warning, unless the app registered its own first. It also makes access tokens carry a hash of the security stamp, so verifying an email ends earlier access tokens at once. A token without that claim, issued before the app opted in, stays valid until it expires. An app that never calls this sees no change.
     /// </summary>
     public static IServiceCollection AddAppKitSelfRegistration<TUser, TContext>(
         this IServiceCollection services, Action<AppKitRegistrationOptions<TUser>> configure)
@@ -36,6 +36,7 @@ public static class SelfRegistrationServiceCollectionExtensions
             .Validate(o => o.RemindBefore is not null && o.RemindBefore.All(r => r > TimeSpan.Zero && r < o.UnverifiedLifetime),
                 "Every reminder offset must be positive and shorter than the unverified account lifetime.")
             .ValidateOnStart();
+        services.AddMemoryCache();
         services.TryAddSingleton<SelfRegistrationRegistered>();
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddScoped<AccountConsentService<TContext>>();

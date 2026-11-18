@@ -124,6 +124,9 @@ public static class IdentityAndBearerExtensions
     /// <summary>Builds the cache key for a user's bearer check result. Callers remove it when the user's roles or account change.</summary>
     internal static string UserCheckKey(string userId) => $"SjolystInnovation.AppKit.Auth:user-check:{userId}";
 
+    // What the bearer check keeps per user: the current roles and the hash of the security stamp. Null roles mean the user is gone or not active.
+    private sealed record UserCheck(IReadOnlyList<string>? Roles, string? StampHash);
+
     private static async Task CheckUserAsync<TUser>(TokenValidatedContext context, Func<TUser, bool>? isActive, TimeSpan cacheFor)
         where TUser : IdentityUser
     {
@@ -137,17 +140,28 @@ public static class IdentityAndBearerExtensions
         var services = context.HttpContext.RequestServices;
         var cache = services.GetRequiredService<IMemoryCache>();
         var key = UserCheckKey(userId);
-        if (!cache.TryGetValue(key, out IReadOnlyList<string>? roles))
+        if (!cache.TryGetValue(key, out UserCheck? check) || check is null)
         {
             var users = services.GetRequiredService<UserManager<TUser>>();
             var user = await users.FindByIdAsync(userId);
-            // Null means the user is gone or not active.
-            roles = user is not null && (isActive is null || isActive(user)) ? [.. await users.GetRolesAsync(user)] : null;
-            cache.Set(key, roles, cacheFor);
+            // Null roles mean the user is gone or not active.
+            var active = user is not null && (isActive is null || isActive(user));
+            check = new UserCheck(active ? [.. await users.GetRolesAsync(user!)] : null, user?.SecurityStamp is { } stamp ? StampClaim.Hash(stamp) : null);
+            cache.Set(key, check, cacheFor);
         }
-        if (roles is null)
+        if (check.Roles is not { } roles)
         {
             context.Fail("The user no longer exists or is not active.");
+            return;
+        }
+
+        // Only an app that opted in to sign-up compares stamps. A token with no stamp claim was issued before the
+        // opt-in, so it stays valid until it expires and does not sign every user out at deploy.
+        if (services.GetService<SelfRegistrationRegistered>() is not null
+            && context.Principal?.FindFirstValue(StampClaim.Type) is { } tokenStamp
+            && !string.Equals(tokenStamp, check.StampHash, StringComparison.Ordinal))
+        {
+            context.Fail("The security stamp of the user has changed since the token was issued.");
             return;
         }
 

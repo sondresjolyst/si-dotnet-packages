@@ -37,6 +37,42 @@ public class JwtTokenServiceTests
     }
 
     [Fact]
+    public void Build_WithoutTheOptIn_WritesTheSameTokenAsBefore()
+    {
+        var user = new IdentityUser { Id = "user-1", UserName = "ada", Email = "ada@example.com", SecurityStamp = "stamp-1" };
+
+        var token = Service().Build(user, ["Admin"]);
+
+        Assert.Equal("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEiLCJ1bmlxdWVfbmFtZSI6ImFkYSIsImVtYWlsIjoiYWRhQGV4YW1wbGUuY29tIiwicm9sZSI6IkFkbWluIiwibmJmIjoxNzkxODA2Mzk1LCJleHAiOjE3OTE4MTAwMDAsImlhdCI6MTc5MTgwNjQwMCwiaXNzIjoidGVzdC1pc3N1ZXIiLCJhdWQiOiJ0ZXN0LWlzc3VlciJ9.JcATVoaaXsmB-vU_A_GOKRdk7W-oP_SPQ8CC2eb9c48", token);
+        Assert.DoesNotContain(new JwtSecurityTokenHandler().ReadJwtToken(token).Claims, c => c.Type == "sst");
+    }
+
+    [Fact]
+    public void Build_WithTheOptIn_AddsAShortHashOfTheSecurityStampAndNothingElse()
+    {
+        var user = new IdentityUser { Id = "user-1", UserName = "ada", Email = "ada@example.com", SecurityStamp = "stamp-1" };
+        var plain = new JwtSecurityTokenHandler().ReadJwtToken(Service().Build(user, ["Admin"]));
+        var service = new JwtTokenService(Options.Create(new AppKitAuthOptions { Key = Key, Issuer = "test-issuer" }), _time, new SelfRegistrationRegistered());
+
+        var jwt = new JwtSecurityTokenHandler().ReadJwtToken(service.Build(user, ["Admin"]));
+
+        var stamp = jwt.Claims.Single(c => c.Type == "sst").Value;
+        Assert.NotEqual("stamp-1", stamp);
+        Assert.Equal(16, stamp.Length);
+        Assert.Equal(plain.Claims.Select(c => (c.Type, c.Value)).Order(), jwt.Claims.Where(c => c.Type != "sst").Select(c => (c.Type, c.Value)).Order());
+    }
+
+    [Fact]
+    public void Build_WithTheOptIn_WritesNoStampClaimForAUserWithoutAStamp()
+    {
+        var service = new JwtTokenService(Options.Create(new AppKitAuthOptions { Key = Key, Issuer = "test-issuer" }), _time, new SelfRegistrationRegistered());
+
+        var jwt = new JwtSecurityTokenHandler().ReadJwtToken(service.Build(new IdentityUser { Id = "u", SecurityStamp = null }, []));
+
+        Assert.DoesNotContain(jwt.Claims, c => c.Type == "sst");
+    }
+
+    [Fact]
     public void Build_WritesEmptyNamesWhenTheUserHasNone()
     {
         var jwt = new JwtSecurityTokenHandler().ReadJwtToken(Service().Build(new IdentityUser { Id = "u" }, []));

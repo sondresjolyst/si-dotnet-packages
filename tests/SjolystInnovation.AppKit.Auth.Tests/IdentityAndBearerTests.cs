@@ -150,6 +150,35 @@ public sealed class IdentityAndBearerTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task An_app_that_did_not_opt_in_ignores_a_stamp_claim()
+    {
+        var client = await StartAsync();
+        await TokenForNewUserAsync("u1");
+        var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
+        var token = handler.WriteToken(handler.CreateToken(new Microsoft.IdentityModel.Tokens.SecurityTokenDescriptor
+        {
+            Subject = new ClaimsIdentity([new Claim("sub", "u1"), new Claim("sst", "not-the-stamp")]),
+            Issuer = "appkit",
+            Audience = "appkit",
+            Expires = DateTime.UtcNow.AddHours(1),
+            SigningCredentials = new Microsoft.IdentityModel.Tokens.SigningCredentials(
+                new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(Key)),
+                Microsoft.IdentityModel.Tokens.SecurityAlgorithms.HmacSha256Signature),
+        }));
+
+        Assert.Equal(HttpStatusCode.OK, (await GetAsync(client, "/me", token)).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_token_an_app_that_did_not_opt_in_issues_has_no_stamp_claim()
+    {
+        await StartAsync();
+        var token = await TokenForNewUserAsync("u1");
+
+        Assert.DoesNotContain(new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().ReadJwtToken(token).Claims, c => c.Type == "sst");
+    }
+
+    [Fact]
     public async Task A_token_for_a_user_that_is_gone_is_refused()
     {
         var client = await StartAsync();
