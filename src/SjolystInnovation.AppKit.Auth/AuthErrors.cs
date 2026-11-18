@@ -121,6 +121,20 @@ public static class AuthErrorCodes
 
     /// <summary>The terms version the client sent is not the current one. The answer is 409, and the client should reload the terms.</summary>
     public const string TermsChanged = "termsChanged";
+
+    /// <summary>The verification code is wrong or expired.</summary>
+    public const string InvalidCode = "invalidCode";
+
+    /// <summary>The email address is already verified.</summary>
+    public const string AlreadyVerified = "alreadyVerified";
+
+    /// <summary>
+    /// The verification code has had too many wrong attempts. A new code can be requested once the current one has expired.
+    /// </summary>
+    public const string TooManyAttempts = "tooManyAttempts";
+
+    /// <summary>The request came too soon after the last one of its kind. Try again after the cooldown.</summary>
+    public const string TooManyRequests = "tooManyRequests";
 }
 
 /// <summary>The body of an error that belongs to no field: the English message and its code.</summary>

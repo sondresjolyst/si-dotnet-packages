@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -19,8 +20,8 @@ internal sealed record RegisterRequest(
 internal enum RegistrationOutcome
 {
     Created,
-    CodeSentAgain,
     OwnerNotified,
+    NoticeHeldBack,
     Ignored,
 }
 
@@ -33,9 +34,17 @@ public static partial class AuthEndpointsExtensions
     /// first, in a fixed order, so no refusal depends on whether the email has an account. A field error is a
     /// validation problem, and a terms version that is not the current one answers 409 with the code
     /// <c>termsChanged</c>. A new email creates an unverified user, its consent rows and a verification code in one
-    /// transaction, then sends the code. An existing email changes nothing, except that an unverified, active
-    /// account gets a fresh code and a verified, active account is told that someone tried. Every one of these
-    /// cases answers 200 with the same body. It needs Identity, an <see cref="IRegistrationEmails{TUser}"/> and
+    /// transaction, then sends the code. An existing email changes nothing. An active account, verified or not, is
+    /// told that someone tried, at most once per <see cref="AppKitRegistrationOptions{TUser}.ResendCooldown"/>.
+    /// Every one of these cases answers 200 with the same body. A user name that contains <c>@</c> is refused,
+    /// because the user name defaults to the email and a chosen one could otherwise take another person's email.
+    /// It also maps <c>POST verify-email</c> with the body <c>code</c> and <c>POST resend-verification</c> with no body.
+    /// Both need a signed-in user, the account that is being verified. A right code confirms the email, ends every
+    /// session of the user, and answers 200. A wrong or expired code answers 400 <c>invalidCode</c>, a verified
+    /// account 409 <c>alreadyVerified</c>, and five wrong codes 429 <c>tooManyAttempts</c>. A resend answers 200,
+    /// or 429 <c>tooManyRequests</c> inside the cooldown, or 429 <c>tooManyAttempts</c> until the locked code has
+    /// expired. It needs Identity, <see cref="AuthServiceCollectionExtensions.AddAppKitAuth{TContext}"/>, an
+    /// <see cref="IRegistrationEmails{TUser}"/> and
     /// <see cref="SelfRegistrationServiceCollectionExtensions.AddAppKitSelfRegistration{TUser, TContext}"/>.
     /// An account counts as inactive when <typeparamref name="TUser"/> implements <see cref="IAppKitAccount"/> and
     /// <see cref="IAppKitAccount.IsDeleted"/> is true.
@@ -55,6 +64,12 @@ public static partial class AuthEndpointsExtensions
 
         var group = endpoints.MapGroup(prefix).AllowAnonymous();
         group.MapPost("register", (RegisterRequest request, HttpContext http) => handlers.RegisterAsync(request, http));
+
+        // Not in the anonymous group, because an AllowAnonymous on a group would win over RequireAuthorization.
+        var verification = new VerificationHandlers<TUser, TContext>(logger);
+        var signedIn = endpoints.MapGroup(prefix).RequireAuthorization();
+        signedIn.MapPost("verify-email", (VerifyEmailRequest request, HttpContext http) => verification.VerifyAsync(request, http));
+        signedIn.MapPost("resend-verification", (HttpContext http, CancellationToken _) => verification.ResendAsync(http));
         return group;
     }
 
@@ -62,6 +77,12 @@ public static partial class AuthEndpointsExtensions
     {
         [LoggerMessage(Level = LogLevel.Information, Message = "Sign-up handled for user {UserId}: {Outcome}.")]
         public static partial void RegistrationHandled(ILogger logger, string? userId, RegistrationOutcome outcome);
+
+        [LoggerMessage(Level = LogLevel.Information, Message = "Email verified for user {UserId}.")]
+        public static partial void EmailVerified(ILogger logger, string userId);
+
+        [LoggerMessage(Level = LogLevel.Information, Message = "Verification code sent again to user {UserId}.")]
+        public static partial void VerificationResent(ILogger logger, string userId);
     }
 }
 
@@ -164,7 +185,7 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
             existing = await users.FindByEmailAsync(email);
         }
 
-        await HandleExistingAsync(http, users, emails, existing, probe, password, locale);
+        await HandleExistingAsync(http, options, users, emails, existing, probe, password, locale);
         return Ok();
     }
 
@@ -186,6 +207,8 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
         }
         if (options.AllowUserName && registration.UserName is { Length: > MaxName })
             errors.Add("UserName", AuthErrorCodes.TooLong, $"At most {MaxName} characters.", MaxName);
+        else if (options.AllowUserName && registration.UserName is { } userName && userName.Contains('@', StringComparison.Ordinal))
+            errors.Add("UserName", AuthErrorCodes.InvalidUserName, "The user name cannot contain @.");
         errors.Name("TermsVersion", termsVersion, MaxTermsVersion);
         if (locale is { Length: > MaxLocale })
             errors.Add("Locale", AuthErrorCodes.TooLong, $"At most {MaxLocale} characters.", MaxLocale);
@@ -272,8 +295,8 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
         return errors.ToResult();
     }
 
-    // The email has an account. Nothing is created or changed, except a fresh code for an unverified account.
-    private async Task HandleExistingAsync(HttpContext http, UserManager<TUser> users, IRegistrationEmails<TUser> emails,
+    // The email has an account. Nothing is created or changed. An active account hears that someone tried, at most once per cooldown.
+    private async Task HandleExistingAsync(HttpContext http, AppKitRegistrationOptions<TUser> options, UserManager<TUser> users, IRegistrationEmails<TUser> emails,
         TUser? existing, TUser probe, string password, string? locale)
     {
         var cancellationToken = http.RequestAborted;
@@ -285,19 +308,13 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
             AuthEndpointsExtensions.Log.RegistrationHandled(logger, existing?.Id, RegistrationOutcome.Ignored);
             return;
         }
-        if (existing.EmailConfirmed)
+        if (!VerificationThrottle.NoticeIsDue(Get<IMemoryCache>(http), existing.Id, Get<TimeProvider>(http).GetUtcNow().UtcDateTime, options.ResendCooldown))
         {
-            await emails.SendAlreadyRegisteredAsync(existing, locale, cancellationToken);
-            AuthEndpointsExtensions.Log.RegistrationHandled(logger, existing.Id, RegistrationOutcome.OwnerNotified);
+            AuthEndpointsExtensions.Log.RegistrationHandled(logger, existing.Id, RegistrationOutcome.NoticeHeldBack);
             return;
         }
-
-        var code = EmailVerificationCodes.Issue(existing, Get<TimeProvider>(http));
-        var updated = await users.UpdateAsync(existing);
-        if (!updated.Succeeded)
-            throw new InvalidOperationException("Saving the new verification code failed: " + string.Join(" ", updated.Errors.Select(e => e.Description)));
-        await emails.SendVerificationAsync(existing, code, locale, cancellationToken);
-        AuthEndpointsExtensions.Log.RegistrationHandled(logger, existing.Id, RegistrationOutcome.CodeSentAgain);
+        await emails.SendAlreadyRegisteredAsync(existing, locale, cancellationToken);
+        AuthEndpointsExtensions.Log.RegistrationHandled(logger, existing.Id, RegistrationOutcome.OwnerNotified);
     }
 
     // The same rule as the other endpoints: one @ with something on both sides.

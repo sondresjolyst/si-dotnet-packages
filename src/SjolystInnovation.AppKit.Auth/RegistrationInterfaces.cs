@@ -30,7 +30,7 @@ public interface IRegistrationEmails<in TUser>
     /// <summary>Sends the verification code to a person who signed up or asked for a new code.</summary>
     Task SendVerificationAsync(TUser user, string code, string? locale, CancellationToken cancellationToken);
 
-    /// <summary>Tells the owner of a verified account that someone tried to sign up with the address.</summary>
+    /// <summary>Tells the owner of an existing account that someone tried to sign up with the address.</summary>
     Task SendAlreadyRegisteredAsync(TUser user, string? locale, CancellationToken cancellationToken);
 
     /// <summary>Warns the owner of an unverified account that it will be removed, and gives a fresh code.</summary>

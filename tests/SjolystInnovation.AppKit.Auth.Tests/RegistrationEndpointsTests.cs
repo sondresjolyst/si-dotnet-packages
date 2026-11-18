@@ -578,22 +578,20 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task An_unverified_active_account_gets_a_fresh_code_and_keeps_its_password()
+    public async Task An_unverified_active_account_is_not_changed_and_hears_that_someone_tried()
     {
         await StartAsync();
-        var seeded = await SeedAsync("pending", verified: false, code: "x");
+        await SeedAsync("pending", verified: false, code: "x");
         var before = Stored("pending");
 
         await RegisterAsync(Body("pending@example.invalid", ("password", "Different1")));
 
         var after = Stored("pending");
-        Assert.Equal(before.PasswordHash, after.PasswordHash);
+        Assert.Equal((before.PasswordHash, before.EmailVerificationCodeHash, before.EmailVerificationCodeExpiration, before.EmailVerificationAttempts, before.SecurityStamp),
+            (after.PasswordHash, after.EmailVerificationCodeHash, after.EmailVerificationCodeExpiration, after.EmailVerificationAttempts, after.SecurityStamp));
         Assert.False(after.EmailConfirmed);
-        Assert.NotEqual(before.EmailVerificationCodeHash, after.EmailVerificationCodeHash);
-        var (sentTo, code, _) = Assert.Single(_emails.Verifications);
-        Assert.Equal(seeded.Id, sentTo);
-        Assert.Equal(VerificationCodes.Hash(code), after.EmailVerificationCodeHash);
-        Assert.Empty(_emails.AlreadyRegistered);
+        Assert.Empty(_emails.Verifications);
+        Assert.Equal(["pending"], _emails.AlreadyRegistered);
         Assert.Equal(1, Db(db => db.Users.Count()));
         Assert.Equal(0, Db(db => db.AccountConsents.Count()));
     }
@@ -743,7 +741,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
     }
 
     [Fact]
-    public void Mapping_with_the_opt_in_maps_one_route_under_the_prefix()
+    public void Mapping_with_the_opt_in_maps_three_routes_under_the_prefix()
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -753,6 +751,6 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
         app.MapAppKitRegistration<IdentityTestUser, RegistrationTestDbContext>("/custom");
 
         var routes = ((IEndpointRouteBuilder)app).DataSources.SelectMany(s => s.Endpoints).OfType<RouteEndpoint>().Select(r => r.RoutePattern.RawText).ToList();
-        Assert.Equal(["/custom/register"], routes);
+        Assert.Equal(["/custom/register", "/custom/resend-verification", "/custom/verify-email"], routes.Order());
     }
 }
