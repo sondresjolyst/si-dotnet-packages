@@ -1,0 +1,240 @@
+using System.Linq.Expressions;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+namespace SjolystInnovation.AppKit.Auth;
+
+/// <summary>The user field that records the last removal reminder, so each reminder goes out once.</summary>
+public interface IRemovalReminderUser
+{
+    /// <summary>When the last removal reminder was sent, in UTC, or null if none was sent.</summary>
+    DateTime? RemovalReminderSentAt { get; set; }
+}
+
+/// <summary>What one run of the unverified account cleanup did.</summary>
+/// <param name="Removed">How many accounts were removed.</param>
+/// <param name="Reminded">How many removal reminders were sent.</param>
+/// <param name="Failed">How many accounts failed and were left as they were.</param>
+public sealed record UnverifiedCleanupResult(int Removed, int Reminded, int Failed);
+
+/// <summary>Removes accounts whose email is never verified, and reminds their owners first.</summary>
+public interface IUnverifiedAccountCleanup
+{
+    /// <summary>
+    /// Runs the cleanup once. It removes every active account whose email is still unconfirmed when it is older than
+    /// <see cref="AppKitRegistrationOptions{TUser}.UnverifiedLifetime"/>, each in its own transaction, after every
+    /// <see cref="IAccountDataEraser{TUser}"/> has run. The user is deleted for real, so its refresh tokens and consents
+    /// go with it and the email is free again. An account with a live verification code is kept until the code has
+    /// expired, but never more than one day past its removal time. Then it sends the reminders of
+    /// <see cref="AppKitRegistrationOptions{TUser}.RemindBefore"/> that are due, once each, when the user type
+    /// implements <see cref="IRemovalReminderUser"/>. A reminder carries a fresh code, and an account that is locked after
+    /// too many wrong codes is reminded in a later run. One failing account is logged and does not stop the run.
+    /// </summary>
+    Task<UnverifiedCleanupResult> RunOnceAsync(CancellationToken cancellationToken = default);
+}
+
+internal enum CleanupOutcome
+{
+    Removed,
+    Reminded,
+    Skipped,
+}
+
+internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
+    IServiceProvider services, IOptions<AppKitRegistrationOptions<TUser>> options, TimeProvider time, ILogger<UnverifiedAccountCleanup<TUser, TContext>> logger)
+    : IUnverifiedAccountCleanup
+    where TUser : IdentityUser, IAppKitAccount, IEmailVerificationUser
+    where TContext : DbContext, IAccountConsentDbContext
+{
+    // An owner who asks for codes keeps the account for at most this long after its removal time.
+    internal static readonly TimeSpan Grace = TimeSpan.FromDays(1);
+
+    private readonly bool _canRemind = CheckReminders(options.Value, logger);
+
+    private static bool CheckReminders(AppKitRegistrationOptions<TUser> settings, ILogger logger)
+    {
+        if (settings.RemindBefore.Count == 0)
+            return false;
+        if (typeof(IRemovalReminderUser).IsAssignableFrom(typeof(TUser)))
+            return true;
+        Log.RemindersUnavailable(logger, typeof(TUser).Name);
+        return false;
+    }
+
+    public async Task<UnverifiedCleanupResult> RunOnceAsync(CancellationToken cancellationToken = default)
+    {
+        var settings = options.Value;
+        var now = time.GetUtcNow().UtcDateTime;
+        int removed = 0, reminded = 0, failed = 0;
+
+        var removalCutoff = now - settings.UnverifiedLifetime;
+        foreach (var id in await IdsAsync(u => u.CreatedAt < removalCutoff, cancellationToken))
+        {
+            try
+            {
+                if (await RemoveAsync(id, cancellationToken) == CleanupOutcome.Removed)
+                    removed++;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                failed++;
+                Log.RemoveFailed(logger, ex, id);
+            }
+        }
+
+        if (_canRemind)
+        {
+            var until = removalCutoff + settings.RemindBefore.Max();
+            foreach (var id in await IdsAsync(u => u.CreatedAt >= removalCutoff && u.CreatedAt <= until, cancellationToken))
+            {
+                try
+                {
+                    if (await RemindAsync(id, cancellationToken) == CleanupOutcome.Reminded)
+                        reminded++;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    failed++;
+                    Log.ReminderFailed(logger, ex, id);
+                }
+            }
+        }
+
+        if (removed + reminded + failed > 0)
+            Log.Ran(logger, removed, reminded, failed);
+        return new UnverifiedCleanupResult(removed, reminded, failed);
+    }
+
+    // The ids of the active accounts with an unconfirmed email that match the filter. Each account is loaded again later.
+    private async Task<List<string>> IdsAsync(Expression<Func<TUser, bool>> filter, CancellationToken cancellationToken)
+    {
+        using var scope = services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<TContext>();
+        return await db.Set<TUser>().AsNoTracking().Where(u => !u.EmailConfirmed && !u.IsDeleted).Where(filter).Select(u => u.Id).ToListAsync(cancellationToken);
+    }
+
+    // Loads the account again inside its own transaction. It is skipped when it is now confirmed or deleted, when it is not
+    // old enough after all, or when its owner holds a live code and the grace period has not passed. Otherwise every eraser
+    // runs and the user is deleted for real.
+    internal async Task<CleanupOutcome> RemoveAsync(string userId, CancellationToken cancellationToken)
+    {
+        var lifetime = options.Value.UnverifiedLifetime;
+        var now = time.GetUtcNow().UtcDateTime;
+        using var scope = services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<TContext>();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<TUser>>();
+
+        await using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
+        if (await users.FindByIdAsync(userId) is not { EmailConfirmed: false, IsDeleted: false } user || user.CreatedAt >= now - lifetime)
+            return CleanupOutcome.Skipped;
+        if (user.EmailVerificationCodeExpiration > now && user.CreatedAt >= now - lifetime - Grace)
+            return CleanupOutcome.Skipped;
+
+        foreach (var eraser in scope.ServiceProvider.GetServices<IAccountDataEraser<TUser>>())
+            await eraser.EraseAsync(user, cancellationToken);
+        var deleted = await users.DeleteAsync(user);
+        if (!deleted.Succeeded)
+            throw new InvalidOperationException("Removing the unverified account failed: " + string.Join(" ", deleted.Errors.Select(e => e.Code)));
+        await tx.CommitAsync(cancellationToken);
+
+        // Drop the user from the bearer check cache, so a token still in use stops working at once on this instance.
+        scope.ServiceProvider.GetService<IMemoryCache>()?.Remove(IdentityAndBearerExtensions.UserCheckKey(userId));
+        Log.Removed(logger, userId);
+        return CleanupOutcome.Removed;
+    }
+
+    // Sends the reminder that is due, if there is one. The latest due offset counts, so a run after a long stop sends one
+    // reminder and not one per missed offset. The fresh code is saved before the email goes out, and the reminder is only
+    // marked as sent after the email went out, so a failed send is tried again in the next run.
+    internal async Task<CleanupOutcome> RemindAsync(string userId, CancellationToken cancellationToken)
+    {
+        var settings = options.Value;
+        var now = time.GetUtcNow().UtcDateTime;
+        using var scope = services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<TUser>>();
+
+        if (await users.FindByIdAsync(userId) is not { EmailConfirmed: false, IsDeleted: false } user || user is not IRemovalReminderUser reminder)
+            return CleanupOutcome.Skipped;
+        var removalAt = user.CreatedAt + settings.UnverifiedLifetime;
+        if (removalAt <= now)
+            return CleanupOutcome.Skipped;
+        var due = settings.RemindBefore.Select(before => removalAt - before).Where(at => at <= now).DefaultIfEmpty(DateTime.MinValue).Max();
+        if (due == DateTime.MinValue || reminder.RemovalReminderSentAt >= due)
+            return CleanupOutcome.Skipped;
+        if (VerificationThrottle.CodeIsDue(user, now, settings.ResendCooldown) != CodeDue.Yes)
+            return CleanupOutcome.Skipped;
+
+        var code = EmailVerificationCodes.Issue(user, time);
+        var saved = await users.UpdateAsync(user);
+        if (!saved.Succeeded)
+            throw new InvalidOperationException("Saving the reminder code failed: " + string.Join(" ", saved.Errors.Select(e => e.Code)));
+        await scope.ServiceProvider.GetRequiredService<IRegistrationEmails<TUser>>().SendRemovalReminderAsync(user, code, removalAt, null, cancellationToken);
+
+        reminder.RemovalReminderSentAt = now;
+        var marked = await users.UpdateAsync(user);
+        if (!marked.Succeeded)
+            throw new InvalidOperationException("Saving the reminder time failed: " + string.Join(" ", marked.Errors.Select(e => e.Code)));
+        Log.Reminded(logger, userId);
+        return CleanupOutcome.Reminded;
+    }
+
+    private static partial class Log
+    {
+        [LoggerMessage(Level = LogLevel.Information, Message = "Removed unverified account {UserId}.")]
+        public static partial void Removed(ILogger logger, string userId);
+
+        [LoggerMessage(Level = LogLevel.Information, Message = "Sent a removal reminder to unverified account {UserId}.")]
+        public static partial void Reminded(ILogger logger, string userId);
+
+        [LoggerMessage(Level = LogLevel.Error, Message = "Removing unverified account {UserId} failed.")]
+        public static partial void RemoveFailed(ILogger logger, Exception exception, string userId);
+
+        [LoggerMessage(Level = LogLevel.Error, Message = "Sending the removal reminder to unverified account {UserId} failed.")]
+        public static partial void ReminderFailed(ILogger logger, Exception exception, string userId);
+
+        [LoggerMessage(Level = LogLevel.Information, Message = "Unverified account cleanup removed {Removed}, reminded {Reminded} and failed {Failed}.")]
+        public static partial void Ran(ILogger logger, int removed, int reminded, int failed);
+
+        [LoggerMessage(Level = LogLevel.Warning, Message = "RemindBefore is set, but {UserType} does not implement IRemovalReminderUser, so no removal reminders are sent. Add the interface and a column for it to send them.")]
+        public static partial void RemindersUnavailable(ILogger logger, string userType);
+    }
+}
+
+// Runs the cleanup when the app starts and once a day after that, unless the app switched the hosted run off.
+internal sealed partial class UnverifiedAccountCleanupService<TUser>(
+    IUnverifiedAccountCleanup cleanup, IOptions<AppKitRegistrationOptions<TUser>> options, TimeProvider time, ILogger<UnverifiedAccountCleanupService<TUser>> logger)
+    : BackgroundService
+{
+    internal static readonly TimeSpan Interval = TimeSpan.FromDays(1);
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        if (!options.Value.RunCleanupInBackground)
+            return;
+        using var timer = new PeriodicTimer(Interval, time);
+        do
+        {
+            try
+            {
+                await cleanup.RunOnceAsync(stoppingToken);
+            }
+            // Log a failed run and try again on the next tick.
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Log.Failed(logger, ex);
+            }
+        }
+        while (await timer.WaitForNextTickAsync(stoppingToken));
+    }
+
+    private static partial class Log
+    {
+        [LoggerMessage(Level = LogLevel.Error, Message = "The unverified account cleanup failed.")]
+        public static partial void Failed(ILogger logger, Exception exception);
+    }
+}

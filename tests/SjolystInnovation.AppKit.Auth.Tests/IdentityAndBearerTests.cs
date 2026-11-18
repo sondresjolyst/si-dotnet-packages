@@ -18,7 +18,7 @@ using Xunit;
 
 namespace SjolystInnovation.AppKit.Auth.Tests;
 
-public class IdentityTestUser : IdentityUser, IPasswordResetUser, IEmailVerificationUser, IAppKitAccount
+public class IdentityTestUser : IdentityUser, IPasswordResetUser, IEmailVerificationUser, IAppKitAccount, IRemovalReminderUser
 {
     public string FirstName { get; set; } = "";
     public string LastName { get; set; } = "";
@@ -31,6 +31,7 @@ public class IdentityTestUser : IdentityUser, IPasswordResetUser, IEmailVerifica
     public string? PasswordResetCodeHash { get; set; }
     public DateTime? PasswordResetCodeExpiration { get; set; }
     public int PasswordResetAttempts { get; set; }
+    public DateTime? RemovalReminderSentAt { get; set; }
 }
 
 public class IdentityTestDbContext(DbContextOptions<IdentityTestDbContext> options)

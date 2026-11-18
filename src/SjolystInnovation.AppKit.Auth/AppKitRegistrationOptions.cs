@@ -39,6 +39,13 @@ public sealed class AppKitRegistrationOptions<TUser>
     public TimeSpan UnverifiedLifetime { get; set; } = TimeSpan.FromDays(30);
 
     /// <summary>
+    /// Whether a hosted service removes unverified accounts and sends the reminders, when the app starts and once a day
+    /// after that. Set it to false to run <see cref="IUnverifiedAccountCleanup"/> from the app's own scheduler instead.
+    /// Defaults to true.
+    /// </summary>
+    public bool RunCleanupInBackground { get; set; } = true;
+
+    /// <summary>
     /// How long before removal each reminder goes out. Every offset must be positive and shorter than
     /// <see cref="UnverifiedLifetime"/>. Defaults to 14 days and 3 days. An empty list sends none.
     /// </summary>

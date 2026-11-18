@@ -5,8 +5,13 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace SjolystInnovation.AppKit.Auth.Tests;
 
-public class TestUser : IdentityUser, IPasswordResetUser, IEmailVerificationUser
+public class TestUser : IdentityUser, IPasswordResetUser, IEmailVerificationUser, IAppKitAccount
 {
+    public string FirstName { get; set; } = "";
+    public string LastName { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public bool IsDeleted { get; set; }
+    public DateTime? DeletedAt { get; set; }
     public string? PasswordResetCodeHash { get; set; }
     public DateTime? PasswordResetCodeExpiration { get; set; }
     public int PasswordResetAttempts { get; set; }
