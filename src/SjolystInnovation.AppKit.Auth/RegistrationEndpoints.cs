@@ -9,6 +9,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using SjolystInnovation.AppKit.Email;
 
 namespace SjolystInnovation.AppKit.Auth;
 
@@ -331,34 +332,27 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
     }
 }
 
-/// <summary>Holds whether the missing-sender warning has been logged, so it is logged once for the app.</summary>
-internal sealed class RegistrationEmailsWarning
-{
-    public int Logged;
-}
-
-// The default sender. The verification email uses the shared layout through IVerificationEmails. The notice to the
-// owner of a verified account and the removal reminder have no layout kind yet, so they are skipped with one warning.
-internal sealed class RegistrationEmails<TUser>(IVerificationEmails<TUser> verification, RegistrationEmailsWarning warning, ILogger<RegistrationEmails<TUser>> logger)
+// The default sender. The verification email goes through IVerificationEmails. The notice to the owner of an existing
+// account and the removal reminder are rendered by RegistrationEmailRenderer in the same layout.
+internal sealed class RegistrationEmails<TUser>(IVerificationEmails<TUser> verification, IEmailSender sender, IEmailBrand brands, IOptions<AppKitAuthEmailOptions> options)
     : IRegistrationEmails<TUser>
+    where TUser : IdentityUser
 {
     public Task SendVerificationAsync(TUser user, string code, string? locale, CancellationToken cancellationToken) =>
         verification.SendEmailVerificationAsync(user, code, cancellationToken);
 
-    public Task SendAlreadyRegisteredAsync(TUser user, string? locale, CancellationToken cancellationToken) => Skip();
-
-    public Task SendRemovalReminderAsync(TUser user, string code, DateTime removalAt, string? locale, CancellationToken cancellationToken) => Skip();
-
-    private Task Skip()
+    // The language of the emails comes from the email options, like the other auth emails, so the locale is not used.
+    public async Task SendAlreadyRegisteredAsync(TUser user, string? locale, CancellationToken cancellationToken)
     {
-        if (Interlocked.Exchange(ref warning.Logged, 1) == 0)
-            RegistrationEmailsLog.NoSender(logger);
-        return Task.CompletedTask;
+        var brand = await brands.GetBrandAsync(cancellationToken);
+        await sender.SendAsync(RegistrationEmailRenderer.AlreadyRegistered(options.Value, brand, FirstName(user), user.Email!), cancellationToken);
     }
-}
 
-internal static partial class RegistrationEmailsLog
-{
-    [LoggerMessage(Level = LogLevel.Warning, Message = "No IRegistrationEmails is registered, so the already registered notice and the removal reminder are not sent. Register your own to send them.")]
-    public static partial void NoSender(ILogger logger);
+    public async Task SendRemovalReminderAsync(TUser user, string code, DateTime removalAt, string? locale, CancellationToken cancellationToken)
+    {
+        var brand = await brands.GetBrandAsync(cancellationToken);
+        await sender.SendAsync(RegistrationEmailRenderer.Reminder(options.Value, brand, FirstName(user), user.Email!, code, removalAt), cancellationToken);
+    }
+
+    private static string? FirstName(TUser user) => user is IAppKitAccount account ? account.FirstName : null;
 }

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SjolystInnovation.AppKit.Email;
 
 namespace SjolystInnovation.AppKit.Auth;
 
@@ -16,8 +17,9 @@ public static class SelfRegistrationServiceCollectionExtensions
     /// fails to start when <c>NewUser</c> is missing, when the unverified lifetime or the minimum age is not
     /// positive, when the resend cooldown is negative, when a reminder offset is not positive and shorter than
     /// the lifetime, or when the terms document name is blank. It registers an <see cref="IRegistrationEmails{TUser}"/>
-    /// that sends the verification email through <see cref="IVerificationEmails{TUser}"/> and skips the other two with
-    /// one warning, unless the app registered its own first. It registers the default <see cref="IConsentRequirements"/>. The bearer check then reads whether the email is confirmed and which documents the user must accept again, and the login and refresh answers gain <c>emailVerified</c> and <c>pendingConsents</c>. It also makes access tokens carry a hash of the security stamp, so verifying an email ends earlier access tokens at once. A token without that claim, issued before the app opted in, stays valid until it expires. An app that never calls this sees no change.
+    /// that sends the verification email through <see cref="IVerificationEmails{TUser}"/> and sends the notice to an
+    /// existing account and the removal reminder through <see cref="IEmailSender"/> in the layout of the other auth emails,
+    /// unless the app registered its own first. The default needs an <see cref="IEmailBrand"/> and an <see cref="IEmailSender"/>. It registers the default <see cref="IConsentRequirements"/>. The bearer check then reads whether the email is confirmed and which documents the user must accept again, and the login and refresh answers gain <c>emailVerified</c> and <c>pendingConsents</c>. It also makes access tokens carry a hash of the security stamp, so verifying an email ends earlier access tokens at once. A token without that claim, issued before the app opted in, stays valid until it expires. An app that never calls this sees no change.
     /// </summary>
     public static IServiceCollection AddAppKitSelfRegistration<TUser, TContext>(
         this IServiceCollection services, Action<AppKitRegistrationOptions<TUser>> configure)
@@ -42,7 +44,6 @@ public static class SelfRegistrationServiceCollectionExtensions
         services.TryAddScoped<AccountConsentService<TContext>>();
         services.TryAddScoped<IPendingConsentReader>(sp => sp.GetRequiredService<AccountConsentService<TContext>>());
         services.TryAddScoped<IConsentRequirements, ConsentRequirements<TContext>>();
-        services.TryAddSingleton<RegistrationEmailsWarning>();
         services.TryAddScoped<IRegistrationEmails<TUser>, RegistrationEmails<TUser>>();
         return services;
     }

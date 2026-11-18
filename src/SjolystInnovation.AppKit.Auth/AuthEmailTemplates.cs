@@ -228,9 +228,9 @@ internal static class AuthEmailRenderer
                 "Bekreft e-post", "Har du ikke registrert deg, kan du se bort fra e-posten."),
         });
 
-    private static string H(string? value) => WebUtility.HtmlEncode(value ?? string.Empty);
+    internal static string H(string? value) => WebUtility.HtmlEncode(value ?? string.Empty);
 
-    private static string F(string format, string value) => string.Format(CultureInfo.InvariantCulture, format, value);
+    internal static string F(string format, string value) => string.Format(CultureInfo.InvariantCulture, format, value);
 
     /// <summary>Builds the page address with the email and code added to its query string.</summary>
     internal static string Link(string page, string email, string code) =>

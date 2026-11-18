@@ -1,7 +1,7 @@
 using System.Net;
-using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using SjolystInnovation.AppKit.Email;
 using Xunit;
 
 namespace SjolystInnovation.AppKit.Auth.Tests;
@@ -42,41 +42,139 @@ public class RegistrationEmailsTests
         }
     }
 
-    private static (RegistrationEmails<IdentityTestUser> Emails, FakeVerificationEmails Inner, FakeLogCollector Logs) Build(RegistrationEmailsWarning? warning = null)
+    private sealed class FakeSender : IEmailSender
     {
-        var logs = new FakeLogCollector();
-        var inner = new FakeVerificationEmails();
-        var logger = new FakeLogger<RegistrationEmails<IdentityTestUser>>(logs);
-        return (new RegistrationEmails<IdentityTestUser>(inner, warning ?? new RegistrationEmailsWarning(), logger), inner, logs);
+        public List<EmailMessage> Sent { get; } = [];
+
+        public Task<EmailResult> SendAsync(EmailMessage message, CancellationToken cancellationToken = default)
+        {
+            Sent.Add(message);
+            return Task.FromResult(new EmailResult(true));
+        }
     }
+
+    private sealed class FakeBrand : IEmailBrand
+    {
+        public Task<EmailBrand> GetBrandAsync(CancellationToken cancellationToken) => Task.FromResult(new EmailBrand("Pyttogpanne") { LegalName = "Pyttogpanne AS" });
+    }
+
+    private static readonly DateTime RemovalAt = new(2026, 12, 5, 9, 30, 0, DateTimeKind.Utc);
+
+    private static (RegistrationEmails<IdentityTestUser> Emails, FakeVerificationEmails Inner, FakeSender Sender) Build(Action<AppKitAuthEmailOptions>? configure = null)
+    {
+        var inner = new FakeVerificationEmails();
+        var sender = new FakeSender();
+        var options = new AppKitAuthEmailOptions { SetPasswordUrl = "https://app.example/reset-password", VerifyEmailUrl = "https://app.example/profile" };
+        configure?.Invoke(options);
+        return (new RegistrationEmails<IdentityTestUser>(inner, sender, new FakeBrand(), Options.Create(options)), inner, sender);
+    }
+
+    private static IdentityTestUser User() => new() { Id = "u1", Email = "kari+test@example.no", FirstName = "Kari" };
 
     [Fact]
     public async Task The_verification_email_goes_through_IVerificationEmails()
     {
-        var (emails, inner, logs) = Build();
+        var (emails, inner, sender) = Build();
 
         await emails.SendVerificationAsync(new IdentityTestUser { Id = "u1" }, "ABC123", "nb", CancellationToken.None);
 
         Assert.Equal([("u1", "ABC123")], inner.Sent);
-        Assert.Empty(logs.GetSnapshot());
+        Assert.Empty(sender.Sent);
     }
 
     [Fact]
-    public async Task The_other_two_emails_send_nothing_and_log_one_warning_in_all()
+    public async Task The_already_registered_email_has_no_code_and_links_to_the_reset_page()
     {
-        var warning = new RegistrationEmailsWarning();
-        var (first, inner, logs) = Build(warning);
-        var (second, _, _) = Build(warning);
-        var user = new IdentityTestUser { Id = "u1" };
+        var (emails, inner, sender) = Build();
+        var user = User();
+        EmailVerificationCodes.Issue(user);
 
-        await first.SendAlreadyRegisteredAsync(user, "nb", CancellationToken.None);
-        await first.SendRemovalReminderAsync(user, "ABC123", DateTime.UtcNow, "nb", CancellationToken.None);
-        await second.SendAlreadyRegisteredAsync(user, "nb", CancellationToken.None);
+        await emails.SendAlreadyRegisteredAsync(user, "nb", CancellationToken.None);
 
+        var email = Assert.Single(sender.Sent);
         Assert.Empty(inner.Sent);
-        var entry = Assert.Single(logs.GetSnapshot());
-        Assert.Equal(LogLevel.Warning, entry.Level);
-        Assert.DoesNotContain("ABC123", entry.Message, StringComparison.Ordinal);
+        Assert.Equal("kari+test@example.no", email.To);
+        Assert.Equal("Someone tried to sign up at Pyttogpanne", email.Subject);
+        Assert.Contains(">Hi Kari,</p>", email.HtmlBody);
+        Assert.Contains("If it was you and you cannot sign in, reset your password.", email.HtmlBody);
+        Assert.Contains("If it was not you, nothing has changed and you do not need to do anything.", email.HtmlBody);
+        Assert.Contains("<a href=\"https://app.example/reset-password\"", email.HtmlBody);
+        Assert.Contains(">Reset password</a>", email.HtmlBody);
+        Assert.DoesNotContain("Your code", email.HtmlBody);
+        Assert.DoesNotContain("code=", email.HtmlBody);
+        Assert.DoesNotContain(user.EmailVerificationCodeHash!, email.HtmlBody);
+    }
+
+    [Fact]
+    public async Task The_already_registered_email_names_the_step_in_words_when_there_is_no_reset_page()
+    {
+        var (emails, _, sender) = Build(o => o.SetPasswordUrl = string.Empty);
+
+        await emails.SendAlreadyRegisteredAsync(User(), null, CancellationToken.None);
+
+        var email = Assert.Single(sender.Sent);
+        Assert.DoesNotContain("href=", email.HtmlBody);
+        Assert.Contains("On the sign-in page, choose that you forgot your password.", email.HtmlBody);
+        Assert.Contains("If it was not you, nothing has changed", email.HtmlBody);
+    }
+
+    [Fact]
+    public async Task The_removal_reminder_gives_the_date_the_steps_and_the_fresh_code()
+    {
+        var (emails, inner, sender) = Build();
+
+        await emails.SendRemovalReminderAsync(User(), "AB12CD", RemovalAt, "nb", CancellationToken.None);
+
+        var email = Assert.Single(sender.Sent);
+        Assert.Empty(inner.Sent);
+        Assert.Equal("kari+test@example.no", email.To);
+        Assert.Equal("Your account at Pyttogpanne will be removed", email.Subject);
+        Assert.Contains("is not verified yet", email.HtmlBody);
+        Assert.Contains("is removed on 5 December 2026", email.HtmlBody);
+        Assert.Contains("sign in and enter the code below", email.HtmlBody);
+        Assert.Contains(">AB12CD</div>", email.HtmlBody);
+        Assert.Contains("The code expires in 1 hour.", email.HtmlBody);
+        Assert.Contains("<a href=\"https://app.example/profile?email=kari%2Btest%40example.no&amp;code=AB12CD\"", email.HtmlBody);
+    }
+
+    [Fact]
+    public async Task The_removal_reminder_has_no_button_without_a_verify_page()
+    {
+        var (emails, _, sender) = Build(o => o.VerifyEmailUrl = string.Empty);
+
+        await emails.SendRemovalReminderAsync(User(), "AB12CD", RemovalAt, null, CancellationToken.None);
+
+        var email = Assert.Single(sender.Sent);
+        Assert.DoesNotContain("href=", email.HtmlBody);
+        Assert.Contains(">AB12CD</div>", email.HtmlBody);
+    }
+
+    [Fact]
+    public async Task Both_emails_are_written_in_Norwegian_when_the_options_say_so()
+    {
+        var (emails, _, sender) = Build(o => o.Language = EmailLanguage.Norwegian);
+
+        await emails.SendAlreadyRegisteredAsync(User(), null, CancellationToken.None);
+        await emails.SendRemovalReminderAsync(User(), "AB12CD", RemovalAt, null, CancellationToken.None);
+
+        Assert.Equal("Noen prøvde å registrere seg hos Pyttogpanne", sender.Sent[0].Subject);
+        Assert.Contains("Har du ikke gjort det selv, er ingenting endret", sender.Sent[0].HtmlBody);
+        Assert.Equal("Kontoen din hos Pyttogpanne blir fjernet", sender.Sent[1].Subject);
+        Assert.Contains("5. desember 2026", sender.Sent[1].HtmlBody);
+        Assert.Contains("Koden utl", sender.Sent[1].HtmlBody);
+    }
+
+    [Fact]
+    public async Task A_name_and_brand_with_markup_are_encoded()
+    {
+        var (emails, _, sender) = Build();
+        var user = User();
+        user.FirstName = "<b>Kari</b>";
+
+        await emails.SendAlreadyRegisteredAsync(user, null, CancellationToken.None);
+
+        Assert.DoesNotContain("<b>Kari", sender.Sent[0].HtmlBody);
+        Assert.Contains("&lt;b&gt;Kari&lt;/b&gt;", sender.Sent[0].HtmlBody);
     }
 
     [Fact]
