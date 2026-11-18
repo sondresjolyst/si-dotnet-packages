@@ -38,7 +38,10 @@ public sealed class AccountConsentTests : IDisposable
     private AccountConsentService<ConsentTestDbContext> Service(ConsentTestDbContext db) => new(db, _time);
 
     private static bool MustAccept(DateTime? latest, DateTime now, params ConsentRequirement[] requirements) =>
-        AccountConsentService<ConsentTestDbContext>.MustAcceptAgain(latest, requirements, now);
+        MustAccept(latest is { } at ? [("v2", at)] : [], null, now, requirements);
+
+    private static bool MustAccept(IReadOnlyList<(string Version, DateTime At)> acceptances, string? current, DateTime now, params ConsentRequirement[] requirements) =>
+        AccountConsentService<ConsentTestDbContext>.MustAcceptAgain(acceptances, current, requirements, now);
 
     private static ConsentRequirement Requirement(string version, DateTime markedAt, DateTime effectiveFrom) =>
         new() { Document = "terms", Version = version, MarkedAt = markedAt, EffectiveFrom = effectiveFrom };
@@ -147,7 +150,7 @@ public sealed class AccountConsentTests : IDisposable
     }
 
     [Fact]
-    public async Task The_latest_acceptance_per_document_is_the_newest_row_of_that_document()
+    public async Task The_acceptances_of_a_user_list_every_document_version_and_time()
     {
         await using (var db = NewContext())
         {
@@ -160,18 +163,18 @@ public sealed class AccountConsentTests : IDisposable
         }
 
         await using var read = NewContext();
-        var latest = await Service(read).LatestAcceptancesAsync("ada");
+        var acceptances = await Service(read).AcceptancesAsync("ada");
 
-        Assert.Equal(2, latest.Count);
-        Assert.Equal(Start.AddDays(10), latest["terms"]);
-        Assert.Equal(Start, latest["age"]);
+        Assert.Equal(2, acceptances.Count);
+        Assert.Equal([("v1", Start), ("v2", Start.AddDays(10))], acceptances["terms"].OrderBy(a => a.At));
+        Assert.Equal([("16", Start)], acceptances["age"]);
     }
 
     [Fact]
-    public async Task A_user_with_no_acceptances_has_an_empty_latest_map()
+    public async Task A_user_with_no_acceptances_has_an_empty_acceptance_map()
     {
         await using var db = NewContext();
-        Assert.Empty(await Service(db).LatestAcceptancesAsync("ada"));
+        Assert.Empty(await Service(db).AcceptancesAsync("ada"));
     }
 
     [Fact]
@@ -223,6 +226,33 @@ public sealed class AccountConsentTests : IDisposable
 
         Assert.False(MustAccept(Start.AddDays(1), now, older));
         Assert.True(MustAccept(Start.AddDays(1), now, older, newer));
+    }
+
+    [Fact]
+    public void An_acceptance_of_another_version_does_not_satisfy_the_requirement()
+    {
+        var requirement = Requirement("v2", Start, Start);
+
+        Assert.True(MustAccept([("v1", Start.AddMinutes(5))], null, Start.AddMinutes(10), requirement));
+        Assert.True(MustAccept([("v1", Start.AddMinutes(5))], "v3", Start.AddMinutes(10), requirement));
+    }
+
+    [Fact]
+    public void An_acceptance_of_the_current_source_version_satisfies_the_requirement_when_it_is_not_older_than_the_marking()
+    {
+        var requirement = Requirement("v2", Start, Start);
+
+        Assert.False(MustAccept([("v3", Start)], "v3", Start.AddMinutes(10), requirement));
+        Assert.True(MustAccept([("v3", Start.AddSeconds(-1))], "v3", Start.AddMinutes(10), requirement));
+    }
+
+    [Fact]
+    public void Only_an_acceptance_at_or_after_the_marking_counts_even_when_an_older_one_has_the_right_version()
+    {
+        var requirement = Requirement("v2", Start, Start);
+
+        Assert.True(MustAccept([("v2", Start.AddDays(-1)), ("v1", Start.AddDays(1))], null, Start.AddDays(2), requirement));
+        Assert.False(MustAccept([("v2", Start.AddDays(-1)), ("v2", Start.AddDays(1))], null, Start.AddDays(2), requirement));
     }
 
     [Fact]

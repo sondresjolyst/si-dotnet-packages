@@ -141,6 +141,9 @@ public static class AuthErrorCodes
 
     /// <summary>The signed-in user has not confirmed the email address, and the endpoint needs that. The answer is 403.</summary>
     public const string EmailNotVerified = "emailNotVerified";
+
+    /// <summary>The app has no terms for the person to accept, neither a current version nor a requirement. The answer is 409.</summary>
+    public const string NoTermsToAccept = "noTermsToAccept";
 }
 
 /// <summary>The body of an error that belongs to no field: the English message and its code.</summary>

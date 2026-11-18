@@ -373,6 +373,101 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
         Assert.Single(Rows("u1"));
     }
 
+    [Fact]
+    public async Task With_no_source_version_and_no_requirement_there_is_nothing_to_accept()
+    {
+        await StartAsync();
+        await SeedAsync("u1");
+        _version.Current = null;
+
+        var response = await AcceptTermsAsync(new { termsVersion = "anything" }, await TokenAsync("u1"));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("noTermsToAccept", await ErrorJson.CodeAsync(response));
+        Assert.Empty(Rows("u1"));
+    }
+
+    [Fact]
+    public async Task With_a_requirement_in_effect_and_no_source_version_only_the_required_version_is_accepted()
+    {
+        await StartAsync();
+        await SeedAsync("u1");
+        _version.Current = null;
+        await RequireAsync("v3", _start);
+        var token = await TokenAsync("u1");
+
+        var wrong = await AcceptTermsAsync(new { termsVersion = "anything" }, token);
+
+        Assert.Equal(HttpStatusCode.Conflict, wrong.StatusCode);
+        Assert.Equal("termsChanged", await ErrorJson.CodeAsync(wrong));
+        Assert.Empty(Rows("u1"));
+        Assert.Equal(HttpStatusCode.NoContent, (await AcceptTermsAsync(new { termsVersion = "v3" }, token)).StatusCode);
+        Assert.Equal(["v3"], Rows("u1").Select(r => r.Version));
+    }
+
+    [Fact]
+    public async Task A_requirement_in_effect_wins_over_a_source_version_that_differs()
+    {
+        await StartAsync();
+        await SeedAsync("u1");
+        await RequireAsync("v3", _start);
+        var token = await TokenAsync("u1");
+
+        var fromSource = await AcceptTermsAsync(new { termsVersion = "v2" }, token);
+
+        Assert.Equal(HttpStatusCode.Conflict, fromSource.StatusCode);
+        Assert.Equal("termsChanged", await ErrorJson.CodeAsync(fromSource));
+        Assert.Empty(Rows("u1"));
+        Assert.Equal(HttpStatusCode.NoContent, (await AcceptTermsAsync(new { termsVersion = "v3" }, token)).StatusCode);
+        Assert.Equal(["v3"], Rows("u1").Select(r => r.Version));
+        Assert.Empty(Pending(await LoginAsync("u1")));
+    }
+
+    [Fact]
+    public async Task A_requirement_that_is_not_in_effect_yet_can_be_accepted_early_when_the_source_has_no_version()
+    {
+        await StartAsync();
+        await SeedAsync("u1");
+        _version.Current = null;
+        await RequireAsync("v3", _start.AddDays(7));
+        var token = await TokenAsync("u1");
+
+        Assert.Equal("termsChanged", await ErrorJson.CodeAsync(await AcceptTermsAsync(new { termsVersion = "v2" }, token)));
+        Assert.Equal(HttpStatusCode.NoContent, (await AcceptTermsAsync(new { termsVersion = "v3" }, token)).StatusCode);
+
+        _time.Advance(TimeSpan.FromDays(8));
+        ExpireUserCheck("u1");
+        Assert.Empty(Pending(await LoginAsync("u1")));
+    }
+
+    [Fact]
+    public async Task An_acceptance_of_some_other_version_does_not_clear_a_pending_requirement()
+    {
+        await StartAsync();
+        await SeedAsync("u1");
+        await RequireAsync("v3", _start);
+        _time.Advance(TimeSpan.FromHours(1));
+        Accept("u1", "made-up", _start.AddHours(1));
+        ExpireUserCheck("u1");
+
+        Assert.Equal(["terms=v3"], Pending(await LoginAsync("u1")));
+    }
+
+    [Theory]
+    [InlineData("v3")]
+    [InlineData("v2")]
+    public async Task An_acceptance_of_the_required_or_the_current_source_version_after_the_marking_clears_it(string version)
+    {
+        await StartAsync();
+        await SeedAsync("u1");
+        await RequireAsync("v3", _start);
+        _time.Advance(TimeSpan.FromHours(1));
+        Accept("u1", version, _start.AddHours(1));
+        ExpireUserCheck("u1");
+
+        Assert.Empty(Pending(await LoginAsync("u1")));
+    }
+
     // The default IConsentRequirements
 
     [Fact]

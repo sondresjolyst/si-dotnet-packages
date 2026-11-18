@@ -44,8 +44,10 @@ public static partial class AuthEndpointsExtensions
     /// account 409 <c>alreadyVerified</c>, and five wrong codes 429 <c>tooManyAttempts</c>. A resend answers 200,
     /// or 429 <c>tooManyRequests</c> inside the cooldown, or 429 <c>tooManyAttempts</c> until the locked code has
     /// expired. It also maps <c>POST accept-terms</c> with the body <c>termsVersion</c> and optional <c>locale</c>, for a signed-in
-    /// user whether the email is verified or not. A blank version is a field error, and a version that is not the current
-    /// one answers 409 <c>termsChanged</c>. It records the acceptance with the source <c>reaccept</c>, answers 204, and
+    /// user whether the email is verified or not. A blank version is a field error. The version must be the one of the newest
+    /// requirement in effect, or the current version from <see cref="IConsentVersionSource"/> when no requirement is in effect,
+    /// or the newest requirement when the source has none. Another version answers 409 <c>termsChanged</c>, and with no
+    /// version to accept at all the answer is 409 <c>noTermsToAccept</c>. It records the acceptance with the source <c>reaccept</c>, answers 204, and
     /// answers 204 again for a version the user already accepted. It needs Identity, <see cref="AuthServiceCollectionExtensions.AddAppKitAuth{TContext}"/>, an
     /// <see cref="IRegistrationEmails{TUser}"/> and
     /// <see cref="SelfRegistrationServiceCollectionExtensions.AddAppKitSelfRegistration{TUser, TContext}"/>.
