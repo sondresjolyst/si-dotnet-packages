@@ -3,8 +3,11 @@ namespace SjolystInnovation.AppKit.Auth;
 /// <summary>Tells the sign-up which version of a document is current, for example the terms.</summary>
 public interface IConsentVersionSource
 {
-    /// <summary>Returns the current version of <paramref name="document"/>, as a person sees it in <paramref name="locale"/>.</summary>
-    Task<string> GetCurrentVersionAsync(string document, string? locale, CancellationToken cancellationToken);
+    /// <summary>
+    /// Returns the current version of <paramref name="document"/>, as a person sees it in <paramref name="locale"/>,
+    /// or null when the app has no such document. The sign-up then accepts any version and stores it as sent.
+    /// </summary>
+    Task<string?> GetCurrentVersionAsync(string document, string? locale, CancellationToken cancellationToken);
 }
 
 /// <summary>Runs inside the sign-up transaction, for example to add the app's own rows for a new user.</summary>

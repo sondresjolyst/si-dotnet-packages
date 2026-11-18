@@ -15,7 +15,9 @@ public static class SelfRegistrationServiceCollectionExtensions
     /// Opts the app in to the public sign-up and binds <see cref="AppKitRegistrationOptions{TUser}"/>. The app
     /// fails to start when <c>NewUser</c> is missing, when the unverified lifetime or the minimum age is not
     /// positive, when the resend cooldown is negative, when a reminder offset is not positive and shorter than
-    /// the lifetime, or when the terms document name is blank. An app that never calls this sees no change.
+    /// the lifetime, or when the terms document name is blank. It registers an <see cref="IRegistrationEmails{TUser}"/>
+    /// that sends the verification email through <see cref="IVerificationEmails{TUser}"/> and skips the other two with
+    /// one warning, unless the app registered its own first. An app that never calls this sees no change.
     /// </summary>
     public static IServiceCollection AddAppKitSelfRegistration<TUser, TContext>(
         this IServiceCollection services, Action<AppKitRegistrationOptions<TUser>> configure)
@@ -37,6 +39,8 @@ public static class SelfRegistrationServiceCollectionExtensions
         services.TryAddSingleton<SelfRegistrationRegistered>();
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddScoped<AccountConsentService<TContext>>();
+        services.TryAddSingleton<RegistrationEmailsWarning>();
+        services.TryAddScoped<IRegistrationEmails<TUser>, RegistrationEmails<TUser>>();
         return services;
     }
 }

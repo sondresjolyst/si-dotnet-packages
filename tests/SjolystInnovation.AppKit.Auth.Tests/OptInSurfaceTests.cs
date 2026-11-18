@@ -50,6 +50,22 @@ public class OptInSurfaceTests
         Assert.All(typeof(RefreshToken).Assembly.GetExportedTypes(), t => Assert.Equal("SjolystInnovation.AppKit.Auth", t.Namespace));
 
     [Fact]
+    public void The_register_mapping_is_a_new_method_on_the_existing_endpoints_class()
+    {
+        var methods = typeof(AuthEndpointsExtensions).GetMethods().Where(m => m.IsPublic && m.IsStatic).Select(m => m.Name).Order().ToArray();
+
+        Assert.Equal(["MapAppKitAuth", "MapAppKitRegistration"], methods);
+    }
+
+    [Fact]
+    public void MapAppKitAuth_keeps_its_parameters()
+    {
+        var method = typeof(AuthEndpointsExtensions).GetMethod("MapAppKitAuth")!;
+
+        Assert.Equal(["endpoints", "prefix", "configure"], method.GetParameters().Select(p => p.Name).ToArray());
+    }
+
+    [Fact]
     public void An_app_that_never_opts_in_has_no_consent_tables()
     {
         using var db = new TestDb().NewContext();

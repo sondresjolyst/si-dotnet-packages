@@ -29,7 +29,7 @@ public static class AuthErrorCodes
     /// <summary>The field is blank and must have a value.</summary>
     public const string Required = "required";
 
-    /// <summary>The value is not an email address. On an invite, it is also longer than 200 characters.</summary>
+    /// <summary>The value is not an email address. On an invite or a sign-up, it is also longer than 200 characters.</summary>
     public const string InvalidEmail = "invalidEmail";
 
     /// <summary>The text is longer than its limit. The <c>limits</c> extension holds the limit for the field.</summary>
@@ -106,6 +106,21 @@ public static class AuthErrorCodes
 
     /// <summary>The email already has an account.</summary>
     public const string EmailTaken = "emailTaken";
+
+    /// <summary>The person did not confirm the minimum age. The error is keyed by <c>AgeConfirmed</c>.</summary>
+    public const string AgeNotConfirmed = "ageNotConfirmed";
+
+    /// <summary>The person did not accept the terms. The error is keyed by <c>TermsAccepted</c>.</summary>
+    public const string TermsNotAccepted = "termsNotAccepted";
+
+    /// <summary>The user name is already taken by another account. The error is keyed by <c>UserName</c>.</summary>
+    public const string UserNameTaken = "userNameTaken";
+
+    /// <summary>The user name has characters Identity does not allow. The error is keyed by <c>UserName</c>.</summary>
+    public const string InvalidUserName = "invalidUserName";
+
+    /// <summary>The terms version the client sent is not the current one. The answer is 409, and the client should reload the terms.</summary>
+    public const string TermsChanged = "termsChanged";
 }
 
 /// <summary>The body of an error that belongs to no field: the English message and its code.</summary>
