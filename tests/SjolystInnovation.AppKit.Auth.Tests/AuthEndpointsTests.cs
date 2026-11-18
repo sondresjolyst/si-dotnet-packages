@@ -33,6 +33,8 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
     private const string Password = "Password1";
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
     private readonly FakeEmails _emails = new();
+    private readonly VerificationEndpointsTests.LostRace _lostRace = new();
+    private string? _file;
     private IHost? _host;
     private HttpClient _client = default!;
 
@@ -46,10 +48,18 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
             _host.Dispose();
         }
         await _connection.DisposeAsync();
+        if (_file is not null)
+        {
+            SqliteConnection.ClearAllPools();
+            File.Delete(_file);
+        }
     }
 
-    private async Task StartAsync(Action<AppKitAuthEndpointOptions<IdentityTestUser>>? configure = null, string prefix = "/api/auth")
+    private async Task StartAsync(Action<AppKitAuthEndpointOptions<IdentityTestUser>>? configure = null, string prefix = "/api/auth", bool fileDb = false)
     {
+        // Parallel requests need their own connections, so they run on a database file.
+        if (fileDb)
+            _file = Path.Combine(Path.GetTempPath(), $"appkit-auth-{Guid.NewGuid():N}.db");
         _host = new HostBuilder()
             .ConfigureWebHost(web => web
                 .UseTestServer()
@@ -60,7 +70,14 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
                 }))
                 .ConfigureServices((context, s) =>
                 {
-                    s.AddDbContext<IdentityTestDbContext>(o => o.UseSqlite(_connection));
+                    s.AddDbContext<IdentityTestDbContext>(o =>
+                    {
+                        if (_file is null)
+                            o.UseSqlite(_connection);
+                        else
+                            o.UseSqlite($"Data Source={_file};Pooling=False");
+                        o.AddInterceptors(_lostRace);
+                    });
                     s.AddAppKitIdentity<IdentityTestUser, IdentityTestDbContext>();
                     s.AddAppKitAuth<IdentityTestDbContext>(context.Configuration.GetSection("Jwt"));
                     s.AddSingleton<IAuthEmails<IdentityTestUser>>(_emails);
@@ -437,6 +454,59 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
         await PostAsync("reset-password", new { email = "u1@example.invalid", code, newPassword = "NewPassword2" });
 
         Assert.Equal(HttpStatusCode.OK, (await PostAsync("login", new { email = "u1@example.invalid", password = "NewPassword2" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_wrong_reset_code_whose_attempt_cannot_be_saved_answers_409_tryAgain()
+    {
+        await StartAsync();
+        await UserAsync();
+        await CodeForAsync();
+        _lostRace.Active = true;
+
+        var response = await PostAsync("reset-password", new { email = "u1@example.invalid", code = "WRONG1", newPassword = "NewPassword2" });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(AuthErrorCodes.TryAgain, await ErrorJson.CodeAsync(response));
+        Assert.Equal(0, Db(db => db.Users.Single().PasswordResetAttempts));
+    }
+
+    [Fact]
+    public async Task A_right_reset_code_whose_password_cannot_be_saved_answers_409_tryAgain()
+    {
+        await StartAsync();
+        await UserAsync();
+        var code = await CodeForAsync();
+        _lostRace.Active = true;
+
+        var response = await PostAsync("reset-password", new { email = "u1@example.invalid", code, newPassword = "NewPassword2" });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(AuthErrorCodes.TryAgain, await ErrorJson.CodeAsync(response));
+        _lostRace.Active = false;
+        Assert.Equal(HttpStatusCode.OK, (await PostAsync("login", new { email = "u1@example.invalid", password = Password })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Parallel_wrong_reset_codes_never_get_more_invalidResetCode_answers_than_stored_attempts()
+    {
+        await StartAsync(fileDb: true);
+        await UserAsync();
+        await CodeForAsync();
+        var invalid = 0;
+        for (var round = 0; round < 30 && Db(db => db.Users.Single().PasswordResetAttempts) < VerificationCodes.MaxAttempts; round++)
+        {
+            var responses = await Task.WhenAll(Enumerable.Range(0, 12).Select(i =>
+                PostAsync("reset-password", new { email = "u1@example.invalid", code = $"WRONG{i}", newPassword = "NewPassword2" })));
+            invalid += responses.Count(r => r.StatusCode == HttpStatusCode.BadRequest);
+            Assert.All(responses, r => Assert.Contains(r.StatusCode, new[] { HttpStatusCode.BadRequest, HttpStatusCode.Conflict, HttpStatusCode.TooManyRequests }));
+            Assert.True(invalid <= Db(db => db.Users.Single().PasswordResetAttempts));
+        }
+
+        Assert.Equal(VerificationCodes.MaxAttempts, Db(db => db.Users.Single().PasswordResetAttempts));
+        var after = await Task.WhenAll(Enumerable.Range(0, 10).Select(i =>
+            PostAsync("reset-password", new { email = "u1@example.invalid", code = $"LATE{i}", newPassword = "NewPassword2" })));
+        Assert.All(after, r => Assert.Equal(HttpStatusCode.TooManyRequests, r.StatusCode));
     }
 
     [Fact]
