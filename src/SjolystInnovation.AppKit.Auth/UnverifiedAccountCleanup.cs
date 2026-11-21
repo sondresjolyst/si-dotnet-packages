@@ -20,7 +20,8 @@ public interface IRemovalReminderUser
 /// <param name="Removed">How many accounts were removed.</param>
 /// <param name="Reminded">How many removal reminders were sent.</param>
 /// <param name="Failed">How many accounts failed and were left as they were.</param>
-public sealed record UnverifiedCleanupResult(int Removed, int Reminded, int Failed);
+/// <param name="Skipped">How many accounts were left alone because another host removed or changed them at the same moment.</param>
+public sealed record UnverifiedCleanupResult(int Removed, int Reminded, int Failed, int Skipped = 0);
 
 /// <summary>Removes accounts that came through the sign-up and never verified their email, and reminds their owners first.</summary>
 public interface IUnverifiedAccountCleanup
@@ -34,7 +35,8 @@ public interface IUnverifiedAccountCleanup
     /// <see cref="AppKitRegistrationOptions{TUser}.RemindBefore"/> that are due, once each, when the user type
     /// implements <see cref="IRemovalReminderUser"/>. A reminder carries a fresh code, counts toward
     /// <see cref="AppKitRegistrationOptions{TUser}.MaxOwnerEmailsPerAddressPerDay"/> and waits for a later run when the address is over it. An account that is locked after
-    /// too many wrong codes is reminded in a later run. One failing account is logged and does not stop the run.
+    /// too many wrong codes is reminded in a later run. One failing account is logged and does not stop the run. An account that
+    /// another host removed or changed at the same moment is counted as skipped and logged at debug level, not as a failure.
     /// The run also removes the sign-up email counts from before yesterday.
     /// </summary>
     Task<UnverifiedCleanupResult> RunOnceAsync(CancellationToken cancellationToken = default);
@@ -45,6 +47,9 @@ internal enum CleanupOutcome
     Removed,
     Reminded,
     Skipped,
+
+    // Another host removed or changed the account at the same moment.
+    Lost,
 }
 
 internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
@@ -75,15 +80,28 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
     {
         var settings = options.Value;
         var now = time.GetUtcNow().UtcDateTime;
-        int removed = 0, reminded = 0, failed = 0;
+        int removed = 0, reminded = 0, failed = 0, skipped = 0;
 
         var removalCutoff = now - settings.UnverifiedLifetime;
         foreach (var id in await IdsAsync(u => u.CreatedAt < removalCutoff, cancellationToken))
         {
             try
             {
-                if (await RemoveAsync(id, cancellationToken) == CleanupOutcome.Removed)
-                    removed++;
+                switch (await RemoveAsync(id, cancellationToken))
+                {
+                    case CleanupOutcome.Removed:
+                        removed++;
+                        break;
+                    case CleanupOutcome.Lost:
+                        skipped++;
+                        Log.LostRace(logger, id);
+                        break;
+                }
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                skipped++;
+                Log.LostRace(logger, id);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -99,8 +117,21 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
             {
                 try
                 {
-                    if (await RemindAsync(id, cancellationToken) == CleanupOutcome.Reminded)
-                        reminded++;
+                    switch (await RemindAsync(id, cancellationToken))
+                    {
+                        case CleanupOutcome.Reminded:
+                            reminded++;
+                            break;
+                        case CleanupOutcome.Lost:
+                            skipped++;
+                            Log.LostRace(logger, id);
+                            break;
+                    }
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    skipped++;
+                    Log.LostRace(logger, id);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -113,9 +144,9 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
         using (var scope = services.CreateScope())
             await scope.ServiceProvider.GetRequiredService<SignUpMailLimiter<TContext>>().RemoveOldAsync(cancellationToken);
 
-        if (removed + reminded + failed > 0)
-            Log.Ran(logger, removed, reminded, failed);
-        return new UnverifiedCleanupResult(removed, reminded, failed);
+        if (removed + reminded + failed + skipped > 0)
+            Log.Ran(logger, removed, reminded, failed, skipped);
+        return new UnverifiedCleanupResult(removed, reminded, failed, skipped);
     }
 
     // The ids of the active accounts with an unconfirmed email that match the filter. Each account is loaded again later.
@@ -138,7 +169,11 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
         var users = scope.ServiceProvider.GetRequiredService<UserManager<TUser>>();
 
         await using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
-        if (await users.FindByIdAsync(userId) is not { EmailConfirmed: false, IsDeleted: false } user || user.CreatedAt >= now - lifetime
+        var found = await users.FindByIdAsync(userId);
+        // The id came from a list made a moment ago, so an account that is gone now was removed by another host.
+        if (found is null)
+            return CleanupOutcome.Lost;
+        if (found is not { EmailConfirmed: false, IsDeleted: false } user || user.CreatedAt >= now - lifetime
             || !await CameThroughSignUpAsync(db, userId, cancellationToken))
             return CleanupOutcome.Skipped;
         if (user.EmailVerificationCodeExpiration > now && user.CreatedAt >= now - lifetime - Grace)
@@ -147,6 +182,8 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
         foreach (var eraser in scope.ServiceProvider.GetServices<IAccountDataEraser<TUser>>())
             await eraser.EraseAsync(user, cancellationToken);
         var deleted = await users.DeleteAsync(user);
+        if (deleted.Errors.Any(e => e.Code == nameof(IdentityErrorDescriber.ConcurrencyFailure)))
+            return CleanupOutcome.Lost;
         if (!deleted.Succeeded)
             throw new InvalidOperationException("Removing the unverified account failed: " + string.Join(" ", deleted.Errors.Select(e => e.Code)));
         await tx.CommitAsync(cancellationToken);
@@ -185,7 +222,7 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
         if (!saved.Succeeded)
         {
             if (saved.Errors.Any(e => e.Code == nameof(IdentityErrorDescriber.ConcurrencyFailure)))
-                return CleanupOutcome.Skipped;
+                return CleanupOutcome.Lost;
             throw new InvalidOperationException("Saving the reminder code failed: " + string.Join(" ", saved.Errors.Select(e => e.Code)));
         }
 
@@ -220,8 +257,11 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
         [LoggerMessage(Level = LogLevel.Error, Message = "Sending the removal reminder to unverified account {UserId} failed.")]
         public static partial void ReminderFailed(ILogger logger, Exception exception, string userId);
 
-        [LoggerMessage(Level = LogLevel.Information, Message = "Unverified account cleanup removed {Removed}, reminded {Reminded} and failed {Failed}.")]
-        public static partial void Ran(ILogger logger, int removed, int reminded, int failed);
+        [LoggerMessage(Level = LogLevel.Debug, Message = "Skipped unverified account {UserId}, because another host removed or changed it at the same moment.")]
+        public static partial void LostRace(ILogger logger, string userId);
+
+        [LoggerMessage(Level = LogLevel.Information, Message = "Unverified account cleanup removed {Removed}, reminded {Reminded}, failed {Failed} and skipped {Skipped}.")]
+        public static partial void Ran(ILogger logger, int removed, int reminded, int failed, int skipped);
 
         [LoggerMessage(Level = LogLevel.Warning, Message = "RemindBefore is set, but {UserType} does not implement IRemovalReminderUser, so no removal reminders are sent. Add the interface and a column for it to send them.")]
         public static partial void RemindersUnavailable(ILogger logger, string userType);
