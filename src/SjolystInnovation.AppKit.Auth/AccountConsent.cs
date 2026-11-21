@@ -63,9 +63,11 @@ public class ConsentRequirement
 }
 
 /// <summary>
-/// Counts the sign-up emails sent to one address on one day, by kind. The address is kept as a hash of its normalised
-/// form, folded to its mailbox key (see the sign-up options), never as the address itself. The sign-up reads it to cap the
-/// emails per address and to space out the notices to an existing account.
+/// Counts the sign-up emails sent to one address on one day, by kind. The address is kept as an HMAC-SHA256 hash of its
+/// normalised form, folded to its mailbox key (see the sign-up options), never as the address itself. The key of the hash
+/// is derived from <see cref="AppKitAuthOptions.Key"/>, so a copy of the table cannot be reversed by hashing guessed
+/// addresses, and changing the signing key resets the counts. The sign-up reads it to cap the emails per address and to
+/// space out the notices to an existing account.
 /// </summary>
 public class SignUpMailLog
 {

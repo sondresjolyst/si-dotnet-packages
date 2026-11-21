@@ -191,6 +191,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
                     s.AddSingleton<TimeProvider>(_time);
                     s.AddDbContext<RegistrationTestDbContext>(o => o.UseSqlite(_connection).AddInterceptors(_race));
                     s.AddAppKitIdentity<IdentityTestUser, RegistrationTestDbContext>();
+                    s.Configure<AppKitAuthOptions>(o => o.Key = MailKeys.SigningKey);
                     s.AddSingleton<IPasswordHasher<IdentityTestUser>>(_hasher);
                     if (!userValidator)
                         s.RemoveAll<IUserValidator<IdentityTestUser>>();
@@ -487,6 +488,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
 
         var row = Db(db => db.SignUpMailLogs.Single(l => l.Kind == "network"));
         Assert.Matches("^[0-9a-f]{64}$", row.AddressHash);
+        Assert.Equal(SignUpMailAddress.NetworkHash(MailKeys.Key, "203.0.113.0"), row.AddressHash);
         Assert.Equal(1, row.Count);
         _time.Advance(TimeSpan.FromDays(1));
         await RegisterAsync(Body(NetworkEmail(3)));
@@ -1108,6 +1110,9 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
         var row = Db(db => db.SignUpMailLogs.Single(l => l.Kind == SignUpMailKinds.Verification));
         Assert.Equal(64, row.AddressHash.Length);
         Assert.DoesNotContain("someone", row.AddressHash, StringComparison.OrdinalIgnoreCase);
+        var plain = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("SOMEONE+TAG@EXAMPLE.INVALID"));
+        Assert.NotEqual(Convert.ToHexStringLower(plain), row.AddressHash);
+        Assert.Equal(SignUpMailAddress.MailboxHash(MailKeys.Key, "SOMEONE+TAG@EXAMPLE.INVALID"), row.AddressHash);
         Assert.Equal("verification", row.Kind);
         Assert.Equal(1, row.Count);
         Assert.Equal(_time.GetUtcNow().UtcDateTime.Date, row.Day);
@@ -1147,7 +1152,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
         await RegisterAsync(Body("  Case@Example.Invalid "));
 
         var user = Db(db => db.Users.Single());
-        Assert.Equal(SignUpMailAddress.Hash(user.NormalizedEmail!), Db(db => db.SignUpMailLogs.Single(l => l.Kind == SignUpMailKinds.Verification).AddressHash));
+        Assert.Equal(SignUpMailAddress.Hash(MailKeys.Key, user.NormalizedEmail!), Db(db => db.SignUpMailLogs.Single(l => l.Kind == SignUpMailKinds.Verification).AddressHash));
         Assert.Equal("CASE@EXAMPLE.INVALID", user.NormalizedEmail);
     }
 

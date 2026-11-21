@@ -265,7 +265,7 @@ public sealed class ResetConfirmsEmailTests : IAsyncDisposable
         using (var scope = _host!.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<RegistrationTestDbContext>();
-            var hash = SignUpMailAddress.Hash("U1@EXAMPLE.INVALID");
+            var hash = SignUpMailAddress.Hash(SignUpMailAddress.DeriveKey(Key), "U1@EXAMPLE.INVALID");
             db.SignUpMailLogs.AddRange(
                 new SignUpMailLog { AddressHash = hash, MailboxHash = hash, Kind = "notice", Day = _time.GetUtcNow().UtcDateTime.Date, Count = 50, LastSentAt = _time.GetUtcNow().UtcDateTime },
                 new SignUpMailLog { AddressHash = hash, MailboxHash = hash, Kind = "resend", Day = _time.GetUtcNow().UtcDateTime.Date, Count = 50, LastSentAt = _time.GetUtcNow().UtcDateTime });

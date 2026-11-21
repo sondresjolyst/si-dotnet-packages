@@ -180,7 +180,7 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
         // not the email has an account. Over the cap the answer is 429, which the email does not influence, and nothing happens.
         // A caller whose address is unknown is not counted.
         if (IpShortening.Shorten(http.Connection.RemoteIpAddress) is { } network
-            && !await Get<SignUpMailLimiter<TContext>>(http).TryCountNetworkAsync(SignUpMailAddress.NetworkHash(network), options.MaxSignUpsPerNetworkPerDay, cancellationToken))
+            && !await Get<SignUpMailLimiter<TContext>>(http).TryCountNetworkAsync(network, options.MaxSignUpsPerNetworkPerDay, cancellationToken))
         {
             AuthEndpointsExtensions.Log.RegistrationHandled(logger, null, RegistrationOutcome.NetworkCapReached);
             return AuthResults.Error(AuthErrorCodes.TooManyRequests, "Too many sign-ups from this network today. Try again tomorrow.", StatusCodes.Status429TooManyRequests);

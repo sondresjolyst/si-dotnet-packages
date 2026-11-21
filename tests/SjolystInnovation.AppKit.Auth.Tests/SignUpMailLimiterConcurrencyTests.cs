@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace SjolystInnovation.AppKit.Auth.Tests;
@@ -29,7 +30,7 @@ public sealed class SignUpMailLimiterConcurrencyTests : IDisposable
     private async Task<bool> ReserveAsync(string email, string kind, int anonymousCap, int ownerCap)
     {
         await using var db = NewContext();
-        var limiter = new SignUpMailLimiter<RegistrationTestDbContext>(db, TimeProvider.System, new UpperInvariantLookupNormalizer());
+        var limiter = new SignUpMailLimiter<RegistrationTestDbContext>(db, TimeProvider.System, Options.Create(new AppKitAuthOptions { Key = MailKeys.SigningKey }), new UpperInvariantLookupNormalizer());
         return await limiter.TryReserveAsync(email, null, kind, anonymousCap, ownerCap, TimeSpan.Zero, CancellationToken.None);
     }
 

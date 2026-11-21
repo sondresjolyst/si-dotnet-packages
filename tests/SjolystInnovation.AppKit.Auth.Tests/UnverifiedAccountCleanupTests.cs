@@ -86,6 +86,7 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
                     s.AddSingleton<TimeProvider>(_time);
                     s.AddDbContext<RegistrationTestDbContext>(o => o.UseSqlite(_connection));
                     s.AddAppKitIdentity<IdentityTestUser, RegistrationTestDbContext>();
+                    s.Configure<AppKitAuthOptions>(o => o.Key = MailKeys.SigningKey);
                     s.AddAppKitAccounts<IdentityTestUser, RegistrationTestDbContext>();
                     s.AddAppKitSelfRegistration<IdentityTestUser, RegistrationTestDbContext>(o =>
                     {
@@ -408,9 +409,9 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
         using var scope = _host!.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<RegistrationTestDbContext>();
         var normal = email.ToUpperInvariant();
-        var mailbox = SignUpMailAddress.MailboxHash(normal);
+        var mailbox = SignUpMailAddress.MailboxHash(MailKeys.Key, normal);
         var owner = SignUpMailKinds.IsOwner(kind);
-        var hash = owner ? SignUpMailAddress.Hash(normal) : mailbox;
+        var hash = owner ? SignUpMailAddress.Hash(MailKeys.Key, normal) : mailbox;
         foreach (var (rowHash, rowKind) in new[] { (hash, kind), (hash, owner ? SignUpMailKinds.OwnerBudget : SignUpMailKinds.AnonymousBudget), (mailbox, SignUpMailKinds.Total) })
             db.SignUpMailLogs.Add(new SignUpMailLog { AddressHash = rowHash, MailboxHash = mailbox, Kind = rowKind, Day = day, Count = count, LastSentAt = day });
         db.SaveChanges();
@@ -454,7 +455,7 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
 
         var row = Db(db => db.SignUpMailLogs.Single(l => l.Kind == SignUpMailKinds.Reminder));
         Assert.Equal(("reminder", 1, Now.Date), (row.Kind, row.Count, row.Day));
-        Assert.Equal(SignUpMailAddress.Hash("U1@EXAMPLE.INVALID"), row.AddressHash);
+        Assert.Equal(SignUpMailAddress.Hash(MailKeys.Key, "U1@EXAMPLE.INVALID"), row.AddressHash);
     }
 
     [Fact]

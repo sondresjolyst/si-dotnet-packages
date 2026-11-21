@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace SjolystInnovation.AppKit.Auth;
 
@@ -31,17 +32,28 @@ internal static class SignUpMailKinds
     public static string[] BudgetOf(string kind) => Array.IndexOf(Owner, kind) >= 0 ? Owner : Anonymous;
 }
 
+/// <summary>
+/// The hashes that the sign-up counts are kept under. They are HMAC-SHA256 with a key derived from
+/// <see cref="AppKitAuthOptions.Key"/> and a fixed purpose label, so a copy of the table cannot be reversed by hashing guessed
+/// addresses or networks. Changing the signing key changes every hash, so the counts start again.
+/// </summary>
 internal static class SignUpMailAddress
 {
+    private const string KeyPurpose = "SjolystInnovation.AppKit.Auth.SignUpMailLog";
+
+    // The key of the hashes, from the signing key and the purpose label.
+    public static byte[] DeriveKey(string signingKey) =>
+        HMACSHA256.HashData(Encoding.UTF8.GetBytes(signingKey), Encoding.UTF8.GetBytes(KeyPurpose));
+
     // The hash of the normalised address exactly as it is, as Identity normalises it for lookups.
-    public static string Hash(string normalizedEmail) =>
-        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedEmail.Trim())));
+    public static string Hash(byte[] key, string normalizedEmail) =>
+        Convert.ToHexStringLower(HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(normalizedEmail.Trim())));
 
     // The hash of a network, from the shortened address of the caller. The prefix keeps it apart from the hash of an email.
-    public static string NetworkHash(string shortenedAddress) => Hash("network:" + shortenedAddress);
+    public static string NetworkHash(byte[] key, string shortenedAddress) => Hash(key, "network:" + shortenedAddress);
 
     // The hash of the mailbox key of the normalised address.
-    public static string MailboxHash(string normalizedEmail) => Hash(MailboxKey(normalizedEmail));
+    public static string MailboxHash(byte[] key, string normalizedEmail) => Hash(key, MailboxKey(normalizedEmail));
 
     /// <summary>
     /// The key that stands for the mailbox an address reaches, so spellings of one inbox share one key. It is a best effort and
@@ -82,7 +94,8 @@ internal static class SignUpMailAddress
 }
 
 // Decides whether a sign-up email may go to an address now, and counts it when it may. The counts live in the database,
-// so the caps and the cooldown hold across instances and restarts. The caller must not hold a transaction around the call,
+// so the caps and the cooldown hold across instances and restarts. The rows are keyed by keyed hashes (see SignUpMailAddress),
+// so changing the signing key resets the counts. The caller must not hold a transaction around the call,
 // and sends the email only after this returns true, which is after the counts are saved.
 //
 // Three rules hold, each with its own running count row per day. The anonymous count per mailbox, the owner count per
@@ -91,9 +104,11 @@ internal static class SignUpMailAddress
 // raise the same row from the same value, one save fails with a concurrency conflict. A new row can lose to the unique index
 // on hash, kind and day. Either way the rows are read again and the reservation tried again, a fixed number of times, and
 // it fails closed after that. The mechanism is optimistic concurrency, so it needs no raw SQL and no isolation level.
-internal sealed class SignUpMailLimiter<TContext>(TContext db, TimeProvider time, ILookupNormalizer? normalizer = null)
+internal sealed class SignUpMailLimiter<TContext>(TContext db, TimeProvider time, IOptions<AppKitAuthOptions> auth, ILookupNormalizer? normalizer = null)
     where TContext : DbContext, IAccountConsentDbContext
 {
+    private readonly byte[] _key = SignUpMailAddress.DeriveKey(auth.Value.Key);
+
     // Every failed attempt means another reservation was saved in between. More attempts than the largest cap in a burst
     // would never be needed, and a few more than a usual cap are enough.
     private const int Attempts = 8;
@@ -107,9 +122,9 @@ internal sealed class SignUpMailLimiter<TContext>(TContext db, TimeProvider time
     public async Task<bool> TryReserveAsync(string email, string? storedNormalizedEmail, string kind, int anonymousCap, int ownerCap, TimeSpan cooldown, CancellationToken cancellationToken)
     {
         var exact = storedNormalizedEmail ?? (normalizer?.NormalizeEmail(email.Trim()) ?? email.Trim().ToUpperInvariant());
-        var mailbox = SignUpMailAddress.MailboxHash(exact);
+        var mailbox = SignUpMailAddress.MailboxHash(_key, exact);
         var isOwner = SignUpMailKinds.IsOwner(kind);
-        var hash = isOwner ? SignUpMailAddress.Hash(exact) : mailbox;
+        var hash = isOwner ? SignUpMailAddress.Hash(_key, exact) : mailbox;
         var budgetKind = isOwner ? SignUpMailKinds.OwnerBudget : SignUpMailKinds.AnonymousBudget;
         var cap = isOwner ? ownerCap : anonymousCap;
         for (var attempt = 0; attempt < Attempts; attempt++)
@@ -148,11 +163,12 @@ internal sealed class SignUpMailLimiter<TContext>(TContext db, TimeProvider time
         return false;
     }
 
-    // Counts one sign-up from the network, whose hash comes from SignUpMailAddress.NetworkHash, and returns true only when
+    // Counts one sign-up from the network, given as the shortened address of the caller, and returns true only when
     // the network has not reached the cap today. It uses the same optimistic concurrency as the email counts, and fails
     // closed when it cannot save after a few attempts. The row keeps the network hash in both hash columns.
-    public async Task<bool> TryCountNetworkAsync(string networkHash, int cap, CancellationToken cancellationToken)
+    public async Task<bool> TryCountNetworkAsync(string shortenedAddress, int cap, CancellationToken cancellationToken)
     {
+        var networkHash = SignUpMailAddress.NetworkHash(_key, shortenedAddress);
         for (var attempt = 0; attempt < Attempts; attempt++)
         {
             var now = time.GetUtcNow().UtcDateTime;
