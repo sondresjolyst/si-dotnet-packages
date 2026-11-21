@@ -625,6 +625,72 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
         Assert.Equal(1, Db(db => db.Users.Count()));
     }
 
+    public static TheoryData<string, object?> SameAnswerCases => new()
+    {
+        { "password", "short" },
+        { "password", new string('A', 129) },
+        { "termsVersion", new string('v', 65) },
+        { "locale", new string('n', 17) },
+        { "ageConfirmed", false },
+        { "termsAccepted", false },
+        { "userName", new string('x', 51) },
+        { "userName", "with@sign" },
+        { "userName", "bad name" },
+        { "userName", "taken" },
+        { "userName", "TAKEN" },
+    };
+
+    [Theory]
+    [MemberData(nameof(SameAnswerCases))]
+    public async Task A_field_error_reads_the_same_for_a_new_and_an_existing_email(string field, object? value)
+    {
+        await StartAsync(o => o.AllowUserName = true);
+        await SeedAsync("taken", verified: true);
+
+        var forNew = await RegisterAsync(Body(NewEmail, (field, value)));
+        var forExisting = await RegisterAsync(Body("taken@example.invalid", (field, value)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, forNew.StatusCode);
+        Assert.Equal(forNew.StatusCode, forExisting.StatusCode);
+        Assert.Equal(await TextAsync(forNew), await TextAsync(forExisting));
+        Assert.Equal(0, _emails.Total);
+    }
+
+    [Fact]
+    public async Task A_user_name_with_bad_characters_is_an_invalidUserName_error_for_any_email()
+    {
+        await StartAsync(o => o.AllowUserName = true);
+        await SeedAsync("taken", verified: true);
+
+        var forExisting = await RegisterAsync(Body("taken@example.invalid", ("userName", "bad name")));
+
+        Assert.Equal(HttpStatusCode.BadRequest, forExisting.StatusCode);
+        Assert.Equal(["UserName=invalidUserName"], await ErrorJson.FieldCodesAsync(forExisting));
+    }
+
+    [Fact]
+    public async Task A_taken_user_name_is_a_userNameTaken_error_for_any_email()
+    {
+        await StartAsync(o => o.AllowUserName = true);
+        await SeedAsync("taken", verified: true);
+
+        var forNew = await RegisterAsync(Body(NewEmail, ("userName", "taken")));
+        var forExisting = await RegisterAsync(Body("taken@example.invalid", ("userName", "taken")));
+
+        Assert.Equal(["UserName=userNameTaken"], await ErrorJson.FieldCodesAsync(forNew));
+        Assert.Equal(["UserName=userNameTaken"], await ErrorJson.FieldCodesAsync(forExisting));
+    }
+
+    [Fact]
+    public async Task User_name_errors_report_together_with_the_other_field_errors_without_an_account()
+    {
+        await StartAsync(o => o.AllowUserName = true);
+
+        var response = await RegisterAsync(Body(NewEmail, ("userName", "bad name"), ("ageConfirmed", false)));
+
+        Assert.Equal(["AgeConfirmed=ageNotConfirmed", "UserName=invalidUserName"], await ErrorJson.FieldCodesAsync(response));
+    }
+
     // With the user validator, Identity finds the duplicate. Without it, the unique index in the database does.
     [Theory]
     [InlineData(true)]

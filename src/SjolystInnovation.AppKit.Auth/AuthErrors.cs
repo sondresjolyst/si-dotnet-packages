@@ -171,6 +171,8 @@ internal sealed class AuthFieldErrors
 
     public bool Any => _errors.Count > 0;
 
+    public bool Has(string field) => _errors.ContainsKey(field);
+
     public AuthFieldErrors Add(string field, string code, string message, int? limit = null)
     {
         if (!_errors.TryGetValue(field, out var messages))

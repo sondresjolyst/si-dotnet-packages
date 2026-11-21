@@ -39,6 +39,8 @@ public static partial class AuthEndpointsExtensions
     /// told that someone tried, at most once per <see cref="AppKitRegistrationOptions{TUser}.ResendCooldown"/>.
     /// Every one of these cases answers 200 with the same body. A user name that contains <c>@</c> is refused,
     /// because the user name defaults to the email and a chosen one could otherwise take another person's email.
+    /// A chosen user name also goes through the allowed characters and the duplicate check of Identity before any lookup by email,
+    /// so a bad name is <c>invalidUserName</c> and a taken one is <c>userNameTaken</c>, the same for a new and an existing email.
     /// It also maps <c>POST verify-email</c> with the body <c>code</c> and <c>POST resend-verification</c> with no body.
     /// Both need a signed-in user, the account that is being verified. A right code confirms the email, ends every
     /// session of the user, and answers 200. A check whose result cannot be saved answers 409 <c>tryAgain</c>. A wrong or expired code answers 400 <c>invalidCode</c>, a verified
@@ -146,6 +148,8 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
         CheckFields(errors, options, request, email, termsVersion, locale, registration);
         var probe = options.NewUser!(registration);
         probe.Email = email;
+        if (options.AllowUserName && registration.UserName is not null && !errors.Has("UserName"))
+            await CheckUserNameAsync(errors, users, probe);
         probe.UserName ??= email;
         if (!string.IsNullOrWhiteSpace(password) && password.Length <= MaxPassword)
             await CheckPasswordAsync(errors, users, probe, password, Get<IOptions<IdentityOptions>>(http).Value.Password.RequiredLength);
@@ -219,6 +223,20 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
         errors.Name("TermsVersion", termsVersion, MaxTermsVersion);
         if (locale is { Length: > MaxLocale })
             errors.Add("Locale", AuthErrorCodes.TooLong, $"At most {MaxLocale} characters.", MaxLocale);
+    }
+
+    // Identity's own user name checks, run for every request before any lookup by email, so the answer never depends on
+    // whether the email has an account. Only a name the person chose is checked, never the email that stands in for one.
+    private static async Task CheckUserNameAsync(AuthFieldErrors errors, UserManager<TUser> users, TUser probe)
+    {
+        var name = probe.UserName;
+        if (string.IsNullOrEmpty(name))
+            return;
+        var allowed = users.Options.User.AllowedUserNameCharacters;
+        if (!string.IsNullOrEmpty(allowed) && name.Any(c => !allowed.Contains(c, StringComparison.Ordinal)))
+            errors.Add("UserName", AuthErrorCodes.InvalidUserName, users.ErrorDescriber.InvalidUserName(name).Description);
+        else if (await users.FindByNameAsync(name) is not null)
+            errors.Add("UserName", AuthErrorCodes.UserNameTaken, users.ErrorDescriber.DuplicateUserName(name).Description);
     }
 
     // Runs the password validators against a user that is never saved, so the answer cannot depend on an account.
