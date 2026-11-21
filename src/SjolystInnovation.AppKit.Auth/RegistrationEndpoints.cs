@@ -169,6 +169,10 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
         if (http.RequestServices.GetService<ISignUpGuard>() is { } guard && !await guard.MaySignUpAsync(http, email))
             return AuthResults.Error(AuthErrorCodes.SignUpRefused, "The sign-up could not be checked. Try again.", StatusCodes.Status400BadRequest);
 
+        // The acceptance time is taken before the source is read and before the password is hashed, so a mark that comes with a newer
+        // version is never older than the acceptance.
+        var acceptedAt = Get<TimeProvider>(http).GetUtcNow().UtcDateTime;
+
         // The source decides. With no version from it, the client's version is not stored and the unversioned marker is stored
         // instead, so only a version the server knows is ever stored.
         var current = await Get<AccountConsentService<TContext>>(http).CurrentVersionAsync(options.TermsDocument, cancellationToken);
@@ -193,7 +197,7 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
             string? code;
             try
             {
-                var created = await CreateAsync(http, options, users, db, probe, password, registration, current ?? AccountConsent.Unversioned);
+                var created = await CreateAsync(http, options, users, db, probe, password, registration, current ?? AccountConsent.Unversioned, acceptedAt);
                 if (created.Problem is { } problem)
                     return problem;
                 code = created.Code;
@@ -276,7 +280,7 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
     // One transaction for the user, its role, the app's rows, the consents and the code. The result holds the code
     // when the account was made, or no code when the email already has one. A problem is a refusal to return as it is.
     private static async Task<(string? Code, IResult? Problem)> CreateAsync(HttpContext http, AppKitRegistrationOptions<TUser> options,
-        UserManager<TUser> users, TContext db, TUser user, string password, AppKitRegistration registration, string termsVersion)
+        UserManager<TUser> users, TContext db, TUser user, string password, AppKitRegistration registration, string termsVersion, DateTime acceptedAt)
     {
         var cancellationToken = http.RequestAborted;
         var time = Get<TimeProvider>(http);
@@ -300,10 +304,9 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
         foreach (var handler in http.RequestServices.GetServices<IRegistrationHandler<TUser>>())
             await handler.OnRegisteringAsync(user, registration, cancellationToken);
 
-        var now = time.GetUtcNow().UtcDateTime;
         var ip = options.RecordTruncatedIp ? IpShortening.Shorten(http.Connection.RemoteIpAddress) : null;
-        db.AccountConsents.Add(NewConsent(user.Id, options.TermsDocument, termsVersion, registration.Locale, now, ip));
-        db.AccountConsents.Add(NewConsent(user.Id, "age", options.MinimumAge.ToString(CultureInfo.InvariantCulture), registration.Locale, now, ip));
+        db.AccountConsents.Add(NewConsent(user.Id, options.TermsDocument, termsVersion, registration.Locale, acceptedAt, ip));
+        db.AccountConsents.Add(NewConsent(user.Id, "age", options.MinimumAge.ToString(CultureInfo.InvariantCulture), registration.Locale, acceptedAt, ip));
 
         var code = EmailVerificationCodes.Issue(user, time);
         var updated = await users.UpdateAsync(user);

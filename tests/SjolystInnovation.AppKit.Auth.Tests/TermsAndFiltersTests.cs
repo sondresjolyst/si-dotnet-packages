@@ -118,10 +118,19 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
 
         public List<string?> Locales { get; } = [];
 
-        public Task<string?> GetCurrentVersionAsync(string document, string? locale, CancellationToken cancellationToken)
+        // Runs once, on the first read, like a source that is slow while the app marks a requirement.
+        public Func<Task>? OnFirstRead { get; set; }
+
+        public async Task<string?> GetCurrentVersionAsync(string document, string? locale, CancellationToken cancellationToken)
         {
             Locales.Add(locale);
-            return Task.FromResult(Current);
+            var current = Current;
+            if (OnFirstRead is { } hook)
+            {
+                OnFirstRead = null;
+                await hook();
+            }
+            return current;
         }
     }
 
@@ -506,6 +515,27 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
         ExpireUserCheck("u1");
 
         Assert.Empty(Pending(await LoginAsync("u1")));
+    }
+
+    [Fact]
+    public async Task An_acceptance_is_dated_before_a_mark_that_came_while_the_source_was_read_and_the_user_is_pending()
+    {
+        await StartAsync();
+        await SeedAsync("u1");
+        Accept("u1", "v1", _start.AddDays(-30));
+        var token = await TokenAsync("u1");
+        _version.OnFirstRead = async () =>
+        {
+            _time.Advance(TimeSpan.FromHours(1));
+            await RequireAsync(_time.GetUtcNow().UtcDateTime);
+        };
+
+        Assert.Equal(HttpStatusCode.NoContent, (await AcceptTermsAsync(new { termsVersion = "v2" }, token)).StatusCode);
+
+        var requirement = Db(db => db.ConsentRequirements.AsNoTracking().Single());
+        Assert.True(Rows("u1").Single(r => r.Version == "v2").AcceptedAt < requirement.MarkedAt);
+        ExpireUserCheck("u1");
+        Assert.Equal(["terms=v2"], Pending(await LoginAsync("u1")));
     }
 
     [Fact]

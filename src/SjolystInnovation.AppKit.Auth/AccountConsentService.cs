@@ -40,11 +40,13 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
     /// Adds a row for the acceptance and saves, unless the user is not pending for the document and already holds an acceptance
     /// of this exact version. A pending user always gets a new row, so accepting again always works. Two parallel requests of one
     /// user may both add a row. That is accepted, because the pending rule reads the latest acceptance and an extra row is harmless.
+    /// The caller passes <c>acceptedAt</c> when it read the current version first, taking the time before the read, so a request that
+    /// read an older version never gets a time after a mark that came with a newer one. Null means now.
     /// </summary>
     /// <returns>True when a row was added.</returns>
     public async Task<bool> RecordAsync(
         string userId, string document, string version, string source,
-        string? locale = null, string? ip = null, CancellationToken cancellationToken = default)
+        string? locale = null, string? ip = null, DateTime? acceptedAt = null, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(userId);
         ArgumentException.ThrowIfNullOrEmpty(document);
@@ -60,7 +62,7 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
         db.AccountConsents.Add(new AccountConsent
         {
             UserId = userId, Document = document, Version = version, Source = source,
-            Locale = locale, Ip = ip, AcceptedAt = now,
+            Locale = locale, Ip = ip, AcceptedAt = acceptedAt ?? now,
         });
         await db.SaveChangesAsync(cancellationToken);
         return true;

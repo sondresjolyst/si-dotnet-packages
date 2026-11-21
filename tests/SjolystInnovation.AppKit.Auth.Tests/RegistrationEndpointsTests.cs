@@ -89,12 +89,19 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
         }
     }
 
-    private sealed class FixedVersions(string? version, List<string?>? locales = null) : IConsentVersionSource
+    private sealed class FixedVersions(string? version, List<string?>? locales = null, Func<Task>? onFirstRead = null) : IConsentVersionSource
     {
-        public Task<string?> GetCurrentVersionAsync(string document, string? locale, CancellationToken cancellationToken)
+        private Func<Task>? _onFirstRead = onFirstRead;
+
+        public async Task<string?> GetCurrentVersionAsync(string document, string? locale, CancellationToken cancellationToken)
         {
             locales?.Add(locale);
-            return Task.FromResult(document == "terms" ? version : null);
+            if (_onFirstRead is { } hook)
+            {
+                _onFirstRead = null;
+                await hook();
+            }
+            return document == "terms" ? version : null;
         }
     }
 
@@ -179,7 +186,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
     private async Task StartAsync(
         Action<AppKitRegistrationOptions<IdentityTestUser>>? configure = null,
         string? termsVersion = "v1", bool versionSource = true, bool handler = false, bool throwingHandler = false,
-        bool optIn = true, IPAddress? remoteIp = null, bool userValidator = true, ISignUpGuard? guard = null)
+        bool optIn = true, IPAddress? remoteIp = null, bool userValidator = true, ISignUpGuard? guard = null, Func<Task>? onVersionRead = null)
     {
         _remoteIp = remoteIp;
         _host = new HostBuilder()
@@ -207,7 +214,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
                     });
                     s.AddSingleton<IRegistrationEmails<IdentityTestUser>>(_emails);
                     if (versionSource)
-                        s.AddSingleton<IConsentVersionSource>(new FixedVersions(termsVersion, _locales));
+                        s.AddSingleton<IConsentVersionSource>(new FixedVersions(termsVersion, _locales, onVersionRead));
                     if (guard is not null)
                         s.AddSingleton(guard);
                     if (handler)
@@ -734,6 +741,24 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(["AgeConfirmed=ageNotConfirmed", "Password=passwordTooShort,passwordRequiresDigit,passwordRequiresUpper"], await ErrorJson.FieldCodesAsync(response));
+    }
+
+    [Fact]
+    public async Task The_consent_rows_are_dated_before_a_mark_that_came_while_the_source_was_read_and_the_user_is_pending()
+    {
+        await StartAsync(onVersionRead: async () =>
+        {
+            _time.Advance(TimeSpan.FromHours(1));
+            using var scope = _host!.Services.CreateScope();
+            await scope.ServiceProvider.GetRequiredService<IConsentRequirements>().RequireAcceptanceAsync("terms", _time.GetUtcNow().UtcDateTime);
+        });
+
+        Assert.Equal(HttpStatusCode.OK, (await RegisterAsync()).StatusCode);
+
+        var user = Db(db => db.Users.Single());
+        var requirement = Db(db => db.ConsentRequirements.AsNoTracking().Single());
+        Assert.All(Db(db => db.AccountConsents.AsNoTracking().Where(c => c.UserId == user.Id).ToList()), c => Assert.True(c.AcceptedAt < requirement.MarkedAt));
+        Assert.Equal(["terms"], Db(db => new AccountConsentService<RegistrationTestDbContext>(db, _time).PendingDocumentsAsync(user.Id).GetAwaiter().GetResult()));
     }
 
     // Terms version

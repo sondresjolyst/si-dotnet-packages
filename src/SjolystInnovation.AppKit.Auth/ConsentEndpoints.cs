@@ -33,6 +33,9 @@ internal static class ConsentHandlers<TUser, TContext>
         if (errors.Any)
             return errors.ToResult();
 
+        // The time is taken before the source is read, so a mark that comes with a newer version is never older than the acceptance.
+        var acceptedAt = Get<TimeProvider>(http).GetUtcNow().UtcDateTime;
+
         // The source decides. With no version from it, the marker is recorded and the version sent is ignored.
         var consents = Get<AccountConsentService<TContext>>(http);
         var current = await consents.CurrentVersionAsync(options.TermsDocument, cancellationToken);
@@ -40,7 +43,7 @@ internal static class ConsentHandlers<TUser, TContext>
             return AuthResults.Error(AuthErrorCodes.TermsChanged, "The terms have changed. Read the current terms and accept them again.", StatusCodes.Status409Conflict);
 
         var ip = options.RecordTruncatedIp ? IpShortening.Shorten(http.Connection.RemoteIpAddress) : null;
-        await consents.RecordAsync(userId, options.TermsDocument, current ?? AccountConsent.Unversioned, "reaccept", locale, ip, cancellationToken);
+        await consents.RecordAsync(userId, options.TermsDocument, current ?? AccountConsent.Unversioned, "reaccept", locale, ip, acceptedAt, cancellationToken);
 
         // The pending state clears at once on this instance, instead of when the cached user check expires.
         http.RequestServices.GetService<IMemoryCache>()?.Remove(IdentityAndBearerExtensions.UserCheckKey(userId));
