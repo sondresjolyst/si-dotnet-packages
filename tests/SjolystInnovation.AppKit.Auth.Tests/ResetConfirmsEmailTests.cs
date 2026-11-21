@@ -8,6 +8,8 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -47,12 +49,28 @@ public sealed class ResetConfirmsEmailTests : IAsyncDisposable
         public Task SendRemovalReminderAsync(IdentityTestUser user, string code, DateTime removalAt, string? locale, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
+    // Fails the nth save of a user after it is armed, like a lost race on the concurrency stamp.
+    private sealed class FailUserSave : SaveChangesInterceptor
+    {
+        private int _remaining;
+
+        public void Arm(int nth) => _remaining = nth;
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (_remaining > 0 && eventData.Context!.ChangeTracker.Entries<IdentityTestUser>().Any(e => e.State == EntityState.Modified) && --_remaining == 0)
+                throw new DbUpdateConcurrencyException("Lost the race.");
+            return base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
+    }
+
     private const string Key = "reset-test-signing-key-0123456789abcdef";
     private const string Password = "Password1";
     private const string NewPassword = "NewPassword2";
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
     private readonly FakeTimeProvider _time = new(DateTimeOffset.UtcNow);
     private readonly ResetEmails _emails = new();
+    private readonly FailUserSave _failSave = new();
     private readonly List<(string Id, bool Confirmed)> _handled = [];
     private IHost? _host;
     private HttpClient _client = default!;
@@ -79,7 +97,7 @@ public sealed class ResetConfirmsEmailTests : IAsyncDisposable
                 .ConfigureServices((context, s) =>
                 {
                     s.AddSingleton<TimeProvider>(_time);
-                    s.AddDbContext<RegistrationTestDbContext>(o => o.UseSqlite(_connection));
+                    s.AddDbContext<RegistrationTestDbContext>(o => o.UseSqlite(_connection).AddInterceptors(_failSave));
                     s.AddAppKitIdentity<IdentityTestUser, RegistrationTestDbContext>();
                     s.AddAppKitAuth<RegistrationTestDbContext>(context.Configuration.GetSection("Jwt"));
                     s.AddAppKitJwtBearer<IdentityTestUser>(u => !u.IsDeleted);
@@ -216,6 +234,26 @@ public sealed class ResetConfirmsEmailTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.OK, (await ResetAsync("u1", code)).StatusCode);
 
         Assert.Empty(_handled);
+        Assert.Equal(HttpStatusCode.Unauthorized, await MeAsync(token));
+    }
+
+    [Fact]
+    public async Task A_reset_whose_last_save_fails_answers_tryAgain_and_still_drops_the_user_check_from_the_cache()
+    {
+        await StartAsync(optIn: true);
+        await SeedAsync("u1", verified: true);
+        var (token, _) = await LoginAsync("u1");
+        Assert.Equal(HttpStatusCode.OK, await MeAsync(token));
+        var cache = _host!.Services.GetRequiredService<IMemoryCache>();
+        Assert.True(cache.TryGetValue(IdentityAndBearerExtensions.UserCheckKey("u1"), out _));
+        var code = await RequestCodeAsync("u1");
+        _failSave.Arm(2);
+
+        var response = await ResetAsync("u1", code);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(AuthErrorCodes.TryAgain, await ErrorJson.CodeAsync(response));
+        Assert.False(cache.TryGetValue(IdentityAndBearerExtensions.UserCheckKey("u1"), out _));
         Assert.Equal(HttpStatusCode.Unauthorized, await MeAsync(token));
     }
 

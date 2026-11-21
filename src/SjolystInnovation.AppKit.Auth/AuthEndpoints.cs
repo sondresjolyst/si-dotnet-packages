@@ -251,26 +251,27 @@ internal sealed class AuthHandlers<TUser, TContext>(AppKitAuthEndpointOptions<TU
             return new AuthFieldErrors().Password("NewPassword", result.Errors, Get<IOptions<IdentityOptions>>(http).Value.Password.RequiredLength).ToResult();
 
         PasswordResetCodes.Complete(user!);
+        var optedIn = http.RequestServices.GetService<SelfRegistrationRegistered>() is not null;
         // An app that opted in to sign-up also takes the reset code as proof of the mailbox, so the reset confirms the email.
-        var confirmed = http.RequestServices.GetService<SelfRegistrationRegistered>() is not null && ConfirmEmail(user!);
+        var confirmed = optedIn && ConfirmEmail(user!);
         var completed = await users.UpdateAsync(user!);
         // A new password ends every session, so a session that someone took over cannot continue.
         var sessions = await refreshTokens.RevokeAllForUserAsync(user!.Id, http.RequestAborted);
         AuthEndpointsExtensions.Log.PasswordReset(logger, user.Id, sessions);
+        if (optedIn)
+        {
+            // Resetting the password rotated the security stamp. Drop the user from the bearer check cache first, also when
+            // the last save failed, so the access tokens issued before the reset stop working at once on this instance.
+            http.RequestServices.GetService<IMemoryCache>()?.Remove(IdentityAndBearerExtensions.UserCheckKey(user.Id));
+        }
         if (!completed.Succeeded)
             return AuthResults.TryAgain();
 
-        if (http.RequestServices.GetService<SelfRegistrationRegistered>() is not null)
+        if (confirmed)
         {
-            // Resetting the password rotated the security stamp. Drop the user from the bearer check cache, so the earlier
-            // access tokens stop working at once on this instance.
-            http.RequestServices.GetService<IMemoryCache>()?.Remove(IdentityAndBearerExtensions.UserCheckKey(user.Id));
-            if (confirmed)
-            {
-                AuthEndpointsExtensions.Log.EmailVerified(logger, user.Id);
-                foreach (var handler in http.RequestServices.GetServices<IEmailVerifiedHandler<TUser>>())
-                    await handler.OnEmailVerifiedAsync(user, http.RequestAborted);
-            }
+            AuthEndpointsExtensions.Log.EmailVerified(logger, user.Id);
+            foreach (var handler in http.RequestServices.GetServices<IEmailVerifiedHandler<TUser>>())
+                await handler.OnEmailVerifiedAsync(user, http.RequestAborted);
         }
         return TypedResults.Ok(new MessageResponse("Password reset successfully."));
     }
