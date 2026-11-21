@@ -67,7 +67,10 @@ public static class AccountConsentModelBuilderExtensions
     /// Maps <see cref="AccountConsent"/> to the <c>AccountConsents</c> table and <see cref="ConsentRequirement"/>
     /// to the <c>ConsentRequirements</c> table. A consent has a required foreign key from <c>UserId</c> to
     /// <typeparamref name="TUser"/> that cascades on delete. It is unique on user, document and version, and
-    /// indexed on user, document and acceptance time. A requirement is unique on document and version.
+    /// indexed on user, document and acceptance time. A requirement is unique on document and version. It also makes
+    /// the index on the normalised email of <typeparamref name="TUser"/> unique, so the database refuses a second
+    /// account for one email even when two sign-ups race. A database that already holds two accounts for one email
+    /// must be cleaned up before the migration that adds it.
     /// </summary>
     public static ModelBuilder AddAppKitAccountConsents<TUser>(this ModelBuilder modelBuilder) where TUser : class
     {
@@ -86,6 +89,7 @@ public static class AccountConsentModelBuilderExtensions
             e.HasIndex(c => new { c.UserId, c.Document, c.AcceptedAt });
             e.HasOne<TUser>().WithMany().HasForeignKey(c => c.UserId).OnDelete(DeleteBehavior.Cascade).IsRequired();
         });
+        modelBuilder.Entity<TUser>().HasIndex("NormalizedEmail").IsUnique();
         modelBuilder.Entity<ConsentRequirement>(e =>
         {
             e.ToTable("ConsentRequirements");

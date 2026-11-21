@@ -39,8 +39,6 @@ public class RegistrationTestDbContext(DbContextOptions<RegistrationTestDbContex
         base.OnModelCreating(builder);
         builder.AddAppKitRefreshTokens<IdentityTestUser>();
         builder.AddAppKitAccountConsents<IdentityTestUser>();
-        // A unique index, so the database can catch two sign-ups for the same email that race.
-        builder.Entity<IdentityTestUser>().HasIndex(u => u.NormalizedEmail).HasDatabaseName("EmailIndex").IsUnique();
     }
 }
 

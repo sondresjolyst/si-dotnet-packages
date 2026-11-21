@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using SjolystInnovation.AppKit.Email;
 
 namespace SjolystInnovation.AppKit.Auth;
@@ -19,7 +20,7 @@ public static class SelfRegistrationServiceCollectionExtensions
     /// the lifetime, or when the terms document name is blank. It registers an <see cref="IRegistrationEmails{TUser}"/>
     /// that sends the verification email through <see cref="IVerificationEmails{TUser}"/> and sends the notice to an
     /// existing account and the removal reminder through <see cref="IEmailSender"/> in the layout of the other auth emails,
-    /// unless the app registered its own first. The default needs an <see cref="IEmailBrand"/> and an <see cref="IEmailSender"/>. It registers the default <see cref="IConsentRequirements"/>. The bearer check then reads whether the email is confirmed and which documents the user must accept again, and the login and refresh answers gain <c>emailVerified</c> and <c>pendingConsents</c>. It also makes access tokens carry a hash of the security stamp, so verifying an email ends earlier access tokens at once. A token without that claim, issued before the app opted in, stays valid until it expires. It also registers <see cref="IUnverifiedAccountCleanup"/> and a hosted service that runs it when the app starts and once a day, unless <see cref="AppKitRegistrationOptions{TUser}.RunCleanupInBackground"/> is false. An app that never calls this sees no change.
+    /// unless the app registered its own first. The default needs an <see cref="IEmailBrand"/> and an <see cref="IEmailSender"/>. It registers the default <see cref="IConsentRequirements"/>. The bearer check then reads whether the email is confirmed and which documents the user must accept again, and the login and refresh answers gain <c>emailVerified</c> and <c>pendingConsents</c>. It also makes access tokens carry a hash of the security stamp, so verifying an email ends earlier access tokens at once. A token without that claim, issued before the app opted in, stays valid until it expires. It also registers <see cref="IUnverifiedAccountCleanup"/> and a hosted service that runs it when the app starts and once a day, unless <see cref="AppKitRegistrationOptions{TUser}.RunCleanupInBackground"/> is false. The app also fails to start when the EF model of <typeparamref name="TContext"/> has no unique index on the normalised email of <typeparamref name="TUser"/>. <see cref="AccountConsentModelBuilderExtensions.AddAppKitAccountConsents{TUser}"/> adds it. An app that never calls this sees no change.
     /// </summary>
     public static IServiceCollection AddAppKitSelfRegistration<TUser, TContext>(
         this IServiceCollection services, Action<AppKitRegistrationOptions<TUser>> configure)
@@ -46,7 +47,29 @@ public static class SelfRegistrationServiceCollectionExtensions
         services.TryAddScoped<IConsentRequirements, ConsentRequirements<TContext>>();
         services.TryAddScoped<IRegistrationEmails<TUser>, RegistrationEmails<TUser>>();
         services.TryAddSingleton<IUnverifiedAccountCleanup, UnverifiedAccountCleanup<TUser, TContext>>();
+        services.AddHostedService<SelfRegistrationModelCheck<TUser, TContext>>();
         services.AddHostedService<UnverifiedAccountCleanupService<TUser>>();
         return services;
     }
+}
+
+// Fails the start of the app when the model has no unique index on the normalised email. The sign-up relies on it to
+// keep two sign-ups for one email from both creating an account.
+internal sealed class SelfRegistrationModelCheck<TUser, TContext>(IServiceScopeFactory scopes) : IHostedService
+    where TUser : class
+    where TContext : DbContext
+{
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        using var scope = scopes.CreateScope();
+        var model = scope.ServiceProvider.GetRequiredService<TContext>().Model;
+        var unique = model.FindEntityType(typeof(TUser))?.GetIndexes()
+            .Any(i => i.IsUnique && i.Properties.Count == 1 && i.Properties[0].Name == "NormalizedEmail") ?? false;
+        if (!unique)
+            throw new InvalidOperationException(
+                $"The sign-up needs a unique index on NormalizedEmail of {typeof(TUser).Name} in the model of {typeof(TContext).Name}. Call AddAppKitAccountConsents<{typeof(TUser).Name}>() on the ModelBuilder in OnModelCreating.");
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
