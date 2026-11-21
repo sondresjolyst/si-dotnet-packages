@@ -132,5 +132,6 @@ public sealed class OneAccountPerEmailTests : IAsyncDisposable
 
         Assert.Contains("AddAppKitAccountConsents", failure.Message, StringComparison.Ordinal);
         Assert.Contains("NormalizedEmail", failure.Message, StringComparison.Ordinal);
+        Assert.Contains("apply the migration", failure.Message, StringComparison.Ordinal);
     }
 }
