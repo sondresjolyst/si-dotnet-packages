@@ -28,7 +28,7 @@ public static class AppKitEndpointFilterExtensions
     }
 
     /// <summary>
-    /// Refuses a signed-in user who must accept a document again with 403 and the code <c>termsNotAccepted</c>. Works on
+    /// Refuses a signed-in user who must accept a document again with 403 and the code <c>termsAcceptanceRequired</c>. Works on
     /// an endpoint or a group. An anonymous request goes on to the normal authorization answer. It reads the fact the
     /// bearer check sets, so accepting through <c>accept-terms</c> lifts it at once. A principal without the fact, for example
     /// one from another authentication scheme, counts as not up to date and is refused too.
@@ -44,7 +44,7 @@ public static class AppKitEndpointFilterExtensions
             return invocation => invocation.HttpContext.User.Identity?.IsAuthenticated != true
                 || (invocation.HttpContext.User.HasPendingFact() && invocation.HttpContext.User.GetPendingConsents().Count == 0)
                 ? next(invocation)
-                : ValueTask.FromResult<object?>(AuthResults.Error(AuthErrorCodes.TermsNotAccepted, "Accept the current terms to use this.", StatusCodes.Status403Forbidden));
+                : ValueTask.FromResult<object?>(AuthResults.Error(AuthErrorCodes.TermsAcceptanceRequired, "Accept the current terms to use this.", StatusCodes.Status403Forbidden));
         });
     }
 

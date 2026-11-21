@@ -110,8 +110,11 @@ public static class AuthErrorCodes
     /// <summary>The person did not confirm the minimum age. The error is keyed by <c>AgeConfirmed</c>.</summary>
     public const string AgeNotConfirmed = "ageNotConfirmed";
 
-    /// <summary>The person did not accept the terms. At sign-up the error is keyed by <c>TermsAccepted</c>. As a 403 from <c>RequireCurrentTerms</c> it means the user must accept a document again.</summary>
+    /// <summary>The person did not tick the box for the terms at sign-up. The error is keyed by <c>TermsAccepted</c>.</summary>
     public const string TermsNotAccepted = "termsNotAccepted";
+
+    /// <summary>The user must accept a document again. The answer is 403 from <c>RequireCurrentTerms</c>.</summary>
+    public const string TermsAcceptanceRequired = "termsAcceptanceRequired";
 
     /// <summary>The user name is already taken by another account. The error is keyed by <c>UserName</c>.</summary>
     public const string UserNameTaken = "userNameTaken";

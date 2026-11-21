@@ -274,7 +274,7 @@ code for each message at the same place. The `limits` extension holds the number
 | `tryAgain` | `verify-email` and `reset-password`, when the result could not be saved. A retry may succeed. | `409` |
 | `signUpRefused` | `register`, when the app's `ISignUpGuard` says no. | `400` |
 | `emailNotVerified` | An endpoint with `RequireVerifiedEmail()`, for an unconfirmed email. | `403` |
-| `termsNotAccepted` | An endpoint with `RequireCurrentTerms()`, for a user with a pending document. | `403` |
+| `termsAcceptanceRequired` | An endpoint with `RequireCurrentTerms()`, for a user with a pending document. | `403` |
 
 | Field code | Fields |
 | --- | --- |
@@ -695,7 +695,7 @@ app.MapGroup("/api/orders").RequireAuthorization().RequireVerifiedEmail().Requir
 | Filter | Answer for a signed-in user it stops |
 | --- | --- |
 | `RequireVerifiedEmail()` | `403 emailNotVerified`, for an unconfirmed email. |
-| `RequireCurrentTerms()` | `403 termsNotAccepted`, for a user with a pending document. |
+| `RequireCurrentTerms()` | `403 termsAcceptanceRequired`, for a user with a pending document. |
 
 A user who is unverified or pending can still call every endpoint without a filter. That includes
 `verify-email`, `resend-verification`, `accept-terms`, and the account endpoints for their own profile,

@@ -765,7 +765,7 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
         var response = await GetAsync("/terms", token);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        Assert.Equal("termsNotAccepted", await ErrorJson.CodeAsync(response));
+        Assert.Equal("termsAcceptanceRequired", await ErrorJson.CodeAsync(response));
         Assert.Equal(["terms=v2"], Pending(await LoginAsync("u1")));
     }
 
@@ -1031,7 +1031,7 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
         var response = await _client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        Assert.Equal("termsNotAccepted", await ErrorJson.CodeAsync(response));
+        Assert.Equal("termsAcceptanceRequired", await ErrorJson.CodeAsync(response));
         Assert.Equal(HttpStatusCode.Unauthorized, (await GetAsync("/other")).StatusCode);
     }
 
@@ -1153,7 +1153,7 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
         var refreshToken = login.GetProperty("refreshToken").GetString()!;
         var emailBlock = await GetAsync("/verified", token);
         Assert.Equal("emailNotVerified", await ErrorJson.CodeAsync(emailBlock));
-        Assert.Equal("termsNotAccepted", await ErrorJson.CodeAsync(await GetAsync("/terms", token)));
+        Assert.Equal("termsAcceptanceRequired", await ErrorJson.CodeAsync(await GetAsync("/terms", token)));
 
         var (expected, response) = route switch
         {
