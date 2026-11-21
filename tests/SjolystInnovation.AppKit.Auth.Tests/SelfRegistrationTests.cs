@@ -30,6 +30,45 @@ public class SelfRegistrationTests
         return Assert.Throws<OptionsValidationException>(() => Options(provider)).Message;
     }
 
+    private static string StartFailure(Action<ServiceCollection> configure)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddAppKitSelfRegistration<TestUser, ConsentTestDbContext>(o => o.NewUser = NewUser);
+        configure(services);
+        using var provider = services.BuildServiceProvider();
+        var validator = provider.GetRequiredService<IStartupValidator>();
+        return Assert.Throws<OptionsValidationException>(validator.Validate).Message;
+    }
+
+    [Fact]
+    public void Sign_up_fails_at_start_when_AddAppKitAuth_was_not_called()
+    {
+        var message = StartFailure(_ => { });
+
+        Assert.Contains("AddAppKitAuth", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Sign_up_fails_at_start_when_the_signing_key_is_shorter_than_AddAppKitAuth_allows()
+    {
+        var message = StartFailure(s => s.Configure<AppKitAuthOptions>(o => o.Key = new string('k', AppKitAuthOptions.MinimumKeyBytes - 1)));
+
+        Assert.Contains("signing key", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Sign_up_starts_with_a_signing_key_of_the_length_AddAppKitAuth_requires()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddAppKitSelfRegistration<TestUser, ConsentTestDbContext>(o => o.NewUser = NewUser);
+        services.Configure<AppKitAuthOptions>(o => o.Key = new string('k', AppKitAuthOptions.MinimumKeyBytes));
+        using var provider = services.BuildServiceProvider();
+
+        provider.GetRequiredService<IStartupValidator>().Validate();
+    }
+
     [Fact]
     public void The_defaults_match_the_design()
     {

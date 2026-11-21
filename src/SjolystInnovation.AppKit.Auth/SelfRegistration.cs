@@ -42,6 +42,11 @@ public static class SelfRegistrationServiceCollectionExtensions
             .Validate(o => o.RemindBefore is not null && o.RemindBefore.All(r => r > TimeSpan.Zero && r < o.UnverifiedLifetime),
                 "Every reminder offset must be positive and shorter than the unverified account lifetime.")
             .ValidateOnStart();
+        // The sign-up count hashes are keyed from the signing key. Without AddAppKitAuth the key stays empty and fails here.
+        services.AddOptions<AppKitAuthOptions>()
+            .Validate(o => AppKitAuthOptions.IsLongEnough(o.Key),
+                $"The sign-up keys its count hashes from the signing key. Call AddAppKitAuth and set a signing key of at least {AppKitAuthOptions.MinimumKeyBytes} bytes.")
+            .ValidateOnStart();
         services.AddMemoryCache();
         services.TryAddSingleton<SelfRegistrationRegistered>();
         services.TryAddSingleton(TimeProvider.System);

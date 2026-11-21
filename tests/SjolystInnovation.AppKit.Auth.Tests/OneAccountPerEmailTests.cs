@@ -53,6 +53,7 @@ public sealed class OneAccountPerEmailTests : IAsyncDisposable
                     s.AddDbContext<RegistrationTestDbContext>(o => o.UseSqlite($"Data Source={_file};Pooling=False"));
                     s.AddAppKitIdentity<IdentityTestUser, RegistrationTestDbContext>();
                     s.AddRouting();
+                    s.Configure<AppKitAuthOptions>(o => o.Key = MailKeys.SigningKey);
                     s.AddAppKitSelfRegistration<IdentityTestUser, RegistrationTestDbContext>(o =>
                     {
                         o.NewUser = r => new IdentityTestUser { Email = r.Email, UserName = r.UserName };
@@ -126,6 +127,7 @@ public sealed class OneAccountPerEmailTests : IAsyncDisposable
             .ConfigureServices(s =>
             {
                 s.AddDbContext<UnmappedConsentDbContext>(o => o.UseSqlite("DataSource=:memory:"));
+                s.Configure<AppKitAuthOptions>(o => o.Key = MailKeys.SigningKey);
                 s.AddAppKitSelfRegistration<TestUser, UnmappedConsentDbContext>(o => o.NewUser = r => new TestUser { Email = r.Email });
             })
             .Build();
