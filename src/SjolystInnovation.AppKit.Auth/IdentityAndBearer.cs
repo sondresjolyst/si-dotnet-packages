@@ -72,7 +72,10 @@ public static class IdentityAndBearerExtensions
     /// counting within that time too. An app that called
     /// <see cref="SelfRegistrationServiceCollectionExtensions.AddAppKitSelfRegistration{TUser, TContext}"/> also gets the facts
     /// that <see cref="AppKitClaims.IsEmailVerified"/> and <see cref="AppKitClaims.GetPendingConsents"/> read, refreshed in
-    /// the same way.
+    /// the same way. In such an app a token whose stamp differs from the cached one makes the check read the user once more and
+    /// replace the cache entry, so a token from a verify or a reset that another instance served is not refused. This happens
+    /// at most once per user every 5 seconds. Until the cache entry expires, an instance may still accept a token from before
+    /// a verify or a reset that another instance served.
     /// </summary>
     public static AuthenticationBuilder AddAppKitJwtBearer<TUser>(this IServiceCollection services,
         Func<TUser, bool>? isActive = null, Action<AppKitJwtBearerOptions>? configure = null)
@@ -132,6 +135,40 @@ public static class IdentityAndBearerExtensions
     // the user is gone or not active.
     private sealed record UserCheck(IReadOnlyList<string>? Roles, string? StampHash, bool EmailVerified, IReadOnlyList<PendingConsent> Pending);
 
+    // The shortest time between two reads of a user caused by a token whose stamp differs from the cached one.
+    private static readonly TimeSpan StampRefreshInterval = TimeSpan.FromSeconds(5);
+
+    // True when no such read happened for the user inside the interval, and then notes this one. The note is kept in the cache and
+    // expires on its own.
+    private static bool StampRefreshAllowed(IServiceProvider services, IMemoryCache cache, string userId, TimeSpan cacheFor)
+    {
+        var now = (services.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow();
+        var noteKey = $"SjolystInnovation.AppKit.Auth:stamp-refresh:{userId}";
+        if (cache.TryGetValue(noteKey, out DateTimeOffset last) && now - last < StampRefreshInterval)
+            return false;
+        cache.Set(noteKey, now, cacheFor > StampRefreshInterval ? cacheFor : StampRefreshInterval);
+        return true;
+    }
+
+    // Reads the user, the roles and, for an app that opted in, the pending documents, and keeps the result in the cache.
+    private static async Task<UserCheck> LoadUserCheckAsync<TUser>(TokenValidatedContext context, Func<TUser, bool>? isActive, IMemoryCache cache, string key, TimeSpan cacheFor, string userId)
+        where TUser : IdentityUser
+    {
+        var services = context.HttpContext.RequestServices;
+        var users = services.GetRequiredService<UserManager<TUser>>();
+        var user = await users.FindByIdAsync(userId);
+        // Null roles mean the user is gone or not active.
+        var active = user is not null && (isActive is null || isActive(user));
+        // An app that did not opt in has no reader, so it reads nothing from the consent tables.
+        var pending = active && services.GetService<IPendingConsentReader>() is { } reader
+            ? await reader.GetPendingAsync(user!.Id, context.HttpContext.RequestAborted)
+            : [];
+        var check = new UserCheck(active ? [.. await users.GetRolesAsync(user!)] : null, user?.SecurityStamp is { } stamp ? StampClaim.Hash(stamp) : null,
+            user?.EmailConfirmed ?? false, pending);
+        cache.Set(key, check, cacheFor);
+        return check;
+    }
+
     private static async Task CheckUserAsync<TUser>(TokenValidatedContext context, Func<TUser, bool>? isActive, TimeSpan cacheFor)
         where TUser : IdentityUser
     {
@@ -145,19 +182,11 @@ public static class IdentityAndBearerExtensions
         var services = context.HttpContext.RequestServices;
         var cache = services.GetRequiredService<IMemoryCache>();
         var key = UserCheckKey(userId);
+        var loadedNow = false;
         if (!cache.TryGetValue(key, out UserCheck? check) || check is null)
         {
-            var users = services.GetRequiredService<UserManager<TUser>>();
-            var user = await users.FindByIdAsync(userId);
-            // Null roles mean the user is gone or not active.
-            var active = user is not null && (isActive is null || isActive(user));
-            // An app that did not opt in has no reader, so it reads nothing from the consent tables.
-            var pending = active && services.GetService<IPendingConsentReader>() is { } reader
-                ? await reader.GetPendingAsync(user!.Id, context.HttpContext.RequestAborted)
-                : [];
-            check = new UserCheck(active ? [.. await users.GetRolesAsync(user!)] : null, user?.SecurityStamp is { } stamp ? StampClaim.Hash(stamp) : null,
-                user?.EmailConfirmed ?? false, pending);
-            cache.Set(key, check, cacheFor);
+            check = await LoadUserCheckAsync(context, isActive, cache, key, cacheFor, userId);
+            loadedNow = true;
         }
         if (check.Roles is not { } roles)
         {
@@ -171,8 +200,23 @@ public static class IdentityAndBearerExtensions
             && context.Principal?.FindFirstValue(StampClaim.Type) is { } tokenStamp
             && !string.Equals(tokenStamp, check.StampHash, StringComparison.Ordinal))
         {
-            context.Fail("The security stamp of the user has changed since the token was issued.");
-            return;
+            // The cached stamp may be older than the token, for example when another instance served the verify or the reset.
+            // The user is read once more and the cache entry replaced, at most once per user in each StampRefreshInterval,
+            // so a flood of tokens with a wrong stamp cannot cause a read per request.
+            if (!loadedNow && StampRefreshAllowed(services, cache, userId, cacheFor))
+            {
+                check = await LoadUserCheckAsync(context, isActive, cache, key, cacheFor, userId);
+                if (check.Roles is null)
+                {
+                    context.Fail("The user no longer exists or is not active.");
+                    return;
+                }
+            }
+            if (!string.Equals(tokenStamp, check.StampHash, StringComparison.Ordinal))
+            {
+                context.Fail("The security stamp of the user has changed since the token was issued.");
+                return;
+            }
         }
 
         // The roles in the token were correct when it was issued. The current roles replace them.

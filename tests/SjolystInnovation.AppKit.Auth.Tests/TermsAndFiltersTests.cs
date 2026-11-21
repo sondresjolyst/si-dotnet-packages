@@ -1,8 +1,10 @@
 using System.Data.Common;
+using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authentication;
@@ -23,6 +25,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
+using Microsoft.IdentityModel.Tokens;
 using Xunit;
 
 namespace SjolystInnovation.AppKit.Auth.Tests;
@@ -33,6 +36,16 @@ internal sealed class CommandLog : DbCommandInterceptor
     private readonly List<string> _texts = [];
 
     public volatile bool FailOnConsentTables;
+
+    // The SELECT commands that read the user table, which is what a user check does on a cache miss.
+    public int UserReads
+    {
+        get
+        {
+            lock (_texts)
+                return _texts.Count(t => t.StartsWith("SELECT", StringComparison.Ordinal) && t.Contains("\"AspNetUsers\"", StringComparison.Ordinal));
+        }
+    }
 
     public void Clear()
     {
@@ -788,6 +801,117 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.Unauthorized, (await GetAsync("/verified")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await GetAsync("/terms")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await GetAsync("/open")).StatusCode);
+    }
+
+    // The user check keeps a user for a minute, so after a verify or a reset another instance may still hold the old stamp.
+
+    private async Task RotateStampAsync(string userId)
+    {
+        using var scope = _host!.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityTestUser>>();
+        Assert.True((await users.UpdateSecurityStampAsync((await users.FindByIdAsync(userId))!)).Succeeded);
+    }
+
+    private async Task<HttpStatusCode> MeAsync(string token) => (await GetAsync("/me", token)).StatusCode;
+
+    [Fact]
+    public async Task A_fresh_token_is_not_refused_by_a_cache_entry_with_an_older_stamp()
+    {
+        await StartAsync();
+        await SeedAsync("u1");
+        Assert.Equal(HttpStatusCode.OK, await MeAsync(await TokenAsync("u1")));
+        await RotateStampAsync("u1");
+
+        Assert.Equal(HttpStatusCode.OK, await MeAsync(await TokenAsync("u1")));
+    }
+
+    [Fact]
+    public async Task A_token_with_an_older_stamp_is_still_refused_after_the_refresh()
+    {
+        await StartAsync();
+        await SeedAsync("u1");
+        var old = await TokenAsync("u1");
+        Assert.Equal(HttpStatusCode.OK, await MeAsync(old));
+        await RotateStampAsync("u1");
+        Assert.Equal(HttpStatusCode.OK, await MeAsync(await TokenAsync("u1")));
+
+        _time.Advance(TimeSpan.FromSeconds(6));
+        _commands.Clear();
+        Assert.Equal(HttpStatusCode.Unauthorized, await MeAsync(old));
+        Assert.Equal(1, _commands.UserReads);
+    }
+
+    [Fact]
+    public async Task A_stale_cache_entry_is_looked_at_again_once_per_interval_and_not_more_often()
+    {
+        await StartAsync();
+        await SeedAsync("u1");
+        var old = await TokenAsync("u1");
+        Assert.Equal(HttpStatusCode.OK, await MeAsync(old));
+        await RotateStampAsync("u1");
+        Assert.Equal(HttpStatusCode.OK, await MeAsync(await TokenAsync("u1")));
+
+        // A burst of old tokens inside the interval reads nothing. After it, the first reads once and the rest read nothing.
+        _commands.Clear();
+        for (var i = 0; i < 10; i++)
+            Assert.Equal(HttpStatusCode.Unauthorized, await MeAsync(old));
+        Assert.Equal(0, _commands.UserReads);
+        _time.Advance(TimeSpan.FromSeconds(6));
+        for (var i = 0; i < 10; i++)
+            Assert.Equal(HttpStatusCode.Unauthorized, await MeAsync(old));
+        Assert.Equal(1, _commands.UserReads);
+
+        // The stamp changes again inside the interval, so the fresh token waits for the next look.
+        await RotateStampAsync("u1");
+        var third = await TokenAsync("u1");
+        _commands.Clear();
+        Assert.Equal(HttpStatusCode.Unauthorized, await MeAsync(third));
+        Assert.Equal(0, _commands.UserReads);
+        _time.Advance(TimeSpan.FromSeconds(6));
+        Assert.Equal(HttpStatusCode.OK, await MeAsync(third));
+        Assert.Equal(1, _commands.UserReads);
+    }
+
+    [Fact]
+    public async Task A_token_with_the_current_stamp_causes_no_extra_read()
+    {
+        await StartAsync();
+        await SeedAsync("u1");
+        var token = await TokenAsync("u1");
+        Assert.Equal(HttpStatusCode.OK, await MeAsync(token));
+        _commands.Clear();
+
+        Assert.Equal(HttpStatusCode.OK, await MeAsync(token));
+        Assert.Equal(0, _commands.UserReads);
+    }
+
+    [Fact]
+    public async Task An_app_that_did_not_opt_in_does_no_extra_read_for_a_token_with_another_stamp()
+    {
+        await StartAsync(optIn: false, filters: false);
+        await SeedAsync("u1");
+        var token = Craft("u1", "not-the-stamp");
+        Assert.Equal(HttpStatusCode.OK, await MeAsync(token));
+        _commands.Clear();
+
+        Assert.Equal(HttpStatusCode.OK, await MeAsync(token));
+        Assert.Equal(0, _commands.UserReads);
+    }
+
+    private static string Craft(string id, string stampClaim)
+    {
+        var handler = new JwtSecurityTokenHandler { SetDefaultTimesOnTokenCreation = false };
+        var now = DateTime.UtcNow;
+        return handler.WriteToken(handler.CreateToken(new SecurityTokenDescriptor
+        {
+            Subject = new ClaimsIdentity([new Claim("sub", id), new Claim("sst", stampClaim)]),
+            IssuedAt = now,
+            NotBefore = now.AddSeconds(-5),
+            Expires = now.AddHours(1),
+            SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Key)), SecurityAlgorithms.HmacSha256Signature),
+            Issuer = "appkit",
+            Audience = "appkit",
+        }));
     }
 
     [Fact]
