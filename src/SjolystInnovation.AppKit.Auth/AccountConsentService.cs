@@ -118,6 +118,17 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
         return pending;
     }
 
+    // The locale of the latest consent row of the user, whatever the document, or null when there is none or the row has no locale.
+    public async Task<string?> LatestLocaleAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(userId);
+        var rows = await db.AccountConsents.AsNoTracking()
+            .Where(c => c.UserId == userId)
+            .Select(c => new { c.Locale, c.AcceptedAt, c.Id })
+            .ToListAsync(cancellationToken);
+        return rows.OrderByDescending(r => r.AcceptedAt).ThenByDescending(r => r.Id).FirstOrDefault()?.Locale;
+    }
+
     // The locale of the latest acceptance of each document the user has accepted, null when that row has none.
     private async Task<IReadOnlyDictionary<string, string?>> LatestLocalesAsync(string userId, CancellationToken cancellationToken)
     {

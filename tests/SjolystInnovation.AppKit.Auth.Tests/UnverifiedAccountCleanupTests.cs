@@ -20,6 +20,7 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
     private sealed class RecordingEmails : IRegistrationEmails<IdentityTestUser>
     {
         public List<(string UserId, string Code, DateTime RemovalAt)> Reminders { get; } = [];
+        public List<string?> ReminderLocales { get; } = [];
         public bool Fail { get; set; }
 
         public Task SendVerificationAsync(IdentityTestUser user, string code, string? locale, CancellationToken cancellationToken) => Task.CompletedTask;
@@ -31,6 +32,7 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
             if (Fail)
                 throw new InvalidOperationException("The mail server is down.");
             Reminders.Add((user.Id, code, removalAt));
+            ReminderLocales.Add(locale);
             return Task.CompletedTask;
         }
     }
@@ -367,6 +369,37 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
     }
 
     // Reminders
+
+    [Fact]
+    public async Task The_reminder_gets_the_locale_of_the_latest_consent_row_of_the_user()
+    {
+        await StartAsync();
+        await SeedAsync("u1", TimeSpan.Zero);
+        Db(db =>
+        {
+            db.AccountConsents.Add(new AccountConsent { UserId = "u1", Document = "terms", Version = "v1", Source = "register", AcceptedAt = Now.AddMinutes(1), Locale = "nb" });
+            db.AccountConsents.Add(new AccountConsent { UserId = "u1", Document = "terms", Version = "v1", Source = "reaccept", AcceptedAt = Now.AddMinutes(2), Locale = "en" });
+            db.SaveChanges();
+            return 0;
+        });
+        _time.Advance(TimeSpan.FromDays(16));
+
+        Assert.Equal(new UnverifiedCleanupResult(0, 1, 0), await RunAsync());
+
+        Assert.Equal(["en"], _emails.ReminderLocales);
+    }
+
+    [Fact]
+    public async Task The_reminder_for_an_account_with_no_stored_locale_gets_none()
+    {
+        await StartAsync();
+        await SeedAsync("u1", TimeSpan.Zero);
+        _time.Advance(TimeSpan.FromDays(16));
+
+        Assert.Equal(new UnverifiedCleanupResult(0, 1, 0), await RunAsync());
+
+        Assert.Equal([null], _emails.ReminderLocales);
+    }
 
     [Fact]
     public async Task Each_reminder_is_sent_once_at_its_offset_before_the_removal_with_a_fresh_code()

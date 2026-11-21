@@ -606,8 +606,11 @@ the same `login` answer as before.
 
 The `IRegistrationHandler<User>` services run inside the sign-up transaction, so an exception rolls the
 sign-up back. The `IEmailVerifiedHandler<User>` services run after an email is verified, also by a
-password reset. The default emails use the language of `AppKitAuthEmailOptions`, so `locale` is only
-stored.
+password reset. The default emails are written in Norwegian for the locales `nb`, `no` and `nn`, and in
+English for `en`, whatever the region part. Any other locale, or none, gets the `Language` of
+`AppKitAuthEmailOptions`. The verification email at `register` uses the `locale` of the request. The
+notice to an existing account, the removal reminder and `resend-verification` use the locale of the
+latest consent row of the user.
 
 ### Routes
 

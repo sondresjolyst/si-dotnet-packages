@@ -53,11 +53,11 @@ internal static class RegistrationEmailRenderer
         : $"{date.Day.ToString(CultureInfo.InvariantCulture)} {EnglishMonths[date.Month - 1]} {date.Year.ToString(CultureInfo.InvariantCulture)}";
 
     // The notice has no code. It links to the reset page when the options hold one, and otherwise names the step in words.
-    internal static EmailMessage AlreadyRegistered(AppKitAuthEmailOptions options, EmailBrand brand, string? firstName, string to)
+    internal static EmailMessage AlreadyRegistered(AppKitAuthEmailOptions options, EmailLanguage language, EmailBrand brand, string? firstName, string to)
     {
-        var text = options.Language == EmailLanguage.Norwegian ? NorwegianAlreadyRegistered : EnglishAlreadyRegistered;
+        var text = language == EmailLanguage.Norwegian ? NorwegianAlreadyRegistered : EnglishAlreadyRegistered;
         var page = AppKitAuthEmailOptions.IsPageUrl(options.SetPasswordUrl) ? options.SetPasswordUrl : null;
-        var words = AuthEmailRenderer.Words(options.Language);
+        var words = AuthEmailRenderer.Words(language);
         var step = page is null && text.Step is { } s
             ? $"""<p style="margin:10px 0 0;{EmailLayout.TextStyle}">{AuthEmailRenderer.H(s)}</p>"""
             : string.Empty;
@@ -66,18 +66,18 @@ internal static class RegistrationEmailRenderer
                 <p style="margin:0;{EmailLayout.TextStyle}">{AuthEmailRenderer.H(AuthEmailRenderer.F(text.Intro, brand.Name))}</p>{step}
             """;
         var after = $"""<p style="margin:0;{EmailLayout.TextStyle}">{AuthEmailRenderer.H(text.Closing)}</p>""";
-        return Build(options, brand, to, text, body, after, page, words);
+        return Build(options, language, brand, to, text, body, after, page, words);
     }
 
     // The reminder carries a fresh code and links to the verify page when the options hold one.
-    internal static EmailMessage Reminder(AppKitAuthEmailOptions options, EmailBrand brand, string? firstName, string to, string code, DateTime removalAt)
+    internal static EmailMessage Reminder(AppKitAuthEmailOptions options, EmailLanguage language, EmailBrand brand, string? firstName, string to, string code, DateTime removalAt)
     {
-        var text = options.Language == EmailLanguage.Norwegian ? NorwegianReminder : EnglishReminder;
+        var text = language == EmailLanguage.Norwegian ? NorwegianReminder : EnglishReminder;
         var page = AppKitAuthEmailOptions.IsPageUrl(options.VerifyEmailUrl) ? AuthEmailRenderer.Link(options.VerifyEmailUrl, to, code) : null;
-        var words = AuthEmailRenderer.Words(options.Language);
+        var words = AuthEmailRenderer.Words(language);
         var codeColor = EmailLayout.ReadsOnWhite(options.HeaderColor) ? options.HeaderColor : EmailLayout.Ink;
         var labelColor = EmailLayout.ReadsOnWhite(options.AccentColor) ? options.AccentColor : EmailLayout.Ink;
-        var intro = string.Format(CultureInfo.InvariantCulture, text.Intro, brand.Name, Date(removalAt, options.Language));
+        var intro = string.Format(CultureInfo.InvariantCulture, text.Intro, brand.Name, Date(removalAt, language));
         var body = $$"""
                 {{Hello(words, firstName)}}
                 <p style="margin:0;{{EmailLayout.TextStyle}}">{{AuthEmailRenderer.H(intro)}}</p>
@@ -88,19 +88,19 @@ internal static class RegistrationEmailRenderer
                 <p style="margin:0 0 8px;{EmailLayout.TextStyle}">{AuthEmailRenderer.H(AuthEmailRenderer.F(words.Expiry, AuthEmailRenderer.Duration(EmailVerificationCodes.Lifetime, words)))}</p>
                 <p style="margin:0;{EmailLayout.TextStyle}">{AuthEmailRenderer.H(text.Closing)}</p>
             """;
-        return Build(options, brand, to, text, body, after, page, words);
+        return Build(options, language, brand, to, text, body, after, page, words);
     }
 
     private static string Hello(AuthEmailWords words, string? firstName) =>
         $"""<p style="margin:0 0 10px;{EmailLayout.TextStyle}">{(string.IsNullOrWhiteSpace(firstName) ? words.Hello : AuthEmailRenderer.F(words.HelloName, AuthEmailRenderer.H(firstName)))}</p>""";
 
     // The button and the fallback link appear only when there is a page to link to.
-    private static EmailMessage Build(AppKitAuthEmailOptions options, EmailBrand brand, string to, RegistrationEmailText text,
+    private static EmailMessage Build(AppKitAuthEmailOptions options, EmailLanguage language, EmailBrand brand, string to, RegistrationEmailText text,
         string body, string afterButton, string? link, AuthEmailWords words)
     {
         if (link is not null)
             afterButton += $"""<p style="margin:16px 0 0;color:#6b7280;font-size:11px;line-height:1.5;word-break:break-all">{AuthEmailRenderer.H(words.Fallback)} {AuthEmailRenderer.H(link)}</p>""";
-        var html = EmailLayout.Render(new EmailLayoutRequest(AuthEmailRenderer.Company(brand), AuthEmailRenderer.Language(options.Language), text.Badge, text.Heading, body)
+        var html = EmailLayout.Render(new EmailLayoutRequest(AuthEmailRenderer.Company(brand), AuthEmailRenderer.Language(language), text.Badge, text.Heading, body)
         {
             HeaderColor = options.HeaderColor,
             AccentColor = options.AccentColor,

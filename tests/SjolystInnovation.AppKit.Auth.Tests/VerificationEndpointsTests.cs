@@ -28,10 +28,12 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
     {
         public List<(string UserId, string Code)> Verifications { get; } = [];
         public List<string> AlreadyRegistered { get; } = [];
+        public List<string?> VerificationLocales { get; } = [];
 
         public Task SendVerificationAsync(IdentityTestUser user, string code, string? locale, CancellationToken cancellationToken)
         {
             Verifications.Add((user.Id, code));
+            VerificationLocales.Add(locale);
             return Task.CompletedTask;
         }
 
@@ -558,6 +560,26 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
         Assert.NotEqual(before.EmailVerificationCodeHash, after.EmailVerificationCodeHash);
         Assert.Equal(HttpStatusCode.BadRequest, (await VerifyAsync(old, token)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await VerifyAsync(fresh, token)).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_resend_gets_the_locale_of_the_latest_consent_row_of_the_user()
+    {
+        await StartAsync();
+        await SeedAsync("u1");
+        Db(db =>
+        {
+            db.AccountConsents.Add(new AccountConsent { UserId = "u1", Document = "terms", Version = "v1", Source = "register", AcceptedAt = DateTime.UtcNow.AddDays(-2), Locale = "nb" });
+            db.AccountConsents.Add(new AccountConsent { UserId = "u1", Document = "terms", Version = "v1", Source = "reaccept", AcceptedAt = DateTime.UtcNow.AddDays(-1), Locale = "en" });
+            db.SaveChanges();
+            return 0;
+        });
+        var token = await AccessTokenAsync("u1");
+        _time.Advance(TimeSpan.FromMinutes(2));
+
+        await ResendAsync(token);
+
+        Assert.Equal(["en"], _emails.VerificationLocales);
     }
 
     [Fact]

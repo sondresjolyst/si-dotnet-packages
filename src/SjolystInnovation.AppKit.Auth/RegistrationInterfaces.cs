@@ -29,7 +29,10 @@ public interface IEmailVerifiedHandler<in TUser>
     Task OnEmailVerifiedAsync(TUser user, CancellationToken cancellationToken);
 }
 
-/// <summary>Sends the emails of the public sign-up.</summary>
+/// <summary>
+/// Sends the emails of the public sign-up. Each method gets a <c>locale</c>, such as <c>nb</c> or <c>en-GB</c>, or null. For a new
+/// sign-up it is the locale of the request. For an existing account it is the locale of the latest consent row of the user.
+/// </summary>
 public interface IRegistrationEmails<in TUser>
 {
     /// <summary>Sends the verification code to a person who signed up or asked for a new code.</summary>

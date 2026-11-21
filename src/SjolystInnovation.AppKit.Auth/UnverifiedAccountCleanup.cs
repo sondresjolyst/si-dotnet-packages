@@ -187,7 +187,8 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
         var saved = await users.UpdateAsync(user);
         if (!saved.Succeeded)
             throw new InvalidOperationException("Saving the reminder code failed: " + string.Join(" ", saved.Errors.Select(e => e.Code)));
-        await scope.ServiceProvider.GetRequiredService<IRegistrationEmails<TUser>>().SendRemovalReminderAsync(user, code, removalAt, null, cancellationToken);
+        var locale = await scope.ServiceProvider.GetRequiredService<AccountConsentService<TContext>>().LatestLocaleAsync(userId, cancellationToken);
+        await scope.ServiceProvider.GetRequiredService<IRegistrationEmails<TUser>>().SendRemovalReminderAsync(user, code, removalAt, locale, cancellationToken);
 
         reminder.RemovalReminderSentAt = now;
         var marked = await users.UpdateAsync(user);

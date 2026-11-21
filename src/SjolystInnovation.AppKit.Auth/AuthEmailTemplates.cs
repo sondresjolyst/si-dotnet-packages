@@ -57,7 +57,10 @@ public enum EmailLanguage
 /// <summary>The options for <see cref="AuthEmailServiceCollectionExtensions.AddAppKitAuthEmails{TUser}"/>.</summary>
 public sealed class AppKitAuthEmailOptions
 {
-    /// <summary>The language of the emails. Defaults to English.</summary>
+    /// <summary>
+    /// The language of the emails. Defaults to English. The sign-up emails use the language of the person's locale when the
+    /// package has it, and this language otherwise.
+    /// </summary>
     public EmailLanguage Language { get; set; } = EmailLanguage.English;
 
     /// <summary>
@@ -264,10 +267,25 @@ internal static class AuthEmailRenderer
     internal static EmailLayoutLanguage Language(EmailLanguage language) =>
         language == EmailLanguage.Norwegian ? EmailLayoutLanguage.Norwegian : EmailLayoutLanguage.English;
 
-    internal static EmailMessage Render(AuthEmailKind kind, AppKitAuthEmailOptions options, EmailBrand brand,
-        string? firstName, string to, string code, TimeSpan lifetime, string page)
+    /// <summary>
+    /// The language of an email for a locale such as <c>nb</c>, <c>no-NO</c> or <c>en_GB</c>. Only the part before the first
+    /// <c>-</c> or <c>_</c> counts. Norwegian covers <c>nb</c>, <c>no</c> and <c>nn</c>, and English covers <c>en</c>. A blank or
+    /// unknown locale gives <paramref name="fallback"/>.
+    /// </summary>
+    internal static EmailLanguage LanguageFor(string? locale, EmailLanguage fallback)
     {
-        var words = Words(options.Language);
+        var end = locale?.AsSpan().IndexOfAny('-', '_') ?? -1;
+        var primary = locale is null ? default : (end < 0 ? locale.AsSpan() : locale.AsSpan(0, end)).Trim();
+        if (primary.Equals("nb", StringComparison.OrdinalIgnoreCase) || primary.Equals("no", StringComparison.OrdinalIgnoreCase) || primary.Equals("nn", StringComparison.OrdinalIgnoreCase))
+            return EmailLanguage.Norwegian;
+        return primary.Equals("en", StringComparison.OrdinalIgnoreCase) ? EmailLanguage.English : fallback;
+    }
+
+    internal static EmailMessage Render(AuthEmailKind kind, AppKitAuthEmailOptions options, EmailBrand brand,
+        string? firstName, string to, string code, TimeSpan lifetime, string page, EmailLanguage? language = null)
+    {
+        var emailLanguage = language ?? options.Language;
+        var words = Words(emailLanguage);
         var text = words.Kinds[kind];
         var link = Link(page, to, code);
         var hello = string.IsNullOrWhiteSpace(firstName) ? words.Hello : F(words.HelloName, H(firstName));
@@ -286,7 +304,7 @@ internal static class AuthEmailRenderer
                 <p style="margin:0;{{Paragraph}}">{{H(text.Ignore)}}</p>
                 <p style="margin:16px 0 0;color:#6b7280;font-size:11px;line-height:1.5;word-break:break-all">{{H(words.Fallback)}} {{H(link)}}</p>
             """;
-        var html = EmailLayout.Render(new EmailLayoutRequest(Company(brand), Language(options.Language), text.Badge, text.Heading, body)
+        var html = EmailLayout.Render(new EmailLayoutRequest(Company(brand), Language(emailLanguage), text.Badge, text.Heading, body)
         {
             HeaderColor = options.HeaderColor,
             AccentColor = options.AccentColor,

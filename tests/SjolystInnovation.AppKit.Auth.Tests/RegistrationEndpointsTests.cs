@@ -51,6 +51,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
     {
         public List<(string UserId, string Code, string? Locale)> Verifications { get; } = [];
         public List<string> AlreadyRegistered { get; } = [];
+        public List<string?> NoticeLocales { get; } = [];
 
         public Task SendVerificationAsync(IdentityTestUser user, string code, string? locale, CancellationToken cancellationToken)
         {
@@ -61,6 +62,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
         public Task SendAlreadyRegisteredAsync(IdentityTestUser user, string? locale, CancellationToken cancellationToken)
         {
             AlreadyRegistered.Add(user.Id);
+            NoticeLocales.Add(locale);
             return Task.CompletedTask;
         }
 
@@ -934,6 +936,36 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.OK, created.StatusCode);
         Assert.Single(bodies.Distinct());
         Assert.Contains("message", bodies[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_notice_to_an_existing_account_gets_the_locale_of_its_latest_consent_row_not_the_one_of_the_request()
+    {
+        await StartAsync();
+        await SeedAsync("taken", verified: true);
+        Db(db =>
+        {
+            var at = DateTime.UtcNow;
+            db.AccountConsents.Add(new AccountConsent { UserId = "taken", Document = "terms", Version = "v1", Source = "register", AcceptedAt = at.AddDays(-2), Locale = "nb" });
+            db.AccountConsents.Add(new AccountConsent { UserId = "taken", Document = "terms", Version = "v1", Source = "reaccept", AcceptedAt = at.AddDays(-1), Locale = "en" });
+            db.SaveChanges();
+            return 0;
+        });
+
+        await RegisterAsync(Body("taken@example.invalid", ("locale", "nb")));
+
+        Assert.Equal(["en"], _emails.NoticeLocales);
+    }
+
+    [Fact]
+    public async Task The_notice_to_an_existing_account_with_no_stored_locale_gets_none()
+    {
+        await StartAsync();
+        await SeedAsync("taken", verified: true);
+
+        await RegisterAsync(Body("taken@example.invalid", ("locale", "nb")));
+
+        Assert.Equal([null], _emails.NoticeLocales);
     }
 
     [Fact]

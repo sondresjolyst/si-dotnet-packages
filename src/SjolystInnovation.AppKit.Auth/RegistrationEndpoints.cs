@@ -221,7 +221,7 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
             existing = await users.FindByEmailAsync(email);
         }
 
-        await HandleExistingAsync(http, options, users, emails, existing, probe, password, locale);
+        await HandleExistingAsync(http, options, users, emails, existing, probe, password);
         return Ok();
     }
 
@@ -346,7 +346,7 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
 
     // The email has an account. Nothing is created or changed. An active account hears that someone tried, at most once per cooldown.
     private async Task HandleExistingAsync(HttpContext http, AppKitRegistrationOptions<TUser> options, UserManager<TUser> users, IRegistrationEmails<TUser> emails,
-        TUser? existing, TUser probe, string password, string? locale)
+        TUser? existing, TUser probe, string password)
     {
         var cancellationToken = http.RequestAborted;
         // The new-email path hashes the password, so this path hashes one too and the two take about as long.
@@ -362,7 +362,9 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
             AuthEndpointsExtensions.Log.RegistrationHandled(logger, existing.Id, RegistrationOutcome.NoticeHeldBack);
             return;
         }
-        await emails.SendAlreadyRegisteredAsync(existing, locale, cancellationToken);
+        // The notice goes to the owner, so it follows the language the owner used, not the one of whoever typed the address.
+        var ownerLocale = await Get<AccountConsentService<TContext>>(http).LatestLocaleAsync(existing.Id, cancellationToken);
+        await emails.SendAlreadyRegisteredAsync(existing, ownerLocale, cancellationToken);
         AuthEndpointsExtensions.Log.RegistrationHandled(logger, existing.Id, RegistrationOutcome.OwnerNotified);
     }
 
@@ -374,7 +376,8 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
     }
 }
 
-// The default sender. The verification email, the notice to the owner of an existing account and the removal reminder
+// The default sender. Each email is written in the language of its locale when the package has that language, and otherwise in the
+// language of the email options. The verification email, the notice to the owner of an existing account and the removal reminder
 // are rendered in the layout of the other auth emails. The verification email and the reminder greet with no name,
 // because the name of an unverified account was typed by whoever signed up. The notice carries the name of the account
 // it goes to.
@@ -390,21 +393,23 @@ internal sealed class RegistrationEmails<TUser>(IEmailSender sender, IEmailBrand
             ?? throw new InvalidOperationException("The user has no verification code. Issue one with EmailVerificationCodes.Issue first.");
         var brand = await brands.GetBrandAsync(cancellationToken);
         await sender.SendAsync(AuthEmailRenderer.Render(AuthEmailKind.Verify, options.Value, brand, null, user.Email!, code,
-            expires - time.GetUtcNow().UtcDateTime, options.Value.VerifyEmailUrl), cancellationToken);
+            expires - time.GetUtcNow().UtcDateTime, options.Value.VerifyEmailUrl, Language(locale)), cancellationToken);
     }
 
-    // The language of the emails comes from the email options, like the other auth emails, so the locale is not used.
     public async Task SendAlreadyRegisteredAsync(TUser user, string? locale, CancellationToken cancellationToken)
     {
         var brand = await brands.GetBrandAsync(cancellationToken);
-        await sender.SendAsync(RegistrationEmailRenderer.AlreadyRegistered(options.Value, brand, FirstName(user), user.Email!), cancellationToken);
+        await sender.SendAsync(RegistrationEmailRenderer.AlreadyRegistered(options.Value, Language(locale), brand, FirstName(user), user.Email!), cancellationToken);
     }
 
     public async Task SendRemovalReminderAsync(TUser user, string code, DateTime removalAt, string? locale, CancellationToken cancellationToken)
     {
         var brand = await brands.GetBrandAsync(cancellationToken);
-        await sender.SendAsync(RegistrationEmailRenderer.Reminder(options.Value, brand, null, user.Email!, code, removalAt), cancellationToken);
+        await sender.SendAsync(RegistrationEmailRenderer.Reminder(options.Value, Language(locale), brand, null, user.Email!, code, removalAt), cancellationToken);
     }
+
+    // The language of the locale when the email has one, and otherwise the language of the email options.
+    private EmailLanguage Language(string? locale) => AuthEmailRenderer.LanguageFor(locale, options.Value.Language);
 
     private static string? FirstName(TUser user) => user is IAppKitAccount account ? account.FirstName : null;
 }

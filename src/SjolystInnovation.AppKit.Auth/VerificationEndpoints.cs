@@ -129,7 +129,8 @@ internal sealed class VerificationHandlers<TUser, TContext>(ILogger logger)
         var updated = await Get<UserManager<TUser>>(http).UpdateAsync(user);
         if (!updated.Succeeded)
             throw new InvalidOperationException("Saving the new verification code failed: " + string.Join(" ", updated.Errors.Select(e => e.Description)));
-        await Get<IRegistrationEmails<TUser>>(http).SendVerificationAsync(user, code, null, http.RequestAborted);
+        var locale = await Get<AccountConsentService<TContext>>(http).LatestLocaleAsync(user.Id, http.RequestAborted);
+        await Get<IRegistrationEmails<TUser>>(http).SendVerificationAsync(user, code, locale, http.RequestAborted);
         AuthEndpointsExtensions.Log.VerificationResent(logger, user.Id);
         return TypedResults.Ok(new MessageResponse("A new verification code is on its way to your email address."));
     }

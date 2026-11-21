@@ -70,7 +70,7 @@ public class RegistrationEmailsTests
         var expires = EmailVerificationCodes.Lifetime;
         user.EmailVerificationCodeExpiration = DateTime.UtcNow + expires;
 
-        await emails.SendVerificationAsync(user, "ABC123", "nb", CancellationToken.None);
+        await emails.SendVerificationAsync(user, "ABC123", "en", CancellationToken.None);
 
         var email = Assert.Single(sender.Sent);
         Assert.Equal("kari+test@example.no", email.To);
@@ -79,6 +79,61 @@ public class RegistrationEmailsTests
         Assert.DoesNotContain("Kari", email.HtmlBody, StringComparison.Ordinal);
         Assert.Contains(">ABC123</div>", email.HtmlBody, StringComparison.Ordinal);
         Assert.Contains("<a href=\"https://app.example/profile?email=kari%2Btest%40example.no&amp;code=ABC123\"", email.HtmlBody, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(EmailLanguage.English, "nb", "Bekreft e-posten din")]
+    [InlineData(EmailLanguage.English, "no", "Bekreft e-posten din")]
+    [InlineData(EmailLanguage.English, "nn", "Bekreft e-posten din")]
+    [InlineData(EmailLanguage.English, "nb-NO", "Bekreft e-posten din")]
+    [InlineData(EmailLanguage.English, "NB_no", "Bekreft e-posten din")]
+    [InlineData(EmailLanguage.Norwegian, "en", "Verify your email")]
+    [InlineData(EmailLanguage.Norwegian, "en-GB", "Verify your email")]
+    [InlineData(EmailLanguage.Norwegian, "fr", "Bekreft e-posten din")]
+    [InlineData(EmailLanguage.Norwegian, "", "Bekreft e-posten din")]
+    [InlineData(EmailLanguage.Norwegian, null, "Bekreft e-posten din")]
+    [InlineData(EmailLanguage.English, "fr", "Verify your email")]
+    [InlineData(EmailLanguage.English, "xx-yy-zz", "Verify your email")]
+    [InlineData(EmailLanguage.English, null, "Verify your email")]
+    public async Task The_verification_email_is_written_in_the_language_of_the_locale_or_else_the_configured_one(EmailLanguage configured, string? locale, string subject)
+    {
+        var (emails, sender) = Build(o => o.Language = configured);
+        var user = User();
+        user.EmailVerificationCodeExpiration = DateTime.UtcNow + EmailVerificationCodes.Lifetime;
+
+        await emails.SendVerificationAsync(user, "ABC123", locale, CancellationToken.None);
+
+        Assert.Equal(subject, Assert.Single(sender.Sent).Subject);
+    }
+
+    [Theory]
+    [InlineData(EmailLanguage.English, "nb", ">Hei Kari,</p>")]
+    [InlineData(EmailLanguage.Norwegian, "en", ">Hi Kari,</p>")]
+    [InlineData(EmailLanguage.Norwegian, "fr", ">Hei Kari,</p>")]
+    [InlineData(EmailLanguage.English, null, ">Hi Kari,</p>")]
+    public async Task The_already_registered_email_is_written_in_the_language_of_the_locale_or_else_the_configured_one(EmailLanguage configured, string? locale, string greeting)
+    {
+        var (emails, sender) = Build(o => o.Language = configured);
+
+        await emails.SendAlreadyRegisteredAsync(User(), locale, CancellationToken.None);
+
+        Assert.Contains(greeting, Assert.Single(sender.Sent).HtmlBody, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(EmailLanguage.English, "nb", ">Hei,</p>", "5. desember 2026")]
+    [InlineData(EmailLanguage.Norwegian, "en", ">Hi,</p>", "5 December 2026")]
+    [InlineData(EmailLanguage.Norwegian, "fr", ">Hei,</p>", "5. desember 2026")]
+    [InlineData(EmailLanguage.English, null, ">Hi,</p>", "5 December 2026")]
+    public async Task The_removal_reminder_is_written_in_the_language_of_the_locale_or_else_the_configured_one(EmailLanguage configured, string? locale, string greeting, string date)
+    {
+        var (emails, sender) = Build(o => o.Language = configured);
+
+        await emails.SendRemovalReminderAsync(User(), "AB12CD", RemovalAt, locale, CancellationToken.None);
+
+        var email = Assert.Single(sender.Sent);
+        Assert.Contains(greeting, email.HtmlBody, StringComparison.Ordinal);
+        Assert.Contains(date, email.HtmlBody, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -112,7 +167,7 @@ public class RegistrationEmailsTests
         var user = User();
         EmailVerificationCodes.Issue(user);
 
-        await emails.SendAlreadyRegisteredAsync(user, "nb", CancellationToken.None);
+        await emails.SendAlreadyRegisteredAsync(user, "en", CancellationToken.None);
 
         var email = Assert.Single(sender.Sent);
         Assert.Equal("kari+test@example.no", email.To);
@@ -145,7 +200,7 @@ public class RegistrationEmailsTests
     {
         var (emails, sender) = Build();
 
-        await emails.SendRemovalReminderAsync(User(), "AB12CD", RemovalAt, "nb", CancellationToken.None);
+        await emails.SendRemovalReminderAsync(User(), "AB12CD", RemovalAt, "en", CancellationToken.None);
 
         var email = Assert.Single(sender.Sent);
         Assert.Equal("kari+test@example.no", email.To);
