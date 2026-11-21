@@ -9,10 +9,9 @@ namespace SjolystInnovation.AppKit.Auth;
 public class AccountConsent
 {
     /// <summary>
-    /// The version that a sign-up stores for the terms when the app gave it no version to store, which is when
-    /// <see cref="IConsentVersionSource"/> has none and no requirement is in effect. The version the client sent is not
-    /// stored then. An acceptance with this version never meets a requirement, so the user must accept once the app
-    /// marks one. Its value is <c>unversioned</c>.
+    /// The version that is stored for the terms when the app has no <see cref="IConsentVersionSource"/>, or the source gives
+    /// no version for the document. The version the client sent is not stored then. It is also the version a requirement
+    /// records then. Its value is <c>unversioned</c>.
     /// </summary>
     public const string Unversioned = "unversioned";
 
@@ -22,7 +21,7 @@ public class AccountConsent
     public string UserId { get; set; } = default!;
     /// <summary>The document, such as <c>terms</c> or <c>age</c>. At most 32 characters.</summary>
     public string Document { get; set; } = default!;
-    /// <summary>The version the user accepted. At most 64 characters.</summary>
+    /// <summary>The version the user accepted, as the source served it. At most 64 characters.</summary>
     public string Version { get; set; } = default!;
     /// <summary>The locale the user saw the document in, or null. At most 16 characters.</summary>
     public string? Locale { get; set; }
@@ -30,14 +29,21 @@ public class AccountConsent
     public DateTime AcceptedAt { get; set; }
     /// <summary>How the acceptance came about, such as <c>register</c>, <c>reaccept</c> or <c>migration</c>. At most 16 characters.</summary>
     public string Source { get; set; } = default!;
+    /// <summary>
+    /// The id of the requirement in force when the user accepted, or 0 when there was none. The unique index on user,
+    /// document, version and this value keeps two parallel requests from adding the same acceptance twice, while an acceptance
+    /// after a newer requirement is a new row.
+    /// </summary>
+    public int RequirementId { get; set; }
     /// <summary>The shortened IP address of the request, or null when the app does not record it. At most 45 characters.</summary>
     public string? Ip { get; set; }
 }
 
 /// <summary>
-/// Says that a document must be accepted again. A user is pending for the document when a requirement is in
-/// effect and the user holds no acceptance of its <see cref="Version"/>, or of the current version from
-/// <see cref="IConsentVersionSource"/>, whenever it was made.
+/// Says that a document must be accepted again from a moment on. The requirement in force for a document is the one with
+/// the latest <see cref="EffectiveFrom"/> that is not after now, and then the latest <see cref="MarkedAt"/>. A user is pending
+/// for the document when a requirement is in force and the user's latest acceptance of the document, of any version, was
+/// made before its <see cref="MarkedAt"/>, or the user has none.
 /// </summary>
 public class ConsentRequirement
 {
@@ -45,11 +51,14 @@ public class ConsentRequirement
     public int Id { get; set; }
     /// <summary>The document that must be accepted again. At most 32 characters.</summary>
     public string Document { get; set; } = default!;
-    /// <summary>The version to accept. At most 64 characters.</summary>
+    /// <summary>
+    /// The version that <see cref="IConsentVersionSource"/> served when the requirement was marked, or
+    /// <see cref="AccountConsent.Unversioned"/> when it served none. A record only, it is never compared. At most 64 characters.
+    /// </summary>
     public string Version { get; set; } = default!;
-    /// <summary>When the app marked the requirement, in UTC. The newest mark decides between requirements.</summary>
+    /// <summary>When the app marked the requirement, in UTC. An acceptance at or after it meets the requirement.</summary>
     public DateTime MarkedAt { get; set; }
-    /// <summary>From when the requirement binds, in UTC. A user may accept earlier.</summary>
+    /// <summary>From when the requirement binds, in UTC. An acceptance made after the mark and before this time meets it.</summary>
     public DateTime EffectiveFrom { get; set; }
 }
 
@@ -106,8 +115,9 @@ public static class AccountConsentModelBuilderExtensions
     /// <summary>
     /// Maps <see cref="AccountConsent"/> to the <c>AccountConsents</c> table and <see cref="ConsentRequirement"/>
     /// to the <c>ConsentRequirements</c> table. A consent has a required foreign key from <c>UserId</c> to
-    /// <typeparamref name="TUser"/> that cascades on delete. It is unique on user, document and version, and
-    /// indexed on user, document and acceptance time. A requirement is unique on document and version. <see cref="SignUpMailLog"/> is mapped to the
+    /// <typeparamref name="TUser"/> that cascades on delete. It is unique on user, document, version and
+    /// <see cref="AccountConsent.RequirementId"/>, and indexed on user, document and acceptance time. A requirement is unique on
+    /// document and effective time. <see cref="SignUpMailLog"/> is mapped to the
     /// <c>SignUpMailLogs</c> table, unique on address hash, kind and day. It also makes
     /// the index on the normalised email of <typeparamref name="TUser"/> unique, so the database refuses a second
     /// account for one email even when two sign-ups race. A database that already holds two accounts for one email
@@ -126,7 +136,7 @@ public static class AccountConsentModelBuilderExtensions
             e.Property(c => c.Locale).HasMaxLength(16);
             e.Property(c => c.Source).IsRequired().HasMaxLength(16);
             e.Property(c => c.Ip).HasMaxLength(45);
-            e.HasIndex(c => new { c.UserId, c.Document, c.Version }).IsUnique();
+            e.HasIndex(c => new { c.UserId, c.Document, c.Version, c.RequirementId }).IsUnique();
             e.HasIndex(c => new { c.UserId, c.Document, c.AcceptedAt });
             e.HasOne<TUser>().WithMany().HasForeignKey(c => c.UserId).OnDelete(DeleteBehavior.Cascade).IsRequired();
         });
@@ -149,7 +159,7 @@ public static class AccountConsentModelBuilderExtensions
             e.HasKey(r => r.Id);
             e.Property(r => r.Document).IsRequired().HasMaxLength(32);
             e.Property(r => r.Version).IsRequired().HasMaxLength(64);
-            e.HasIndex(r => new { r.Document, r.Version }).IsUnique();
+            e.HasIndex(r => new { r.Document, r.EffectiveFrom }).IsUnique();
         });
         return modelBuilder;
     }

@@ -192,18 +192,33 @@ public sealed class AccountConsentTests : IDisposable
     }
 
     [Fact]
-    public void A_requirement_in_effect_binds_a_user_who_holds_no_acceptance_of_its_version()
+    public void A_requirement_in_effect_binds_a_user_whose_latest_acceptance_is_before_the_mark_whatever_its_version()
     {
-        Assert.True(MustAccept([("v1", Start.AddDays(1))], Start.AddDays(2), Requirement("v2", Start, Start)));
+        var requirement = Requirement("v2", Start, Start);
+
+        Assert.True(MustAccept([("v1", Start.AddSeconds(-1))], Start.AddDays(2), requirement));
+        Assert.True(MustAccept([("v2", Start.AddSeconds(-1))], Start.AddDays(2), requirement));
+        Assert.True(MustAccept([(AccountConsent.Unversioned, Start.AddSeconds(-1))], Start.AddDays(2), requirement));
     }
 
     [Fact]
-    public void An_acceptance_at_or_after_the_marked_time_satisfies_the_requirement()
+    public void An_acceptance_at_or_after_the_marked_time_satisfies_the_requirement_whatever_its_version()
     {
         var requirement = Requirement("v2", Start, Start);
 
         Assert.False(MustAccept(Start, Start, requirement));
         Assert.False(MustAccept(Start.AddMinutes(5), Start, requirement));
+        Assert.False(MustAccept([("v1", Start)], Start.AddDays(2), requirement));
+        Assert.False(MustAccept([("v0", Start.AddDays(-2)), (AccountConsent.Unversioned, Start.AddDays(1))], Start.AddDays(2), requirement));
+    }
+
+    [Fact]
+    public void The_latest_acceptance_decides_and_not_the_version_the_requirement_records()
+    {
+        var requirement = Requirement("v2", Start, Start);
+
+        Assert.True(MustAccept([("v2", Start.AddDays(-5)), ("v1", Start.AddDays(-3))], Start.AddDays(2), requirement));
+        Assert.False(MustAccept([("v2", Start.AddDays(-5)), ("v1", Start.AddDays(1))], Start.AddDays(2), requirement));
     }
 
     [Fact]
@@ -219,66 +234,114 @@ public sealed class AccountConsentTests : IDisposable
     }
 
     [Fact]
-    public void The_newest_marked_requirement_in_effect_decides()
+    public void The_requirement_with_the_latest_effective_time_not_after_now_is_in_force_whatever_the_order_of_the_marks()
+    {
+        var first = Requirement("v2", Start, Start.AddDays(10));
+        var second = Requirement("v3", Start.AddDays(1), Start.AddDays(5));
+        var acceptances = new[] { ("v1", Start.AddHours(12)) };
+
+        Assert.False(MustAccept(acceptances, Start.AddDays(2), first, second));
+        Assert.True(MustAccept(acceptances, Start.AddDays(6), first, second));
+        Assert.False(MustAccept(acceptances, Start.AddDays(11), first, second));
+    }
+
+    [Fact]
+    public void Two_requirements_with_one_effective_time_are_told_apart_by_the_mark()
     {
         var older = Requirement("v2", Start, Start);
-        var newer = Requirement("v3", Start.AddDays(30), Start.AddDays(30));
-        var now = Start.AddDays(31);
+        var newer = Requirement("v3", Start.AddDays(2), Start);
+        var acceptances = new[] { ("v1", Start.AddDays(1)) };
 
-        Assert.False(MustAccept(Start.AddDays(1), now, older));
-        Assert.True(MustAccept(Start.AddDays(1), now, older, newer));
+        Assert.False(MustAccept(acceptances, Start.AddDays(3), older));
+        Assert.True(MustAccept(acceptances, Start.AddDays(3), older, newer));
     }
 
     [Fact]
-    public void An_acceptance_of_another_version_does_not_satisfy_the_requirement()
-    {
-        var requirement = Requirement("v2", Start, Start);
-
-        Assert.True(MustAccept([("v1", Start.AddMinutes(5))], Start.AddMinutes(10), requirement));
-        Assert.True(MustAccept([("v1", Start.AddMinutes(5))], Start.AddMinutes(10), requirement));
-    }
-
-    [Fact]
-    public void An_acceptance_of_the_version_before_the_required_one_does_not_meet_the_requirement_whenever_it_was_made()
-    {
-        var requirement = Requirement("v2", Start, Start);
-
-        Assert.True(MustAccept([("v1", Start)], Start.AddMinutes(10), requirement));
-        Assert.True(MustAccept([("v1", Start.AddSeconds(-1))], Start.AddMinutes(10), requirement));
-    }
-
-    [Fact]
-    public void An_acceptance_of_the_required_version_satisfies_the_requirement_whenever_it_was_made()
-    {
-        var requirement = Requirement("v2", Start, Start);
-
-        Assert.False(MustAccept([("v2", Start.AddDays(-1))], Start.AddDays(2), requirement));
-        Assert.False(MustAccept([("v1", Start.AddDays(-2)), ("v2", Start.AddDays(1))], Start.AddDays(2), requirement));
-    }
-
-    [Fact]
-    public void An_acceptance_with_the_unversioned_marker_never_meets_a_requirement()
-    {
-        var requirement = Requirement("v2", Start, Start);
-
-        Assert.True(MustAccept([(AccountConsent.Unversioned, Start.AddDays(1))], Start.AddDays(2), requirement));
-        Assert.True(MustAccept([(AccountConsent.Unversioned, Start.AddDays(1))], Start.AddDays(2), Requirement(AccountConsent.Unversioned, Start, Start)));
-    }
-
-    [Fact]
-    public async Task A_user_who_accepted_a_version_before_the_app_marked_it_is_not_pending()
+    public async Task Recording_a_version_again_after_a_requirement_is_marked_adds_a_row_and_a_third_time_adds_none()
     {
         await using (var db = NewContext())
-            await Service(db).RecordAsync("ada", "terms", "v2", "register");
+            Assert.True(await Service(db).RecordAsync("ada", "terms", "v1", "register"));
         _time.Advance(TimeSpan.FromDays(1));
-        Require("terms", "v2", _time.GetUtcNow().UtcDateTime, _time.GetUtcNow().UtcDateTime);
+        Require("terms", "v1", _time.GetUtcNow().UtcDateTime, _time.GetUtcNow().UtcDateTime);
+        _time.Advance(TimeSpan.FromHours(1));
+
+        await using (var db = NewContext())
+            Assert.True(await Service(db).RecordAsync("ada", "terms", "v1", "reaccept"));
+        await using (var db = NewContext())
+            Assert.False(await Service(db).RecordAsync("ada", "terms", "v1", "reaccept"));
+
+        Assert.Equal(["register", "reaccept"], Rows("ada").Select(r => r.Source));
+    }
+
+    [Fact]
+    public async Task Recording_a_version_that_was_accepted_after_the_mark_adds_no_row()
+    {
+        Require("terms", "v1", Start, Start);
+        _time.Advance(TimeSpan.FromHours(1));
+        await using (var db = NewContext())
+            Assert.True(await Service(db).RecordAsync("ada", "terms", "v1", "register"));
+
+        await using (var db = NewContext())
+            Assert.False(await Service(db).RecordAsync("ada", "terms", "v1", "reaccept"));
+
+        Assert.Single(Rows("ada"));
+    }
+
+    [Fact]
+    public async Task Recording_a_held_version_before_the_requirement_takes_effect_adds_a_row()
+    {
+        await using (var db = NewContext())
+            Assert.True(await Service(db).RecordAsync("ada", "terms", "v1", "register"));
+        _time.Advance(TimeSpan.FromDays(1));
+        Require("terms", "v1", _time.GetUtcNow().UtcDateTime, _time.GetUtcNow().UtcDateTime.AddDays(7));
+        _time.Advance(TimeSpan.FromHours(1));
+
+        await using (var db = NewContext())
+            Assert.True(await Service(db).RecordAsync("ada", "terms", "v1", "reaccept"));
+        _time.Advance(TimeSpan.FromDays(7));
 
         await using var read = NewContext();
         Assert.Empty(await Service(read).PendingDocumentsAsync("ada"));
     }
 
     [Fact]
-    public async Task A_user_who_accepted_only_an_older_version_is_pending_until_the_new_version_is_accepted()
+    public async Task A_race_between_two_acceptances_for_one_requirement_leaves_one_new_row()
+    {
+        await using (var db = NewContext())
+            Assert.True(await Service(db).RecordAsync("ada", "terms", "v1", "register"));
+        _time.Advance(TimeSpan.FromDays(1));
+        Require("terms", "v1", _time.GetUtcNow().UtcDateTime, _time.GetUtcNow().UtcDateTime);
+        _time.Advance(TimeSpan.FromHours(1));
+        int requirementId;
+        await using (var db = NewContext())
+            requirementId = (await db.ConsentRequirements.SingleAsync()).Id;
+
+        await using (var db = NewContext(new RivalInsert(() => NewContext(), requirementId)))
+            Assert.False(await Service(db).RecordAsync("ada", "terms", "v1", "reaccept"));
+
+        Assert.Equal(["register", "rival"], Rows("ada").Select(r => r.Source));
+    }
+
+    [Fact]
+    public async Task A_user_who_accepted_the_marked_version_before_the_mark_is_pending_until_they_accept_again()
+    {
+        await using (var db = NewContext())
+            await Service(db).RecordAsync("ada", "terms", "v2", "register");
+        _time.Advance(TimeSpan.FromDays(1));
+        Require("terms", "v2", _time.GetUtcNow().UtcDateTime, _time.GetUtcNow().UtcDateTime);
+
+        await using (var read = NewContext())
+            Assert.Equal(["terms"], await Service(read).PendingDocumentsAsync("ada"));
+
+        _time.Advance(TimeSpan.FromHours(1));
+        await using (var db = NewContext())
+            await Service(db).RecordAsync("ada", "terms", "v2", "reaccept");
+        await using (var read = NewContext())
+            Assert.Empty(await Service(read).PendingDocumentsAsync("ada"));
+    }
+
+    [Fact]
+    public async Task A_user_who_accepted_only_an_older_version_is_pending_until_a_new_acceptance()
     {
         await using (var db = NewContext())
             await Service(db).RecordAsync("ada", "terms", "v1", "register");
@@ -321,15 +384,17 @@ public sealed class AccountConsentTests : IDisposable
     }
 
     [Fact]
-    public void A_requirement_is_unique_per_document_and_version()
+    public void A_requirement_is_unique_per_document_and_effective_time()
     {
         Require("terms", "v2", Start, Start);
 
-        Assert.Throws<DbUpdateException>(() => Require("terms", "v2", Start, Start));
+        Assert.Throws<DbUpdateException>(() => Require("terms", "v3", Start.AddDays(1), Start));
+        Require("terms", "v2", Start, Start.AddDays(1));
+        Require("privacy", "v2", Start, Start);
     }
 
     // Writes the same consent through another context just before the save, like a second request would.
-    private sealed class RivalInsert(Func<ConsentTestDbContext> open) : SaveChangesInterceptor
+    private sealed class RivalInsert(Func<ConsentTestDbContext> open, int requirementId = 0) : SaveChangesInterceptor
     {
         private bool _done;
 
@@ -340,7 +405,7 @@ public sealed class AccountConsentTests : IDisposable
             {
                 _done = true;
                 await using var other = open();
-                other.AccountConsents.Add(new AccountConsent { UserId = "ada", Document = "terms", Version = "v1", Source = "rival", AcceptedAt = Start });
+                other.AccountConsents.Add(new AccountConsent { UserId = "ada", Document = "terms", Version = "v1", Source = "rival", AcceptedAt = Start, RequirementId = requirementId });
                 await other.SaveChangesAsync(cancellationToken);
             }
             return result;

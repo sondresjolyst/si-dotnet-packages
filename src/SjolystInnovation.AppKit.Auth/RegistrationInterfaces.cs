@@ -7,7 +7,9 @@ public interface IConsentVersionSource
 {
     /// <summary>
     /// Returns the current version of <paramref name="document"/>, as a person sees it in <paramref name="locale"/>,
-    /// or null when the app has no such document. The sign-up and the accept-terms endpoint ask without a locale, because a requirement does not belong to one. With no version here and no requirement in effect, the sign-up stores <see cref="AccountConsent.Unversioned"/> and ignores the version the client sent.
+    /// or null when the app has no such document. The sign-up and the accept-terms endpoint ask without a locale, because a requirement does not belong to one.
+    /// The sign-up and the accept-terms endpoint accept exactly the version given here, and any other version answers 409 <c>termsChanged</c>.
+    /// With no source, or no version here, the sign-up and the accept-terms endpoint store <see cref="AccountConsent.Unversioned"/> and ignore the version the client sent.
     /// </summary>
     Task<string?> GetCurrentVersionAsync(string document, string? locale, CancellationToken cancellationToken);
 }
@@ -58,8 +60,15 @@ public interface ISignUpGuard
 public interface IConsentRequirements
 {
     /// <summary>
-    /// Requires everyone to accept <paramref name="version"/> of <paramref name="document"/>. A user is pending
-    /// from <paramref name="effectiveFrom"/> until the user accepts, and may accept earlier.
+    /// Requires everyone to accept <paramref name="document"/> again. The requirement is marked now. A user is pending from
+    /// <paramref name="effectiveFrom"/> unless the user's latest acceptance of the document, of any version, was made at or after
+    /// the mark, so a user may accept earlier. The requirement records the version that <see cref="IConsentVersionSource"/> serves at
+    /// this moment, or <see cref="AccountConsent.Unversioned"/> when it serves none, and never compares it. A person accepts what the
+    /// source serves, so publish the new text first and then call this. A person who accepted between the two is asked once more,
+    /// which is safe. Calling it again with the same document and effective time changes nothing.
     /// </summary>
-    Task RequireAcceptanceAsync(string document, string version, DateTime effectiveFrom, CancellationToken cancellationToken = default);
+    /// <param name="document">The document, such as <c>terms</c>.</param>
+    /// <param name="effectiveFrom">From when the requirement binds, in UTC.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    Task RequireAcceptanceAsync(string document, DateTime effectiveFrom, CancellationToken cancellationToken = default);
 }

@@ -34,18 +34,14 @@ internal static class ConsentHandlers<TUser, TContext>
         if (errors.Any)
             return errors.ToResult();
 
-        // A requirement in effect decides the version, so a stale or different source version cannot stand in for it.
-        // Without one the source decides. Before any requirement is in effect and with no source version, the newest
-        // requirement decides, so a user can accept it early.
+        // The source decides. With no version from it, the marker is recorded and the version sent is ignored.
         var consents = Get<AccountConsentService<TContext>>(http);
-        var expected = await consents.AcceptableVersionAsync(options.TermsDocument, notYetInEffect: true, cancellationToken);
-        if (expected is null)
-            return AuthResults.Error(AuthErrorCodes.NoTermsToAccept, "There are no terms to accept.", StatusCodes.Status409Conflict);
-        if (!string.Equals(expected, version, StringComparison.Ordinal))
+        var current = await consents.CurrentVersionAsync(options.TermsDocument, cancellationToken);
+        if (current is not null && !string.Equals(current, version, StringComparison.Ordinal))
             return AuthResults.Error(AuthErrorCodes.TermsChanged, "The terms have changed. Read the current terms and accept them again.", StatusCodes.Status409Conflict);
 
         var ip = options.RecordTruncatedIp ? IpShortening.Shorten(http.Connection.RemoteIpAddress) : null;
-        await consents.RecordAsync(userId, options.TermsDocument, expected, "reaccept", locale, ip, cancellationToken);
+        await consents.RecordAsync(userId, options.TermsDocument, current ?? AccountConsent.Unversioned, "reaccept", locale, ip, cancellationToken);
 
         // The pending state clears at once on this instance, instead of when the cached user check expires.
         http.RequestServices.GetService<IMemoryCache>()?.Remove(IdentityAndBearerExtensions.UserCheckKey(userId));

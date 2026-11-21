@@ -142,9 +142,6 @@ public static class AuthErrorCodes
     /// <summary>The signed-in user has not confirmed the email address, and the endpoint needs that. The answer is 403.</summary>
     public const string EmailNotVerified = "emailNotVerified";
 
-    /// <summary>The app has no terms for the person to accept, neither a current version nor a requirement. The answer is 409.</summary>
-    public const string NoTermsToAccept = "noTermsToAccept";
-
     /// <summary>The app's <see cref="ISignUpGuard"/> did not let the sign-up go on, for example because a captcha or an app attestation check failed. The answer is 400.</summary>
     public const string SignUpRefused = "signUpRefused";
 }

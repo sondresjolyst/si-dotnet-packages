@@ -33,7 +33,7 @@ public static partial class AuthEndpointsExtensions
     /// <c>email</c>, <c>password</c>, optional <c>userName</c>, <c>firstName</c>, <c>lastName</c> and <c>locale</c>,
     /// and <c>ageConfirmed</c>, <c>termsAccepted</c> and <c>termsVersion</c>. Every check that needs no account runs
     /// first, in a fixed order, so no refusal depends on whether the email has an account. A field error is a
-    /// validation problem, and a terms version that is not the current one, or the one of the newest requirement in effect, answers 409 with the code
+    /// validation problem, and a terms version that is not the one that <see cref="IConsentVersionSource"/> serves answers 409 with the code
     /// <c>termsChanged</c>. A new email creates an unverified user, its consent rows and a verification code in one
     /// transaction, then sends the code. An existing email changes nothing. An active account, verified or not, is
     /// told that someone tried, at most once per <see cref="AppKitRegistrationOptions{TUser}.ResendCooldown"/>. No address gets more than <see cref="AppKitRegistrationOptions{TUser}.MaxEmailsPerAddressPerDay"/> of these emails a day, and over the cap nothing is sent and the answer is the same. A resend has its own cap, <see cref="AppKitRegistrationOptions{TUser}.MaxOwnerEmailsPerAddressPerDay"/>, and over it answers 429 <c>tooManyRequests</c>.
@@ -50,11 +50,11 @@ public static partial class AuthEndpointsExtensions
     /// account 409 <c>alreadyVerified</c>, and five wrong codes 429 <c>tooManyAttempts</c>. A resend answers 200,
     /// or 429 <c>tooManyRequests</c> inside the cooldown, or 429 <c>tooManyAttempts</c> until the locked code has
     /// expired. It also maps <c>POST accept-terms</c> with the body <c>termsVersion</c> and optional <c>locale</c>, for a signed-in
-    /// user whether the email is verified or not. A blank version is a field error. The version must be the one of the newest
-    /// requirement in effect, or the current version from <see cref="IConsentVersionSource"/> when no requirement is in effect,
-    /// or the newest requirement when the source has none. Another version answers 409 <c>termsChanged</c>, and with no
-    /// version to accept at all the answer is 409 <c>noTermsToAccept</c>. It records the acceptance with the source <c>reaccept</c>, answers 204, and
-    /// answers 204 again for a version the user already accepted. It needs Identity, <see cref="AuthServiceCollectionExtensions.AddAppKitAuth{TContext}"/>, an
+    /// user whether the email is verified or not. A blank version is a field error. The version must be the one that
+    /// <see cref="IConsentVersionSource"/> serves, and another version answers 409 <c>termsChanged</c>. With no source, or no version
+    /// from it, any version is accepted and <see cref="AccountConsent.Unversioned"/> is recorded. It records the acceptance with
+    /// the source <c>reaccept</c> and answers 204. It adds no row when the user already holds that version from at or after the newest
+    /// mark of a requirement, so a double click adds one row, and it adds one after a newer mark. It needs Identity, <see cref="AuthServiceCollectionExtensions.AddAppKitAuth{TContext}"/>, an
     /// <see cref="IRegistrationEmails{TUser}"/> and
     /// <see cref="SelfRegistrationServiceCollectionExtensions.AddAppKitSelfRegistration{TUser, TContext}"/>.
     /// An account counts as inactive when <typeparamref name="TUser"/> implements <see cref="IAppKitAccount"/> and
@@ -170,9 +170,9 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
         if (http.RequestServices.GetService<ISignUpGuard>() is { } guard && !await guard.MaySignUpAsync(http, email))
             return AuthResults.Error(AuthErrorCodes.SignUpRefused, "The sign-up could not be checked. Try again.", StatusCodes.Status400BadRequest);
 
-        // A requirement in effect decides the version, then the source. With neither, the client's version is not stored and
-        // the unversioned marker is stored instead, so only a version the server knows is ever stored.
-        var current = await Get<AccountConsentService<TContext>>(http).AcceptableVersionAsync(options.TermsDocument, notYetInEffect: false, cancellationToken);
+        // The source decides. With no version from it, the client's version is not stored and the unversioned marker is stored
+        // instead, so only a version the server knows is ever stored.
+        var current = await Get<AccountConsentService<TContext>>(http).CurrentVersionAsync(options.TermsDocument, cancellationToken);
         if (current is not null && !string.Equals(current, termsVersion, StringComparison.Ordinal))
             return AuthResults.Error(AuthErrorCodes.TermsChanged, "The terms have changed. Read the current terms and accept them again.", StatusCodes.Status409Conflict);
 

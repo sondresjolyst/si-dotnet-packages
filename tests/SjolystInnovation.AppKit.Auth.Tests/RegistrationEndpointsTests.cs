@@ -750,99 +750,70 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
         Assert.Equal(AccountConsent.Unversioned, Db(db => db.AccountConsents.Single(c => c.Document == "terms").Version));
     }
 
-    private async Task RequireAsync(string version, TimeSpan effectiveIn, string document = "terms")
+    private async Task RequireAsync(TimeSpan effectiveIn, string document = "terms")
     {
         using var scope = _host!.Services.CreateScope();
-        await scope.ServiceProvider.GetRequiredService<IConsentRequirements>().RequireAcceptanceAsync(document, version, _time.GetUtcNow().UtcDateTime + effectiveIn);
+        await scope.ServiceProvider.GetRequiredService<IConsentRequirements>().RequireAcceptanceAsync(document, _time.GetUtcNow().UtcDateTime + effectiveIn);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task A_requirement_in_effect_decides_the_terms_version_when_the_source_has_none(bool versionSource)
+    [Fact]
+    public async Task A_requirement_plays_no_part_in_the_terms_version_that_a_sign_up_accepts()
     {
-        await StartAsync(termsVersion: null, versionSource: versionSource);
-        await RequireAsync("v3", TimeSpan.Zero);
+        await StartAsync(termsVersion: "v2");
+        await RequireAsync(TimeSpan.Zero);
+        await RequireAsync(TimeSpan.FromDays(7));
 
-        var wrong = await RegisterAsync(Body(NewEmail, ("termsVersion", "v1")));
+        var wrong = await RegisterAsync(Body(NewEmail, ("termsVersion", "v3")));
 
         Assert.Equal(HttpStatusCode.Conflict, wrong.StatusCode);
         Assert.Equal(AuthErrorCodes.TermsChanged, await ErrorJson.CodeAsync(wrong));
         Assert.Equal(0, Db(db => db.Users.Count()));
 
-        var right = await RegisterAsync(Body(NewEmail, ("termsVersion", "v3")));
+        var right = await RegisterAsync(Body(NewEmail, ("termsVersion", "v2")));
 
         Assert.Equal(HttpStatusCode.OK, right.StatusCode);
-        Assert.Equal("v3", Db(db => db.AccountConsents.Single(c => c.Document == "terms").Version));
+        Assert.Equal("v2", Db(db => db.AccountConsents.Single(c => c.Document == "terms").Version));
     }
 
-    [Fact]
-    public async Task The_newest_requirement_in_effect_decides_when_there_are_several()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Without_a_source_version_a_requirement_does_not_change_what_a_sign_up_stores(bool versionSource)
     {
-        await StartAsync(versionSource: false);
-        await RequireAsync("v2", TimeSpan.Zero);
-        _time.Advance(TimeSpan.FromMinutes(1));
-        await RequireAsync("v3", TimeSpan.Zero);
-
-        Assert.Equal(HttpStatusCode.Conflict, (await RegisterAsync(Body(NewEmail, ("termsVersion", "v2")))).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await RegisterAsync(Body(NewEmail, ("termsVersion", "v3")))).StatusCode);
-    }
-
-    [Fact]
-    public async Task A_requirement_that_is_not_in_effect_yet_does_not_decide_the_terms_version()
-    {
-        await StartAsync(versionSource: false);
-        await RequireAsync("v3", TimeSpan.FromDays(7));
+        await StartAsync(termsVersion: null, versionSource: versionSource);
+        await RequireAsync(TimeSpan.Zero);
 
         var response = await RegisterAsync(Body(NewEmail, ("termsVersion", "whatever")));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(AccountConsent.Unversioned, Db(db => db.AccountConsents.Single(c => c.Document == "terms").Version));
     }
 
     [Fact]
-    public async Task A_requirement_for_another_document_does_not_decide_the_terms_version()
+    public async Task A_requirement_for_another_document_does_not_change_what_a_sign_up_stores()
     {
         await StartAsync(versionSource: false);
-        await RequireAsync("p2", TimeSpan.Zero, "privacy");
+        await RequireAsync(TimeSpan.Zero, "privacy");
 
         var response = await RegisterAsync(Body(NewEmail, ("termsVersion", "whatever")));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(AccountConsent.Unversioned, Db(db => db.AccountConsents.Single(c => c.Document == "terms").Version));
     }
 
     [Fact]
-    public async Task The_requirement_check_runs_for_an_existing_email_too()
-    {
-        await StartAsync(versionSource: false);
-        await SeedAsync("taken", verified: true);
-        await RequireAsync("v3", TimeSpan.Zero);
-
-        var response = await RegisterAsync(Body("taken@example.invalid", ("termsVersion", "v1")));
-
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Equal(0, _emails.Total);
-    }
-
-    [Fact]
-    public async Task An_acceptance_with_the_unversioned_marker_never_meets_a_requirement_that_comes_later()
+    public async Task Without_a_source_version_a_requirement_marked_after_the_sign_up_leaves_the_user_pending_with_the_marker()
     {
         await StartAsync(versionSource: false);
         await RegisterAsync(Body(NewEmail, ("termsVersion", "v3")));
         var userId = Db(db => db.Users.Single().Id);
-        await RequireAsync("v3", TimeSpan.Zero);
+        _time.Advance(TimeSpan.FromMinutes(1));
+        await RequireAsync(TimeSpan.Zero);
 
         using var scope = _host!.Services.CreateScope();
         var pending = await scope.ServiceProvider.GetRequiredService<AccountConsentService<RegistrationTestDbContext>>().GetPendingAsync(userId);
 
-        Assert.Equal([new PendingConsent("terms", "v3")], pending);
-    }
-
-    [Fact]
-    public async Task A_requirement_cannot_be_marked_with_the_unversioned_marker()
-    {
-        await StartAsync(versionSource: false);
-
-        await Assert.ThrowsAsync<ArgumentException>(() => RequireAsync(AccountConsent.Unversioned, TimeSpan.Zero));
+        Assert.Equal([new PendingConsent("terms", AccountConsent.Unversioned)], pending);
     }
 
     [Fact]
