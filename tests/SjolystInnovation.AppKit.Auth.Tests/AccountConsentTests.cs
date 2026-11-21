@@ -212,7 +212,7 @@ public sealed class AccountConsentTests : IDisposable
     }
 
     [Fact]
-    public void The_requirement_with_the_latest_effective_time_not_after_now_is_in_force_whatever_the_order_of_the_marks()
+    public void The_newest_mark_among_the_requirements_in_effect_decides_whatever_the_order_of_the_effective_times()
     {
         var first = Requirement("v2", Start, Start.AddDays(10));
         var second = Requirement("v3", Start.AddDays(1), Start.AddDays(5));
@@ -220,7 +220,24 @@ public sealed class AccountConsentTests : IDisposable
 
         Assert.False(MustAccept(acceptances, Start.AddDays(2), first, second));
         Assert.True(MustAccept(acceptances, Start.AddDays(6), first, second));
-        Assert.False(MustAccept(acceptances, Start.AddDays(11), first, second));
+        Assert.True(MustAccept(acceptances, Start.AddDays(11), first, second));
+    }
+
+    [Fact]
+    public void A_requirement_marked_earlier_that_takes_effect_later_does_not_replace_a_newer_mark()
+    {
+        var older = Requirement("v2", Start.AddDays(1), Start.AddDays(30));
+        var newer = Requirement("v3", Start.AddDays(7), Start.AddDays(7));
+        var early = new[] { ("v1", Start.AddDays(3)) };
+        var late = new[] { ("v3", Start.AddDays(8)) };
+
+        Assert.False(MustAccept(early, Start.AddDays(6), older, newer));
+        Assert.True(MustAccept(early, Start.AddDays(7), older, newer));
+        Assert.True(MustAccept(early, Start.AddDays(30), older, newer));
+        Assert.True(MustAccept(early, Start.AddDays(90), older, newer));
+        Assert.False(MustAccept(late, Start.AddDays(7), older, newer));
+        Assert.False(MustAccept(late, Start.AddDays(30), older, newer));
+        Assert.False(MustAccept(late, Start.AddDays(90), older, newer));
     }
 
     [Fact]

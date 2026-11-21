@@ -801,13 +801,13 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
         Assert.Empty(Pending(await LoginAsync("u1")));
     }
 
-    // The requirement in force is the one with the latest effective time that is not after now. The first is marked on day 0 and takes
+    // The newest mark among the requirements in effect decides. The first is marked on day 0 and takes
     // effect on day 10. The second is marked later, on day 1, and takes effect earlier, on day 5. The user accepted between the two marks.
     [Theory]
     [InlineData(2, false)]
     [InlineData(6, true)]
-    [InlineData(11, false)]
-    public async Task The_requirement_in_force_is_the_one_with_the_latest_effective_time_not_after_now(int day, bool pending)
+    [InlineData(11, true)]
+    public async Task The_newest_mark_among_the_requirements_in_effect_decides(int day, bool pending)
     {
         await StartAsync();
         await SeedAsync("u1");

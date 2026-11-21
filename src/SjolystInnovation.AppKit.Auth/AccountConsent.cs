@@ -34,10 +34,10 @@ public class AccountConsent
 }
 
 /// <summary>
-/// Says that a document must be accepted again from a moment on. The requirement in force for a document is the one with
-/// the latest <see cref="EffectiveFrom"/> that is not after now, and then the latest <see cref="MarkedAt"/>. A user is pending
-/// for the document when a requirement is in force and the user's latest acceptance of the document, of any version, was
-/// made before its <see cref="MarkedAt"/>, or the user has none.
+/// Says that a document must be accepted again from a moment on. Every requirement of a document whose <see cref="EffectiveFrom"/>
+/// is not after now is in effect, and the latest <see cref="MarkedAt"/> among them decides. A user is pending for the document when
+/// at least one requirement is in effect and the user's latest acceptance of the document, of any version, was made before that
+/// mark, or the user has none. A requirement that was marked earlier but takes effect later never replaces a newer mark.
 /// </summary>
 public class ConsentRequirement
 {

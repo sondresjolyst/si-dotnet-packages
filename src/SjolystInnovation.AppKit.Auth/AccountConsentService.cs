@@ -106,10 +106,6 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
         return pending;
     }
 
-    // The requirement with the latest effective time that is not after now, and among those the latest mark. Null when none is.
-    internal static ConsentRequirement? InForce(IEnumerable<ConsentRequirement> requirements, DateTime now) =>
-        requirements.Where(r => r.EffectiveFrom <= now).OrderByDescending(r => r.EffectiveFrom).ThenByDescending(r => r.MarkedAt).ThenByDescending(r => r.Id).FirstOrDefault();
-
     private async Task<IReadOnlyList<ConsentRequirement>> RequirementsAsync(CancellationToken cancellationToken)
     {
         if (cache is not null && cache.TryGetValue(RequirementsCacheKey, out IReadOnlyList<ConsentRequirement>? cached) && cached is not null)
@@ -119,14 +115,16 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
         return rows;
     }
 
-    // The requirement in force decides. The user is pending when their latest acceptance of the document, of any version, was
-    // made before its mark, or when they have none. An acceptance at or after the mark meets it, also when it was made
-    // before the requirement takes effect. No version is compared.
+    // Every requirement whose effective time is not after now is in effect, and the newest mark among them decides. The user is
+    // pending when there is one and the user's latest acceptance of the document, of any version, was made before that mark, or
+    // the user has none. An acceptance at or after the mark meets it, also when it was made before the requirement takes effect.
+    // A requirement that was marked earlier but takes effect later never replaces a newer mark. No version is compared.
     internal static bool MustAcceptAgain(IReadOnlyList<(string Version, DateTime At)> acceptances, IEnumerable<ConsentRequirement> requirements, DateTime now)
     {
-        if (InForce(requirements, now) is not { } required)
+        var inEffect = requirements.Where(r => r.EffectiveFrom <= now).ToList();
+        if (inEffect.Count == 0)
             return false;
-        return acceptances.Count == 0 || acceptances.Max(a => a.At) < required.MarkedAt;
+        return acceptances.Count == 0 || acceptances.Max(a => a.At) < inEffect.Max(r => r.MarkedAt);
     }
 }
 
