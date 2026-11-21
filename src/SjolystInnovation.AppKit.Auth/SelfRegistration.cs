@@ -36,6 +36,7 @@ public static class SelfRegistrationServiceCollectionExtensions
             .Validate(o => o.UnverifiedLifetime > TimeSpan.Zero, "The unverified account lifetime must be positive.")
             .Validate(o => o.ResendCooldown >= TimeSpan.Zero, "The resend cooldown must not be negative.")
             .Validate(o => o.MaxEmailsPerAddressPerDay > 0 && o.MaxOwnerEmailsPerAddressPerDay > 0, "The most emails per address per day must be positive.")
+            .Validate(o => o.MaxSignUpsPerNetworkPerDay > 0, "The most sign-ups per network per day must be positive.")
             .Validate(o => o.MinimumAge > 0, "The minimum age must be positive.")
             .Validate(o => !string.IsNullOrWhiteSpace(o.TermsDocument), "The terms document name must not be blank.")
             .Validate(o => o.RemindBefore is not null && o.RemindBefore.All(r => r > TimeSpan.Zero && r < o.UnverifiedLifetime),

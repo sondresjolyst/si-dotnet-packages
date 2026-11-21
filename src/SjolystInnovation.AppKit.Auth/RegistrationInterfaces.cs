@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Http;
+
 namespace SjolystInnovation.AppKit.Auth;
 
 /// <summary>Tells the sign-up which version of a document is current, for example the terms.</summary>
@@ -35,6 +37,21 @@ public interface IRegistrationEmails<in TUser>
 
     /// <summary>Warns the owner of an unverified account that it will be removed, and gives a fresh code.</summary>
     Task SendRemovalReminderAsync(TUser user, string code, DateTime removalAt, string? locale, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// Lets the app check a request before a sign-up goes on, for example a captcha or an app attestation token. Register it in
+/// the service collection. Without one, every sign-up goes on.
+/// </summary>
+public interface ISignUpGuard
+{
+    /// <summary>
+    /// Returns true when the sign-up may go on, or false to refuse it with 400 and the code <see cref="AuthErrorCodes.SignUpRefused"/>.
+    /// It runs after the field checks and before any lookup of the email, so its answer never depends on whether the email has an account.
+    /// </summary>
+    /// <param name="http">The request, where a token can be read from a header or the body.</param>
+    /// <param name="email">The email address of the sign-up, trimmed.</param>
+    Task<bool> MaySignUpAsync(HttpContext http, string email);
 }
 
 /// <summary>Marks documents that users must accept again. The app calls it when a document changes.</summary>

@@ -19,6 +19,7 @@ internal static class SignUpMailKinds
     // Rows that hold a running count for a rule, not the emails of one kind.
     public const string Total = "total";
     public const string AnonymousBudget = "anonymous";
+    public const string Network = "network";
     public const string OwnerBudget = "owner";
 
     private static readonly string[] Anonymous = [Verification, Notice];
@@ -35,6 +36,9 @@ internal static class SignUpMailAddress
     // The hash of the normalised address exactly as it is, as Identity normalises it for lookups.
     public static string Hash(string normalizedEmail) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedEmail.Trim())));
+
+    // The hash of a network, from the shortened address of the caller. The prefix keeps it apart from the hash of an email.
+    public static string NetworkHash(string shortenedAddress) => Hash("network:" + shortenedAddress);
 
     // The hash of the mailbox key of the normalised address.
     public static string MailboxHash(string normalizedEmail) => Hash(MailboxKey(normalizedEmail));
@@ -139,6 +143,32 @@ internal sealed class SignUpMailLimiter<TContext>(TContext db, TimeProvider time
                 // A concurrency conflict or a lost insert. Read the counts again.
                 foreach (var tracked in rows.Concat(raised))
                     db.Entry(tracked).State = EntityState.Detached;
+            }
+        }
+        return false;
+    }
+
+    // Counts one sign-up from the network, whose hash comes from SignUpMailAddress.NetworkHash, and returns true only when
+    // the network has not reached the cap today. It uses the same optimistic concurrency as the email counts, and fails
+    // closed when it cannot save after a few attempts. The row keeps the network hash in both hash columns.
+    public async Task<bool> TryCountNetworkAsync(string networkHash, int cap, CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < Attempts; attempt++)
+        {
+            var now = time.GetUtcNow().UtcDateTime;
+            var today = now.Date;
+            var row = await db.SignUpMailLogs.FirstOrDefaultAsync(l => l.AddressHash == networkHash && l.Kind == SignUpMailKinds.Network && l.Day == today, cancellationToken);
+            if ((row?.Count ?? 0) >= cap)
+                return false;
+            var raised = Raise(row, networkHash, networkHash, SignUpMailKinds.Network, today, now);
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+                return true;
+            }
+            catch (DbUpdateException)
+            {
+                db.Entry(raised).State = EntityState.Detached;
             }
         }
         return false;

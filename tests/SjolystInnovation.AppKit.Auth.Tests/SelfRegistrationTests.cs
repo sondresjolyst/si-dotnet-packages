@@ -38,6 +38,7 @@ public class SelfRegistrationTests
 
         Assert.Null(o.Role);
         Assert.Equal(16, o.MinimumAge);
+        Assert.Equal(20, o.MaxSignUpsPerNetworkPerDay);
         Assert.Equal("terms", o.TermsDocument);
         Assert.False(o.RequireNames);
         Assert.False(o.AllowUserName);
@@ -95,6 +96,10 @@ public class SelfRegistrationTests
     [Fact]
     public void A_negative_resend_cooldown_fails() =>
         Assert.Contains("cooldown", Failure(o => o.ResendCooldown = TimeSpan.FromSeconds(-1)));
+
+    [Fact]
+    public void A_network_cap_that_is_not_positive_fails() =>
+        Assert.Contains("network", Failure(o => o.MaxSignUpsPerNetworkPerDay = 0));
 
     [Fact]
     public void A_minimum_age_that_is_not_positive_fails() =>

@@ -52,6 +52,16 @@ public sealed class AppKitRegistrationOptions<TUser>
     /// </summary>
     public int MaxOwnerEmailsPerAddressPerDay { get; set; } = 5;
 
+    /// <summary>
+    /// The most sign-ups per network and UTC day. The network is the caller's address cut to its first three parts for IPv4 and
+    /// its first 48 bits for IPv6, and kept only as a hash. Every register request that passes the checks counts, whether or not
+    /// its email has an account. Over the cap register still answers its normal 200 body and does nothing, so no account is made
+    /// and no email is sent. An app behind a proxy must set up forwarded headers, as the rate limiter needs, or every caller
+    /// shares the address of the proxy. Shared networks, such as mobile carriers, can reach the cap, so an app may raise it.
+    /// Defaults to 20.
+    /// </summary>
+    public int MaxSignUpsPerNetworkPerDay { get; set; } = 20;
+
     /// <summary>How long an account may stay unverified before it is removed. Defaults to 30 days.</summary>
     public TimeSpan UnverifiedLifetime { get; set; } = TimeSpan.FromDays(30);
 

@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.AspNetCore.Routing;
@@ -97,6 +98,17 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
         }
     }
 
+    private sealed class FakeGuard(bool allow) : ISignUpGuard
+    {
+        public List<(string Path, string Email)> Calls { get; } = [];
+
+        public Task<bool> MaySignUpAsync(HttpContext http, string email)
+        {
+            Calls.Add((http.Request.Path.Value!, email));
+            return Task.FromResult(allow);
+        }
+    }
+
     private sealed class CountingHasher : PasswordHasher<IdentityTestUser>
     {
         public int Hashes;
@@ -148,6 +160,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
     private readonly List<string?> _locales = [];
     private readonly FakeTimeProvider _time = new(DateTimeOffset.UtcNow);
     private readonly FakeLogCollector _logs = new();
+    private IPAddress? _remoteIp;
     private IHost? _host;
     private HttpClient _client = default!;
 
@@ -166,8 +179,9 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
     private async Task StartAsync(
         Action<AppKitRegistrationOptions<IdentityTestUser>>? configure = null,
         string? termsVersion = "v1", bool versionSource = true, bool handler = false, bool throwingHandler = false,
-        bool optIn = true, IPAddress? remoteIp = null, bool userValidator = true)
+        bool optIn = true, IPAddress? remoteIp = null, bool userValidator = true, ISignUpGuard? guard = null)
     {
+        _remoteIp = remoteIp;
         _host = new HostBuilder()
             .ConfigureWebHost(web => web
                 .UseTestServer()
@@ -191,6 +205,8 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
                     s.AddSingleton<IRegistrationEmails<IdentityTestUser>>(_emails);
                     if (versionSource)
                         s.AddSingleton<IConsentVersionSource>(new FixedVersions(termsVersion, _locales));
+                    if (guard is not null)
+                        s.AddSingleton(guard);
                     if (handler)
                         s.AddScoped<IRegistrationHandler<IdentityTestUser>, ProfileHandler>();
                     if (throwingHandler)
@@ -201,7 +217,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
                     if (remoteIp is not null)
                         app.Use((http, next) =>
                         {
-                            http.Connection.RemoteIpAddress = remoteIp;
+                            http.Connection.RemoteIpAddress = _remoteIp;
                             return next(http);
                         });
                     app.UseRouting();
@@ -382,6 +398,167 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
         var created = Db(db => db.Users.Single(u => u.Email == newEmail));
         Assert.Matches("^[0-9a-f]{32}$", created.UserName);
         Assert.False(created.EmailConfirmed);
+    }
+
+    // The network cap
+
+    private static string NetworkEmail(int n) => $"n{n}@example.invalid";
+
+    private List<string> Emails() => Db(db => db.Users.Select(u => u.Email!).OrderBy(e => e).ToList());
+
+    [Fact]
+    public async Task Over_the_network_cap_register_answers_the_same_and_does_nothing()
+    {
+        await StartAsync(o => o.MaxSignUpsPerNetworkPerDay = 2, remoteIp: IPAddress.Parse("203.0.113.10"));
+
+        var first = await RegisterAsync(Body(NetworkEmail(1)));
+        var second = await RegisterAsync(Body(NetworkEmail(2)));
+        var third = await RegisterAsync(Body(NetworkEmail(3)));
+
+        Assert.Equal(HttpStatusCode.OK, third.StatusCode);
+        Assert.Equal(first.StatusCode, third.StatusCode);
+        Assert.Equal(await TextAsync(first), await TextAsync(third));
+        Assert.Equal(await TextAsync(second), await TextAsync(third));
+        Assert.Equal([NetworkEmail(1), NetworkEmail(2)], Emails());
+        Assert.Equal(2, _emails.Total);
+    }
+
+    [Fact]
+    public async Task A_request_for_an_email_that_has_an_account_counts_against_the_network_cap()
+    {
+        await StartAsync(o => o.MaxSignUpsPerNetworkPerDay = 2, remoteIp: IPAddress.Parse("203.0.113.10"));
+        await SeedAsync("taken", verified: true);
+
+        await RegisterAsync(Body("taken@example.invalid"));
+        await RegisterAsync(Body(NetworkEmail(1)));
+        var over = await RegisterAsync(Body(NetworkEmail(2)));
+
+        Assert.Equal(HttpStatusCode.OK, over.StatusCode);
+        Assert.Equal([NetworkEmail(1), "taken@example.invalid"], Emails());
+        Assert.Equal(2, _emails.Total);
+    }
+
+    [Fact]
+    public async Task A_request_over_the_network_cap_for_an_email_that_has_an_account_sends_no_notice()
+    {
+        await StartAsync(o => o.MaxSignUpsPerNetworkPerDay = 1, remoteIp: IPAddress.Parse("203.0.113.10"));
+        await SeedAsync("taken", verified: true);
+
+        await RegisterAsync(Body(NetworkEmail(1)));
+        var over = await RegisterAsync(Body("taken@example.invalid"));
+
+        Assert.Equal(HttpStatusCode.OK, over.StatusCode);
+        Assert.Empty(_emails.AlreadyRegistered);
+        Assert.Single(_emails.Verifications);
+    }
+
+    [Fact]
+    public async Task The_network_is_the_shortened_address_and_other_networks_have_their_own_count()
+    {
+        await StartAsync(o => o.MaxSignUpsPerNetworkPerDay = 1, remoteIp: IPAddress.Parse("203.0.113.10"));
+
+        await RegisterAsync(Body(NetworkEmail(1)));
+        _remoteIp = IPAddress.Parse("203.0.113.200");
+        await RegisterAsync(Body(NetworkEmail(2)));
+        _remoteIp = IPAddress.Parse("203.0.114.10");
+        await RegisterAsync(Body(NetworkEmail(3)));
+        _remoteIp = IPAddress.Parse("2001:db8:1:1::1");
+        await RegisterAsync(Body(NetworkEmail(4)));
+        _remoteIp = IPAddress.Parse("2001:db8:1:ffff::2");
+        await RegisterAsync(Body(NetworkEmail(5)));
+        _remoteIp = IPAddress.Parse("2001:db8:2::1");
+        await RegisterAsync(Body(NetworkEmail(6)));
+
+        Assert.Equal([NetworkEmail(1), NetworkEmail(3), NetworkEmail(4), NetworkEmail(6)], Emails());
+    }
+
+    [Fact]
+    public async Task The_network_count_is_stored_as_a_hash_and_starts_again_the_next_day()
+    {
+        await StartAsync(o => o.MaxSignUpsPerNetworkPerDay = 1, remoteIp: IPAddress.Parse("203.0.113.10"));
+
+        await RegisterAsync(Body(NetworkEmail(1)));
+        await RegisterAsync(Body(NetworkEmail(2)));
+
+        var row = Db(db => db.SignUpMailLogs.Single(l => l.Kind == "network"));
+        Assert.Matches("^[0-9a-f]{64}$", row.AddressHash);
+        Assert.Equal(1, row.Count);
+        _time.Advance(TimeSpan.FromDays(1));
+        await RegisterAsync(Body(NetworkEmail(3)));
+        Assert.Equal([NetworkEmail(1), NetworkEmail(3)], Emails());
+    }
+
+    [Fact]
+    public async Task A_request_that_fails_a_check_does_not_count_against_the_network_cap()
+    {
+        await StartAsync(o => o.MaxSignUpsPerNetworkPerDay = 1, remoteIp: IPAddress.Parse("203.0.113.10"));
+
+        var invalid = await RegisterAsync(Body(NetworkEmail(1), ("ageConfirmed", false)));
+        var stale = await RegisterAsync(Body(NetworkEmail(1), ("termsVersion", "v0")));
+        var good = await RegisterAsync(Body(NetworkEmail(1)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, good.StatusCode);
+        Assert.Single(Emails());
+    }
+
+    // The sign-up guard
+
+    [Fact]
+    public async Task A_guard_that_says_no_answers_400_signUpRefused_and_does_nothing()
+    {
+        var guard = new FakeGuard(false);
+        await StartAsync(guard: guard);
+        await SeedAsync("taken", verified: true);
+
+        var forNew = await RegisterAsync(Body(NewEmail));
+        var forExisting = await RegisterAsync(Body("taken@example.invalid"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, forNew.StatusCode);
+        Assert.Equal("signUpRefused", await ErrorJson.CodeAsync(forNew));
+        Assert.Equal(await TextAsync(forNew), await TextAsync(forExisting));
+        Assert.Equal(["taken@example.invalid"], Emails());
+        Assert.Equal(0, _emails.Total);
+        Assert.Equal(0, Db(db => db.SignUpMailLogs.Count()));
+    }
+
+    [Fact]
+    public async Task A_guard_that_says_yes_lets_the_sign_up_go_on_and_gets_the_request_and_the_email()
+    {
+        var guard = new FakeGuard(true);
+        await StartAsync(guard: guard);
+
+        var response = await RegisterAsync(Body("  " + NewEmail + " "));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var (path, email) = Assert.Single(guard.Calls);
+        Assert.Equal(NewEmail, email);
+        Assert.Equal("/api/auth/register", path);
+        Assert.Single(Emails());
+    }
+
+    [Fact]
+    public async Task The_guard_runs_after_the_field_checks()
+    {
+        var guard = new FakeGuard(false);
+        await StartAsync(guard: guard);
+
+        var response = await RegisterAsync(Body(NewEmail, ("ageConfirmed", false)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(["AgeConfirmed=ageNotConfirmed"], await ErrorJson.FieldCodesAsync(response));
+        Assert.Empty(guard.Calls);
+    }
+
+    [Fact]
+    public async Task A_refused_sign_up_does_not_count_against_the_network_cap()
+    {
+        await StartAsync(o => o.MaxSignUpsPerNetworkPerDay = 1, remoteIp: IPAddress.Parse("203.0.113.10"), guard: new FakeGuard(false));
+
+        await RegisterAsync(Body(NetworkEmail(1)));
+
+        Assert.Equal(0, Db(db => db.SignUpMailLogs.Count()));
     }
 
     // Field errors

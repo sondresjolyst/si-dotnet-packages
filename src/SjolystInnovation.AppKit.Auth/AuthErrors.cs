@@ -144,6 +144,9 @@ public static class AuthErrorCodes
 
     /// <summary>The app has no terms for the person to accept, neither a current version nor a requirement. The answer is 409.</summary>
     public const string NoTermsToAccept = "noTermsToAccept";
+
+    /// <summary>The app's <see cref="ISignUpGuard"/> did not let the sign-up go on, for example because a captcha or an app attestation check failed. The answer is 400.</summary>
+    public const string SignUpRefused = "signUpRefused";
 }
 
 /// <summary>The body of an error that belongs to no field: the English message and its code.</summary>

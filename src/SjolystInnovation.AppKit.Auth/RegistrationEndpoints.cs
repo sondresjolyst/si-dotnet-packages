@@ -23,6 +23,7 @@ internal enum RegistrationOutcome
     OwnerNotified,
     NoticeHeldBack,
     Ignored,
+    NetworkCapReached,
 }
 
 public static partial class AuthEndpointsExtensions
@@ -36,6 +37,8 @@ public static partial class AuthEndpointsExtensions
     /// <c>termsChanged</c>. A new email creates an unverified user, its consent rows and a verification code in one
     /// transaction, then sends the code. An existing email changes nothing. An active account, verified or not, is
     /// told that someone tried, at most once per <see cref="AppKitRegistrationOptions{TUser}.ResendCooldown"/>. No address gets more than <see cref="AppKitRegistrationOptions{TUser}.MaxEmailsPerAddressPerDay"/> of these emails a day, and over the cap nothing is sent and the answer is the same. A resend has its own cap, <see cref="AppKitRegistrationOptions{TUser}.MaxOwnerEmailsPerAddressPerDay"/>, and over it answers 429 <c>tooManyRequests</c>.
+    /// The app's <see cref="ISignUpGuard"/>, when registered, runs after the field checks and before any lookup, and a no answers 400 <c>signUpRefused</c>.
+    /// No network gets more than <see cref="AppKitRegistrationOptions{TUser}.MaxSignUpsPerNetworkPerDay"/> sign-ups a day, and over the cap the answer is the normal one and nothing happens.
     /// Every one of these cases answers 200 with the same body. An account that does not choose a user name gets a
     /// generated one, a new GUID in its <c>N</c> form, never the email. Sign-in is by email, so the user name is not shown or typed.
     /// A user name that contains <c>@</c> is refused, because a chosen one could otherwise look like another person's email.
@@ -163,11 +166,26 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
         if (errors.Any)
             return errors.ToResult();
 
+        // The app's guard, such as a captcha or an app attestation check, runs before any lookup by email.
+        if (http.RequestServices.GetService<ISignUpGuard>() is { } guard && !await guard.MaySignUpAsync(http, email))
+            return AuthResults.Error(AuthErrorCodes.SignUpRefused, "The sign-up could not be checked. Try again.", StatusCodes.Status400BadRequest);
+
         // A requirement in effect decides the version, then the source. With neither, the client's version is not stored and
         // the unversioned marker is stored instead, so only a version the server knows is ever stored.
         var current = await Get<AccountConsentService<TContext>>(http).AcceptableVersionAsync(options.TermsDocument, notYetInEffect: false, cancellationToken);
         if (current is not null && !string.Equals(current, termsVersion, StringComparison.Ordinal))
             return AuthResults.Error(AuthErrorCodes.TermsChanged, "The terms have changed. Read the current terms and accept them again.", StatusCodes.Status409Conflict);
+
+        // Every request that got this far counts for its network, whether or not the email has an account. Over the cap the
+        // answer is the normal one and nothing happens. A caller whose address is unknown is not counted.
+        if (IpShortening.Shorten(http.Connection.RemoteIpAddress) is { } network
+            && !await Get<SignUpMailLimiter<TContext>>(http).TryCountNetworkAsync(SignUpMailAddress.NetworkHash(network), options.MaxSignUpsPerNetworkPerDay, cancellationToken))
+        {
+            // The other paths hash the password, so this one does too and takes about as long.
+            _ = users.PasswordHasher.HashPassword(probe, password);
+            AuthEndpointsExtensions.Log.RegistrationHandled(logger, null, RegistrationOutcome.NetworkCapReached);
+            return Ok();
+        }
 
         var emails = Get<IRegistrationEmails<TUser>>(http);
         var db = Get<TContext>(http);
