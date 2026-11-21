@@ -909,7 +909,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
         _time.Advance(TimeSpan.FromMinutes(4));
         await RegisterAsync(Body("taken@example.invalid"));
         Assert.Single(_emails.AlreadyRegistered);
-        Assert.Equal(1, Db(db => db.SignUpMailLogs.Count()));
+        Assert.Equal(1, Db(db => db.SignUpMailLogs.Count(l => l.Kind != SignUpMailKinds.Total && l.Kind != SignUpMailKinds.AnonymousBudget && l.Kind != SignUpMailKinds.OwnerBudget)));
 
         _time.Advance(TimeSpan.FromMinutes(2));
         await RegisterAsync(Body("taken@example.invalid"));
@@ -923,7 +923,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
 
         await RegisterAsync(Body("Someone+Tag@Example.invalid"));
 
-        var row = Db(db => db.SignUpMailLogs.Single());
+        var row = Db(db => db.SignUpMailLogs.Single(l => l.Kind == SignUpMailKinds.Verification));
         Assert.Equal(64, row.AddressHash.Length);
         Assert.DoesNotContain("someone", row.AddressHash, StringComparison.OrdinalIgnoreCase);
         Assert.Equal("verification", row.Kind);
@@ -940,7 +940,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
             await RegisterAsync(Body(email));
 
         Assert.Equal(2, _emails.Verifications.Count);
-        Assert.Equal(1, Db(db => db.SignUpMailLogs.Count()));
+        Assert.Equal(1, Db(db => db.SignUpMailLogs.Count(l => l.Kind != SignUpMailKinds.Total && l.Kind != SignUpMailKinds.AnonymousBudget && l.Kind != SignUpMailKinds.OwnerBudget)));
     }
 
     [Fact]
@@ -965,7 +965,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
         await RegisterAsync(Body("  Case@Example.Invalid "));
 
         var user = Db(db => db.Users.Single());
-        Assert.Equal(SignUpMailAddress.Hash(user.NormalizedEmail!), Db(db => db.SignUpMailLogs.Single().AddressHash));
+        Assert.Equal(SignUpMailAddress.Hash(user.NormalizedEmail!), Db(db => db.SignUpMailLogs.Single(l => l.Kind == SignUpMailKinds.Verification).AddressHash));
         Assert.Equal("CASE@EXAMPLE.INVALID", user.NormalizedEmail);
     }
 

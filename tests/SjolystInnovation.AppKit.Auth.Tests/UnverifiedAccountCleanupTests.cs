@@ -402,11 +402,17 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
         Assert.True(Exists("u1"));
     }
 
+    // Seeds the rows that one reservation of the kind would have written, count times over.
     private void SeedMailCount(string email, string kind, DateTime day, int count)
     {
         using var scope = _host!.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<RegistrationTestDbContext>();
-        db.SignUpMailLogs.Add(new SignUpMailLog { AddressHash = SignUpMailAddress.Hash(email.ToUpperInvariant()), MailboxHash = SignUpMailAddress.Hash(email.ToUpperInvariant()), Kind = kind, Day = day, Count = count, LastSentAt = day });
+        var normal = email.ToUpperInvariant();
+        var mailbox = SignUpMailAddress.MailboxHash(normal);
+        var owner = SignUpMailKinds.IsOwner(kind);
+        var hash = owner ? SignUpMailAddress.Hash(normal) : mailbox;
+        foreach (var (rowHash, rowKind) in new[] { (hash, kind), (hash, owner ? SignUpMailKinds.OwnerBudget : SignUpMailKinds.AnonymousBudget), (mailbox, SignUpMailKinds.Total) })
+            db.SignUpMailLogs.Add(new SignUpMailLog { AddressHash = rowHash, MailboxHash = mailbox, Kind = rowKind, Day = day, Count = count, LastSentAt = day });
         db.SaveChanges();
     }
 
@@ -432,8 +438,7 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
         await StartAsync(o => o.MaxOwnerEmailsPerAddressPerDay = 1);
         await SeedAsync("u1", TimeSpan.Zero);
         _time.Advance(TimeSpan.FromDays(16));
-        SeedMailCount("u1@example.invalid", "notice", Now.Date, 3);
-        SeedMailCount("u1@example.invalid", "verification", Now.Date, 2);
+        SeedMailCount("u1@example.invalid", "notice", Now.Date, 5);
 
         Assert.Equal(new UnverifiedCleanupResult(0, 1, 0), await RunAsync());
     }
@@ -447,7 +452,7 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
 
         await RunAsync();
 
-        var row = Db(db => db.SignUpMailLogs.Single());
+        var row = Db(db => db.SignUpMailLogs.Single(l => l.Kind == SignUpMailKinds.Reminder));
         Assert.Equal(("reminder", 1, Now.Date), (row.Kind, row.Count, row.Day));
         Assert.Equal(SignUpMailAddress.Hash("U1@EXAMPLE.INVALID"), row.AddressHash);
     }
@@ -462,7 +467,7 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
 
         await RunAsync();
 
-        Assert.Equal([Now.Date.AddDays(-1), Now.Date], Db(db => db.SignUpMailLogs.OrderBy(l => l.Day).Select(l => l.Day).ToList()));
+        Assert.Equal([Now.Date.AddDays(-1), Now.Date], Db(db => db.SignUpMailLogs.Where(l => l.Kind == SignUpMailKinds.Notice).OrderBy(l => l.Day).Select(l => l.Day).ToList()));
     }
 
     [Fact]

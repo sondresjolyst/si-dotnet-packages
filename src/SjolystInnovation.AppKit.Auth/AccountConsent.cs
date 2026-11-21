@@ -69,7 +69,10 @@ public class SignUpMailLog
     public string AddressHash { get; set; } = default!;
     /// <summary>The hash of the mailbox, the normalised address with a <c>+tag</c> removed, as 64 lowercase hex characters.</summary>
     public string MailboxHash { get; set; } = default!;
-    /// <summary>The kind of email, <c>verification</c>, <c>notice</c> or <c>reminder</c>. At most 16 characters.</summary>
+    /// <summary>
+    /// The kind of email, <c>verification</c>, <c>notice</c>, <c>resend</c> or <c>reminder</c>, or the name of a running count,
+    /// <c>total</c>, <c>anonymous</c> or <c>owner</c>. At most 16 characters.
+    /// </summary>
     public string Kind { get; set; } = default!;
     /// <summary>The UTC day of the emails, at midnight.</summary>
     public DateTime Day { get; set; }
