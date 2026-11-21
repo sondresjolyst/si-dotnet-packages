@@ -205,20 +205,21 @@ internal sealed class AuthHandlers<TUser, TContext>(AppKitAuthEndpointOptions<TU
 
     public async Task<IResult> RequestResetAsync(PasswordResetRequest request, HttpContext http)
     {
-        var (users, emails) = (Get<UserManager<TUser>>(http), Get<IAuthEmails<TUser>>(http));
+        var (users, emails, time) = (Get<UserManager<TUser>>(http), Get<IAuthEmails<TUser>>(http), Get<TimeProvider>(http));
         if (Validate(("Email", request.Email, true)) is { } invalid)
             return invalid;
 
         var user = await users.FindByEmailAsync(request.Email!);
-        if (Active(user))
+        if (Active(user) && PasswordResetCodes.CanIssue(user!, Get<IOptions<AppKitAuthOptions>>(http).Value.ResetCodeCooldown, time))
         {
-            var code = PasswordResetCodes.Issue(user!);
+            var code = PasswordResetCodes.Issue(user!, time);
             await users.UpdateAsync(user!);
             await emails.SendPasswordResetAsync(user!, code, http.RequestAborted);
             AuthEndpointsExtensions.Log.ResetRequested(logger, user!.Id);
         }
 
-        // An unknown address gets the same response, so the endpoint does not reveal who has an account.
+        // An unknown address, or one that gets no new code yet, gets the same response, so the endpoint does
+        // not reveal who has an account.
         return TypedResults.Ok(new MessageResponse("If this email is registered, a reset code has been sent."));
     }
 

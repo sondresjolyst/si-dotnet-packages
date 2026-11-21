@@ -24,6 +24,7 @@ public static class AuthServiceCollectionExtensions
             .Validate(o => AppKitAuthOptions.IsLongEnough(o.Key), $"{jwtSection.Path}:Key must be at least {AppKitAuthOptions.MinimumKeyBytes} bytes.")
             .Validate(o => o.AccessTokenLifetime > TimeSpan.Zero, "The access token lifetime must be positive.")
             .Validate(o => o.RefreshTokenLifetimeMonths > 0, "The refresh token lifetime must be positive.")
+            .Validate(o => o.ResetCodeCooldown >= TimeSpan.Zero, "The reset code cooldown must not be negative.")
             .Validate(o => o.MaxLiveRefreshTokens > 0, "The refresh token cap must be positive.")
             .ValidateOnStart();
         services.TryAddSingleton(TimeProvider.System);

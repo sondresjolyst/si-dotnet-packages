@@ -127,8 +127,9 @@ usually `Jwt`. If a setting cannot work, the app fails to start and the error na
 | `AccessTokenLifetime` | `01:00:00` | How long an access token lasts. |
 | `RefreshTokenLifetimeMonths` | 6 | How many calendar months a refresh token lasts. |
 | `MaxLiveRefreshTokens` | 5 | How many refresh tokens one user may hold at once, across devices. |
+| `ResetCodeCooldown` | `00:01:00` | How long after a reset code was issued before `request-password-reset` issues a new one. |
 
-If the key is too short, or a lifetime or the cap is not positive, the app fails to start.
+If the key is too short, a lifetime or the cap is not positive, or the cooldown is negative, the app fails to start.
 
 `AddAppKitAuth` also runs a hosted service that deletes expired refresh tokens when the app starts
 and once a day after. A revoked token is kept until it expires, so presenting it again is still
@@ -210,7 +211,7 @@ All endpoints are anonymous `POST` requests under the prefix, which defaults to 
 | `login` | `email`, `password` | Answers `200 { token, refreshToken }`. A wrong password counts toward the lockout. An app that opted in to sign-up adds `emailVerified` and `pendingConsents`. |
 | `refresh-token` | `token`, `refreshToken` | Answers `200 { token, refreshToken }`. A used token ends every session. It adds the same two for an opted-in app. |
 | `logout` | `refreshToken` | Answers `204`, whether or not the token was live. |
-| `request-password-reset` | `email` | Answers `200`, whether or not the address has an account. Emails a code to one that does. |
+| `request-password-reset` | `email` | Answers `200`, whether or not the address has an account. Emails a code to one that does, unless the last code is newer than `ResetCodeCooldown` or has used up its attempts. |
 | `reset-password` | `email`, `code`, `newPassword` | Answers `200`, and every session ends. Answers `429` after 5 wrong codes. In an opted-in app a right code also confirms the email. |
 
 Refusals answer `{ message, code }` with `400`, `401`, or `429`. A missing or malformed field answers
@@ -457,7 +458,7 @@ the user changes their own password.
 | --- | --- | --- |
 | `GET {id}/profile` | The user or an admin | Answers `{ id, userName, firstName, lastName, email, createdAt }`. |
 | `PUT {id}/profile` with `firstName`, `lastName` | The user or an admin | Saves and answers the updated profile. Names are required, at most 50 characters. |
-| `PUT {id}/password` with `currentPassword`, `newPassword` | The user | Changes the password and answers `200`. A wrong current password is a validation problem on `CurrentPassword`, and a weak new one on `NewPassword`. |
+| `PUT {id}/password` with `currentPassword`, `newPassword` | The user | Changes the password, ends every session of the user, this device's included, and answers `200`. Every device signs in again. A wrong current password is a validation problem on `CurrentPassword`, and a weak new one on `NewPassword`. Neither ends a session. |
 | `GET {id}/export` | The user or an admin | Answers `{ account, roles, exportedAt }`, plus `data` from an `IAccountDataExporter<TUser>` when the app registers one. |
 | `DELETE {id}/account` | The user or an admin | Deletes the account through `IAccountDeleter<TUser>` and answers `204`. The last admin, or a change that collided with it, gives `409`. |
 
@@ -475,7 +476,7 @@ internal, so the rules below hold for every app.
 - Signing out deletes the token while it is live, so a stale tab that sends it later gets a plain
   refusal instead of setting off replay detection. A token that was already used stays, so presenting
   it still revokes every session of the user.
-- A password reset deletes every live token of the user, so each device signs in again.
+- A password reset or a password change deletes every live token of the user, so each device signs in again.
 
 `IJwtTokenService` stays public. `Build(user, roles)` writes an access token for a user and roles,
 and `ReadUserIdFromExpired(token)` reads the user ID from an access token that may have expired.
@@ -485,7 +486,10 @@ and `ReadUserIdFromExpired(token)` reads the user ID from an access token that m
 Your user class implements `IPasswordResetUser` with `PasswordResetCodeHash`,
 `PasswordResetCodeExpiration`, and `PasswordResetAttempts`. The `request-password-reset` and
 `reset-password` endpoints and the invite use them. A reset code lasts 30 minutes, and a correct code
-also clears the lockout.
+also clears the lockout. `request-password-reset` issues a new code only when the last one is at least
+`ResetCodeCooldown` old. After 5 wrong codes it issues none until that code expires, so a code allows
+5 guesses in all. A code that has used up its attempts expires after 15 minutes at the latest, so a new one can be asked for then. The answer is the same in every case. An invite code, which can last longer than 30
+minutes, does not delay a new code.
 
 ## Email verification codes
 
