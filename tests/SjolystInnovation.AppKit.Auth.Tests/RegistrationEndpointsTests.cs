@@ -538,6 +538,79 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
         Assert.Equal("any", Db(db => db.AccountConsents.Single(c => c.Document == "terms").Version));
     }
 
+    private async Task RequireAsync(string version, TimeSpan effectiveIn, string document = "terms")
+    {
+        using var scope = _host!.Services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<IConsentRequirements>().RequireAcceptanceAsync(document, version, _time.GetUtcNow().UtcDateTime + effectiveIn);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_requirement_in_effect_decides_the_terms_version_when_the_source_has_none(bool versionSource)
+    {
+        await StartAsync(termsVersion: null, versionSource: versionSource);
+        await RequireAsync("v3", TimeSpan.Zero);
+
+        var wrong = await RegisterAsync(Body(NewEmail, ("termsVersion", "v1")));
+
+        Assert.Equal(HttpStatusCode.Conflict, wrong.StatusCode);
+        Assert.Equal(AuthErrorCodes.TermsChanged, await ErrorJson.CodeAsync(wrong));
+        Assert.Equal(0, Db(db => db.Users.Count()));
+
+        var right = await RegisterAsync(Body(NewEmail, ("termsVersion", "v3")));
+
+        Assert.Equal(HttpStatusCode.OK, right.StatusCode);
+        Assert.Equal("v3", Db(db => db.AccountConsents.Single(c => c.Document == "terms").Version));
+    }
+
+    [Fact]
+    public async Task The_newest_requirement_in_effect_decides_when_there_are_several()
+    {
+        await StartAsync(versionSource: false);
+        await RequireAsync("v2", TimeSpan.Zero);
+        _time.Advance(TimeSpan.FromMinutes(1));
+        await RequireAsync("v3", TimeSpan.Zero);
+
+        Assert.Equal(HttpStatusCode.Conflict, (await RegisterAsync(Body(NewEmail, ("termsVersion", "v2")))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await RegisterAsync(Body(NewEmail, ("termsVersion", "v3")))).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_requirement_that_is_not_in_effect_yet_does_not_decide_the_terms_version()
+    {
+        await StartAsync(versionSource: false);
+        await RequireAsync("v3", TimeSpan.FromDays(7));
+
+        var response = await RegisterAsync(Body(NewEmail, ("termsVersion", "whatever")));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_requirement_for_another_document_does_not_decide_the_terms_version()
+    {
+        await StartAsync(versionSource: false);
+        await RequireAsync("p2", TimeSpan.Zero, "privacy");
+
+        var response = await RegisterAsync(Body(NewEmail, ("termsVersion", "whatever")));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task The_requirement_check_runs_for_an_existing_email_too()
+    {
+        await StartAsync(versionSource: false);
+        await SeedAsync("taken", verified: true);
+        await RequireAsync("v3", TimeSpan.Zero);
+
+        var response = await RegisterAsync(Body("taken@example.invalid", ("termsVersion", "v1")));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(0, _emails.Total);
+    }
+
     // Existing emails
 
     [Fact]

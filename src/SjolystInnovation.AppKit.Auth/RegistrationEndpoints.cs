@@ -32,7 +32,7 @@ public static partial class AuthEndpointsExtensions
     /// <c>email</c>, <c>password</c>, optional <c>userName</c>, <c>firstName</c>, <c>lastName</c> and <c>locale</c>,
     /// and <c>ageConfirmed</c>, <c>termsAccepted</c> and <c>termsVersion</c>. Every check that needs no account runs
     /// first, in a fixed order, so no refusal depends on whether the email has an account. A field error is a
-    /// validation problem, and a terms version that is not the current one answers 409 with the code
+    /// validation problem, and a terms version that is not the current one, or the one of the newest requirement in effect, answers 409 with the code
     /// <c>termsChanged</c>. A new email creates an unverified user, its consent rows and a verification code in one
     /// transaction, then sends the code. An existing email changes nothing. An active account, verified or not, is
     /// told that someone tried, at most once per <see cref="AppKitRegistrationOptions{TUser}.ResendCooldown"/>. No address gets more than <see cref="AppKitRegistrationOptions{TUser}.MaxEmailsPerAddressPerDay"/> of these emails a day, and over the cap nothing is sent and the answer is the same. A resend has its own cap, <see cref="AppKitRegistrationOptions{TUser}.MaxOwnerEmailsPerAddressPerDay"/>, and over it answers 429 <c>tooManyRequests</c>.
@@ -159,8 +159,8 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
         if (errors.Any)
             return errors.ToResult();
 
-        var source = http.RequestServices.GetService<IConsentVersionSource>();
-        var current = source is null ? null : await source.GetCurrentVersionAsync(options.TermsDocument, locale, cancellationToken);
+        // A requirement in effect decides the version, then the source. With neither, any version is stored as sent.
+        var current = await Get<AccountConsentService<TContext>>(http).AcceptableVersionAsync(options.TermsDocument, notYetInEffect: false, cancellationToken);
         if (current is not null && !string.Equals(current, termsVersion, StringComparison.Ordinal))
             return AuthResults.Error(AuthErrorCodes.TermsChanged, "The terms have changed. Read the current terms and accept them again.", StatusCodes.Status409Conflict);
 

@@ -99,6 +99,19 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
         return rows.Count == 0 ? null : (Newest(rows).Version, false);
     }
 
+    // The version of the document that a person may accept now, as the server knows it, or null when there is none. The newest
+    // requirement in effect decides. Without one, the version source decides. With none of them, a requirement that is not in
+    // effect yet decides when notYetInEffect is true, so a user can accept it early. The source is asked without a locale,
+    // because a requirement does not belong to one.
+    public async Task<string?> AcceptableVersionAsync(string document, bool notYetInEffect, CancellationToken cancellationToken = default)
+    {
+        var requirement = await RequiredVersionAsync(document, cancellationToken);
+        if (requirement is { InEffect: true } inEffect)
+            return inEffect.Version;
+        var current = versions is null ? null : await versions.GetCurrentVersionAsync(document, null, cancellationToken);
+        return current ?? (notYetInEffect ? requirement?.Version : null);
+    }
+
     private static ConsentRequirement Newest(IEnumerable<ConsentRequirement> requirements) =>
         requirements.OrderByDescending(r => r.MarkedAt).ThenByDescending(r => r.Id).First();
 
