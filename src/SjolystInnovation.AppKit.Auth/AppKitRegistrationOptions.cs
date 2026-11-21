@@ -37,8 +37,9 @@ public sealed class AppKitRegistrationOptions<TUser>
 
     /// <summary>
     /// The most emails per address and UTC day that anyone who types the address can cause: the notice to an existing
-    /// account and the verification email that register sends for a new account. A <c>+tag</c> in the local part is
-    /// ignored when addresses are compared, so it counts per mailbox. Over the cap nothing is sent and the answers do not change.
+    /// account and the verification email that register sends for a new account. Addresses are compared by mailbox, as a best effort. A <c>+tag</c>, a trailing dot on the domain, an
+    /// internationalised domain written in Unicode or ASCII, <c>googlemail.com</c> and, for Gmail, dots in the local part do not
+    /// make a new mailbox. No other provider rule applies. Over the cap nothing is sent and the answers do not change.
     /// No mailbox gets more than this and <see cref="MaxOwnerEmailsPerAddressPerDay"/> together from the sign-up in a day, however many
     /// accounts point at it. Defaults to 5.
     /// </summary>

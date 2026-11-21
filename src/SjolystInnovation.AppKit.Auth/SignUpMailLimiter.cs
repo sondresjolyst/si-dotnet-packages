@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Identity;
@@ -35,19 +36,45 @@ internal static class SignUpMailAddress
     public static string Hash(string normalizedEmail) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedEmail.Trim())));
 
-    // The hash of the mailbox. A +tag in the local part does not change it, so name+one@ and name+two@ are the mailbox of name@.
-    public static string MailboxHash(string normalizedEmail)
+    // The hash of the mailbox key of the normalised address.
+    public static string MailboxHash(string normalizedEmail) => Hash(MailboxKey(normalizedEmail));
+
+    /// <summary>
+    /// The key that stands for the mailbox an address reaches, so spellings of one inbox share one key. It is a best effort and
+    /// covers only these rules. The address is normalised the way Identity does it, upper case. A <c>+tag</c> in the local part is
+    /// dropped. A trailing dot on the domain is dropped. An internationalised domain becomes its ASCII form with
+    /// <see cref="IdnMapping"/>. <c>googlemail.com</c> counts as <c>gmail.com</c>, and for that domain the dots of the local
+    /// part are removed. No other provider rule is applied, so other spellings of one inbox still count apart.
+    /// </summary>
+    /// <param name="normalizedEmail">The address as Identity normalises it for lookups.</param>
+    public static string MailboxKey(string normalizedEmail)
     {
         var key = normalizedEmail.Trim();
         var at = key.LastIndexOf('@');
-        if (at > 0)
+        if (at <= 0)
+            return key;
+        var local = key[..at];
+        var domain = key[(at + 1)..].TrimEnd('.');
+        var plus = local.IndexOf('+', StringComparison.Ordinal);
+        if (plus > 0)
+            local = local[..plus];
+        try
         {
-            var plus = key.IndexOf('+', StringComparison.Ordinal);
-            if (plus > 0 && plus < at)
-                key = string.Concat(key.AsSpan(0, plus), key.AsSpan(at));
+            domain = Idn.GetAscii(domain);
         }
-        return Hash(key);
+        catch (ArgumentException)
+        {
+            // A domain that cannot be converted stays as it is.
+        }
+        domain = domain.ToUpperInvariant();
+        if (domain == "GOOGLEMAIL.COM")
+            domain = "GMAIL.COM";
+        if (domain == "GMAIL.COM")
+            local = local.Replace(".", string.Empty, StringComparison.Ordinal);
+        return string.Concat(local, "@", domain);
     }
+
+    private static readonly IdnMapping Idn = new();
 }
 
 // Decides whether a sign-up email may go to an address now, and counts it when it may. The counts live in the database,

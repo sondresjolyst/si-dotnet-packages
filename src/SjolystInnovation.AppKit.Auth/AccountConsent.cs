@@ -55,7 +55,7 @@ public class ConsentRequirement
 
 /// <summary>
 /// Counts the sign-up emails sent to one address on one day, by kind. The address is kept as a hash of its normalised
-/// form, with a <c>+tag</c> in the local part removed, never as the address itself. The sign-up reads it to cap the
+/// form, folded to its mailbox key (see the sign-up options), never as the address itself. The sign-up reads it to cap the
 /// emails per address and to space out the notices to an existing account.
 /// </summary>
 public class SignUpMailLog
@@ -67,7 +67,7 @@ public class SignUpMailLog
     /// can cause, and the exact normalised address of the account for the emails that its owner causes.
     /// </summary>
     public string AddressHash { get; set; } = default!;
-    /// <summary>The hash of the mailbox, the normalised address with a <c>+tag</c> removed, as 64 lowercase hex characters.</summary>
+    /// <summary>The hash of the mailbox key of the normalised address, as 64 lowercase hex characters.</summary>
     public string MailboxHash { get; set; } = default!;
     /// <summary>
     /// The kind of email, <c>verification</c>, <c>notice</c>, <c>resend</c> or <c>reminder</c>, or the name of a running count,
