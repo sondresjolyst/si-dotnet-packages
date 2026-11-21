@@ -183,12 +183,13 @@ public static class IdentityAndBearerExtensions
             foreach (var role in roles)
                 identity.AddClaim(new Claim(identity.RoleClaimType, role));
 
-            // The two sign-up facts travel the same way. Only an app that opted in has them.
+            // The sign-up facts travel the same way. Only an app that opted in has them.
             if (services.GetService<SelfRegistrationRegistered>() is not null)
             {
-                foreach (var claim in identity.FindAll(c => c.Type is AppKitClaims.EmailVerifiedClaim or AppKitClaims.PendingConsentClaim).ToList())
+                foreach (var claim in identity.FindAll(c => c.Type is AppKitClaims.EmailVerifiedClaim or AppKitClaims.PendingConsentClaim or AppKitClaims.PendingCheckedClaim).ToList())
                     identity.RemoveClaim(claim);
                 identity.AddClaim(new Claim(AppKitClaims.EmailVerifiedClaim, check.EmailVerified ? "true" : "false"));
+                identity.AddClaim(new Claim(AppKitClaims.PendingCheckedClaim, "true"));
                 foreach (var pending in check.Pending)
                     identity.AddClaim(new Claim(AppKitClaims.PendingConsentClaim, AppKitClaims.PendingToClaim(pending)));
             }

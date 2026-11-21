@@ -47,6 +47,11 @@ public static class AppKitClaims
     internal const string EmailVerifiedClaim = "appkit:email_verified";
     internal const string PendingConsentClaim = "appkit:pending_consent";
 
+    // Says that the bearer check worked out the pending documents for this request, so an empty list means nothing is pending.
+    internal const string PendingCheckedClaim = "appkit:pending_checked";
+
+    internal static bool HasPendingFact(this ClaimsPrincipal principal) => principal.HasClaim(PendingCheckedClaim, "true");
+
     private static readonly JsonSerializerOptions PendingJson = new(JsonSerializerDefaults.Web);
 
     internal static string PendingToClaim(PendingConsent pending) => JsonSerializer.Serialize(pending, PendingJson);

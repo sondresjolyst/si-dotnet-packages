@@ -5,6 +5,8 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -18,6 +20,8 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
@@ -79,6 +83,18 @@ internal sealed class CommandLog : DbCommandInterceptor
         Record(command);
         return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
     }
+}
+
+// A second authentication scheme, standing for any sign-in the bearer check never sees. It signs in whoever sends the header.
+internal sealed class OtherSchemeHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, System.Text.Encodings.Web.UrlEncoder encoder)
+    : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+{
+    public const string Name = "Other";
+
+    protected override Task<AuthenticateResult> HandleAuthenticateAsync() =>
+        Task.FromResult(Request.Headers.ContainsKey("X-Other")
+            ? AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "other")], Name)), Name))
+            : AuthenticateResult.NoResult());
 }
 
 public sealed partial class TermsAndFiltersTests : IAsyncDisposable
@@ -160,6 +176,7 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
                     s.AddAppKitAuth<RegistrationTestDbContext>(context.Configuration.GetSection("Jwt"));
                     s.AddAppKitJwtBearer<IdentityTestUser>(u => !u.IsDeleted);
                     s.AddAppKitAccounts<IdentityTestUser, RegistrationTestDbContext>();
+                    s.AddAuthentication().AddScheme<AuthenticationSchemeOptions, OtherSchemeHandler>(OtherSchemeHandler.Name, _ => { });
                     s.AddAuthorization();
                     s.AddRouting();
                     if (optIn)
@@ -191,6 +208,7 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
                             e.MapGet("/verified", () => "ok").RequireAuthorization().RequireVerifiedEmail();
                             e.MapGet("/terms", () => "ok").RequireAuthorization().RequireCurrentTerms();
                             e.MapGet("/both", () => "ok").RequireAuthorization().RequireVerifiedEmail().RequireCurrentTerms();
+                            e.MapGet("/other", () => "ok").RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = OtherSchemeHandler.Name }).RequireCurrentTerms();
                             e.MapGet("/open", () => "ok").AllowAnonymous().RequireVerifiedEmail().RequireCurrentTerms();
                             var group = e.MapGroup("/group").RequireAuthorization().RequireVerifiedEmail();
                             group.MapGet("a", () => "ok");
@@ -770,6 +788,29 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.Unauthorized, (await GetAsync("/verified")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await GetAsync("/terms")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await GetAsync("/open")).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_signed_in_principal_the_bearer_check_never_saw_is_refused_by_the_terms_filter()
+    {
+        await StartAsync();
+        var request = new HttpRequestMessage(HttpMethod.Get, "/other");
+        request.Headers.Add("X-Other", "1");
+
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("termsNotAccepted", await ErrorJson.CodeAsync(response));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await GetAsync("/other")).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_user_the_bearer_check_saw_with_nothing_pending_passes_the_terms_filter()
+    {
+        await StartAsync();
+        await SeedAsync("u1");
+
+        Assert.Equal(HttpStatusCode.OK, (await GetAsync("/terms", await TokenAsync("u1"))).StatusCode);
     }
 
     [Theory]
