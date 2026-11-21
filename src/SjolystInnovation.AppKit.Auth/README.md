@@ -2,8 +2,8 @@
 
 This package provides sign-in for an ASP.NET Core Identity app that serves a separate frontend: JWT
 access tokens and their validation, rotating refresh tokens with reuse detection, Identity defaults,
-password reset and email verification codes, branded emails for those codes, user administration, and
-account deletion. Use it when your API signs users in with tokens instead of cookies. Your app maps
+password reset and email verification codes, branded emails for those codes, an opt-in public
+sign-up, user administration, and account deletion. Use it when your API signs users in with tokens instead of cookies. Your app maps
 the package's endpoints, and can send the package's emails or keep its own.
 
 ```sh
@@ -111,6 +111,9 @@ public sealed class FixedEmailBrand : IEmailBrand
 | `MapAppKitAccount<TUser>` | Maps the signed-in user's own account. |
 | `MapAppKitUserAdmin<TUser, TContext>` | Maps user and role administration. |
 | `SeedAppKitRolesAsync`, `SeedAppKitFirstAdminAsync<TUser>` | Creates the roles and the first admin at startup. |
+| `AddAppKitSelfRegistration<TUser, TContext>` | Opts in to public sign-up, as the sign-up section describes. |
+| `AddAppKitAccountConsents<TUser>` | Maps the consent tables and the unique email index in `OnModelCreating`. |
+| `MapAppKitRegistration<TUser, TContext>` | Maps `register`, `verify-email`, `resend-verification`, and `accept-terms`. |
 
 ## Settings
 
@@ -204,11 +207,11 @@ All endpoints are anonymous `POST` requests under the prefix, which defaults to 
 
 | Route | Body | What it does |
 | --- | --- | --- |
-| `login` | `email`, `password` | Answers `200 { token, refreshToken }`. A wrong password counts toward the lockout. |
-| `refresh-token` | `token`, `refreshToken` | Answers `200 { token, refreshToken }`. A used token ends every session. |
+| `login` | `email`, `password` | Answers `200 { token, refreshToken }`. A wrong password counts toward the lockout. An app that opted in to sign-up adds `emailVerified` and `pendingConsents`. |
+| `refresh-token` | `token`, `refreshToken` | Answers `200 { token, refreshToken }`. A used token ends every session. It adds the same two for an opted-in app. |
 | `logout` | `refreshToken` | Answers `204`, whether or not the token was live. |
 | `request-password-reset` | `email` | Answers `200`, whether or not the address has an account. Emails a code to one that does. |
-| `reset-password` | `email`, `code`, `newPassword` | Answers `200`, and every session ends. Answers `429` after 5 wrong codes. |
+| `reset-password` | `email`, `code`, `newPassword` | Answers `200`, and every session ends. Answers `429` after 5 wrong codes. In an opted-in app a right code also confirms the email. |
 
 Refusals answer `{ message, code }` with `400`, `401`, or `429`. A missing or malformed field answers
 a validation problem keyed by field, as does a password Identity rejects. Each error carries a stable
@@ -262,12 +265,21 @@ code for each message at the same place. The `limits` extension holds the number
 | `roleAssignFailed` | `POST {id}/roles` and `invite`, when Identity cannot give the role. | `400` |
 | `roleRemoveFailed` | `DELETE {id}/roles/{role}`, when Identity cannot take the role. | `400` |
 | `emailTaken` | `invite`, for an email with an account. Also a field error on `Email` if Identity refuses a duplicate. | `409` |
+| `termsChanged` | `register` and `accept-terms`, when the terms version is not the current one. | `409` |
+| `invalidCode` | `verify-email`, for a wrong or expired code. | `400` |
+| `alreadyVerified` | `verify-email` and `resend-verification`, for a verified email. | `409` |
+| `tooManyAttempts` | `verify-email` and `resend-verification`, after 5 wrong codes until the code expires. | `429` |
+| `tooManyRequests` | `resend-verification`, inside the cooldown or over the owner cap. `register`, over the network cap. | `429` |
+| `tryAgain` | `verify-email` and `reset-password`, when the result could not be saved. A retry may succeed. | `409` |
+| `signUpRefused` | `register`, when the app's `ISignUpGuard` says no. | `400` |
+| `emailNotVerified` | An endpoint with `RequireVerifiedEmail()`, for an unconfirmed email. | `403` |
+| `termsNotAccepted` | An endpoint with `RequireCurrentTerms()`, for a user with a pending document. | `403` |
 
 | Field code | Fields |
 | --- | --- |
 | `required` | Any required field that is blank. |
-| `invalidEmail` | `Email` on `login`, `request-password-reset`, `reset-password`, and `invite`. |
-| `tooLong` | `FirstName` and `LastName`, over 50 characters. The limit is in `limits`. |
+| `invalidEmail` | `Email` on `login`, `request-password-reset`, `reset-password`, `invite`, and `register`, also over 200 characters. |
+| `tooLong` | `FirstName`, `LastName`, and `UserName`, over 50 characters. On `register` also `Password`, `TermsVersion`, and `Locale`. The limit is in `limits`. |
 | `passwordTooShort` | `NewPassword`. Identity's required length is in `limits`. |
 | `passwordRequiresDigit`, `passwordRequiresLower`, `passwordRequiresUpper` | `NewPassword`. |
 | `passwordRequiresNonAlphanumeric`, `passwordRequiresUniqueChars` | `NewPassword`, when the app's Identity options require them. |
@@ -275,9 +287,13 @@ code for each message at the same place. The `limits` extension holds the number
 | `wrongPassword` | `CurrentPassword` on `PUT {id}/password`. |
 | `unknownRole` | `Role` on `invite`. |
 | `emailTaken` | `Email` on `invite`, when Identity refuses a duplicate. |
+| `ageNotConfirmed` | `AgeConfirmed` on `register`. |
+| `termsNotAccepted` | `TermsAccepted` on `register`. |
+| `invalidUserName` | `UserName` on `register`, for an `@` or a character Identity does not allow. |
+| `userNameTaken` | `UserName` on `register`. |
 
 `login` never says whether an email has an account, so it has no code for an unconfirmed email. A
-`429` from the rate limiter in `SjolystInnovation.AppKit.Hosting` has no code. The status says it all.
+`429` from the rate limiter in `SjolystInnovation.AppKit.Hosting` carries `tooManyRequests`.
 Successful answers, such as `{ message }` after a reset, have no code. Show your own text for them.
 
 ## Emails
@@ -477,7 +493,7 @@ To add email verification, give the user three columns by implementing `IEmailVe
 `EmailVerificationCodeHash`, `EmailVerificationCodeExpiration`, and `EmailVerificationAttempts`. Add a
 migration for them. Then send a code at registration and from a resend endpoint, with your own email
 text or `IVerificationEmails<TUser>`, and check it from a verify endpoint. These helpers stay public
-because the package maps no registration or verify endpoint.
+because the package maps no such endpoints unless the app opts in to sign-up.
 
 ```csharp
 var code = EmailVerificationCodes.Issue(user);    // valid for 1 hour
@@ -492,6 +508,306 @@ await users.UpdateAsync(user);
 `Check` gives `AlreadyVerified` for a confirmed email. Verification and reset codes both stop with
 `TooManyAttempts` after 5 wrong codes, until a new code is issued. The helpers change the user object
 only, so save it after each call.
+
+## Sign-up
+
+An app can opt in to public sign-up. It adds `register`, `verify-email`, `resend-verification`, and
+`accept-terms`. A person signs up with an email and a password, accepts the terms, confirms an age, and
+verifies the email with a code. The app removes accounts that never verify. An app that does not call
+`AddAppKitSelfRegistration` is unchanged. It gets no route, no consent table read, no new claim, and
+the same `login` answer as before.
+
+### Set up
+
+1. Implement the interfaces. `IEmailVerificationUser` holds the code columns and
+   `IRemovalReminderUser` holds the time of the last removal reminder. Without the second, no
+   reminder is sent. The `DbContext` implements `IAccountConsentDbContext`.
+
+   ```csharp
+   public class User : IdentityUser, IAppKitAccount, IPasswordResetUser, IEmailVerificationUser, IRemovalReminderUser
+   {
+       // The members from Get started, and:
+       public string? EmailVerificationCodeHash { get; set; }
+       public DateTime? EmailVerificationCodeExpiration { get; set; }
+       public int EmailVerificationAttempts { get; set; }
+       public DateTime? RemovalReminderSentAt { get; set; }
+   }
+
+   public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
+       : IdentityDbContext<User>(options), IAuthDbContext, IAccountConsentDbContext
+   {
+       // RefreshTokens from Get started, and:
+       public DbSet<AccountConsent> AccountConsents => Set<AccountConsent>();
+       public DbSet<ConsentRequirement> ConsentRequirements => Set<ConsentRequirement>();
+       public DbSet<SignUpMailLog> SignUpMailLogs => Set<SignUpMailLog>();
+   }
+   ```
+
+2. Opt in. The app needs `AddAppKitAuth` with a signing key, an `IEmailBrand`, an `IEmailSender`, and
+   `VerifyEmailUrl` from `AddAppKitAuthEmails`. To send your own emails, register
+   `IRegistrationEmails<User>` before this call. If an option cannot work, the app fails to start.
+
+   ```csharp
+   builder.Services.AddAppKitSelfRegistration<User, ApplicationDbContext>(o =>
+   {
+       o.NewUser = r => new User { FirstName = r.FirstName, LastName = r.LastName };
+       o.Role = "Member";
+       o.RequireNames = true;
+   });
+   ```
+
+3. Map the consent tables and the unique email index in `OnModelCreating`.
+
+   ```csharp
+   protected override void OnModelCreating(ModelBuilder builder)
+   {
+       base.OnModelCreating(builder);
+       builder.AddAppKitRefreshTokens<User>();
+       builder.AddAppKitAccountConsents<User>();
+   }
+   ```
+
+4. Map the routes. The prefix defaults to `/api/auth`. Mapping throws if step 2 is missing.
+
+   ```csharp
+   app.MapAppKitRegistration<User, ApplicationDbContext>("/api/auth");
+   ```
+
+5. Add a migration. It creates `AccountConsents`, `ConsentRequirements`, and `SignUpMailLogs`, makes the
+   index on `NormalizedEmail` unique, and adds the user columns from step 1. Resolve any two accounts
+   with one email first, or the migration fails. At startup the package checks that the model has the
+   unique index, but it reads the model and cannot see the database. It does not notice a migration you
+   did not apply.
+
+   ```sh
+   dotnet ef migrations add SignUp
+   ```
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `NewUser` | None | Required. Creates a user from an `AppKitRegistration` with `Email`, `UserName`, `FirstName`, `LastName`, and `Locale`. |
+| `Role` | None | The role a new user gets. |
+| `MinimumAge` | 16 | The age a person confirms to be at least. Must be positive. |
+| `TermsDocument` | `terms` | The document name of the terms in the consent rows. |
+| `RequireNames` | `false` | Whether `firstName` and `lastName` are required, at most 50 characters each. |
+| `AllowUserName` | `false` | Whether the person may choose a user name. |
+| `RecordTruncatedIp` | `false` | Whether each consent row keeps the caller's address cut to its first three parts for IPv4 and 48 bits for IPv6. |
+| `ResendCooldown` | 1 minute | The wait before a new verification code, and between notices to one existing mailbox. |
+| `MaxEmailsPerAddressPerDay` | 5 | The most emails per mailbox and UTC day that anyone who types the address can cause. |
+| `MaxOwnerEmailsPerAddressPerDay` | 5 | The most emails per account and UTC day that the owner causes. |
+| `MaxSignUpsPerNetworkPerDay` | 20 | The most `register` requests per network and UTC day. |
+| `UnverifiedLifetime` | 30 days | How long an account may stay unverified. |
+| `RunCleanupInBackground` | `true` | Whether a hosted service runs the cleanup at startup and once a day. |
+| `RemindBefore` | 14 days, 3 days | How long before removal each reminder goes out. Each must be shorter than `UnverifiedLifetime`. An empty list sends none. |
+
+The `IRegistrationHandler<User>` services run inside the sign-up transaction, so an exception rolls the
+sign-up back. The `IEmailVerifiedHandler<User>` services run after an email is verified, also by a
+password reset. The default emails use the language of `AppKitAuthEmailOptions`, so `locale` is only
+stored.
+
+### Routes
+
+| Route | Who | What it does |
+| --- | --- | --- |
+| `POST register` with `email`, `password`, `ageConfirmed`, `termsAccepted`, `termsVersion`, and optional `userName`, `firstName`, `lastName`, `locale` | Anyone | Answers `200 { message }` for a new and an existing address alike. A new address gets an unverified account and a code by email. An existing active account gets a notice instead, at most once per `ResendCooldown`. A field error is a validation problem, a version that is not current gives `409`, a refusal from `ISignUpGuard` gives `400`, and a network over its cap gives `429`. |
+| `POST verify-email` with `code` | Signed-in user | Confirms the email, ends every session, and answers `200 { message }`. A wrong or expired code gives `400`, a verified account `409`, and 5 wrong codes `429`. |
+| `POST resend-verification` | Signed-in user | Sends a new code and answers `200 { message }`. Inside the cooldown, or over the owner cap, it gives `429`. While 5 wrong codes lock the current one, it gives `429` until that code has expired. A verified account gives `409`. |
+| `POST accept-terms` with `termsVersion`, optional `locale` | Signed-in user | Records the acceptance and answers `204`, whether the email is verified or not. A version that is not current gives `409`. |
+
+Verify and resend need the signed-in account, because a code alone never verifies one. The code
+reaches the owner of the address, and the password belongs to whoever signed up. If the code alone
+verified, the owner of an address could verify an account that someone else holds the password to.
+After verify the person signs in again, because the sessions ended.
+
+Every check that needs no account runs in a fixed order before the lookup by email, so no refusal
+depends on whether the address has an account. The email is at most 200 characters and the password at
+most 128. The error codes section lists the codes.
+
+### User names
+
+A user name comes only from the person, and only when `AllowUserName` is on. It is at most 50
+characters, never contains `@`, and passes the allowed characters and the duplicate check of Identity.
+In every other case the account gets a generated one, never the email. Whatever user name `NewUser`
+sets is replaced. Sign-in is by email, so a generated name is never shown or typed.
+
+### Terms and age
+
+A sign-up stores two rows in `AccountConsents` with the source `register`. One is the terms, with
+`TermsDocument` and the version. The other is the age, with the document `age` and `MinimumAge` as its
+version. A row holds the user, document, version, locale, time, source, and the shortened address when
+`RecordTruncatedIp` is on. Rows are only added. `accept-terms` adds rows with the source `reaccept`.
+
+An `IConsentVersionSource` tells the package which version of a document is current. The sign-up and
+`accept-terms` accept exactly that version and answer `409 termsChanged` for any other. The source is
+asked without a locale. With no source, or no version from it, the package stores `unversioned` and
+ignores the version the client sent. The SiteSettings package gives the version of a legal page, so
+the key of the page can be the document name:
+
+```csharp
+public sealed class LegalVersionSource(ApplicationDbContext db) : IConsentVersionSource
+{
+    private static readonly string[] Locales = ["no", "en"];
+
+    public Task<string?> GetCurrentVersionAsync(string document, string? locale, CancellationToken cancellationToken) =>
+        db.GetCurrentLegalPageVersionAsync(document, locale, Locales, cancellationToken);
+}
+
+builder.Services.AddScoped<IConsentVersionSource, LegalVersionSource>();
+```
+
+Since the locale is null, the version is that of the first language in `Locales`. The
+[SiteSettings package](../SjolystInnovation.AppKit.SiteSettings/README.md#current-version) describes
+how a version is made.
+
+### Asking people to accept again
+
+When a document changes, publish the new text first. Then call `RequireAcceptanceAsync` on an injected
+`IConsentRequirements`, without a transaction around it. Calling it twice with the same document and
+time changes nothing.
+
+```csharp
+await requirements.RequireAcceptanceAsync("terms", DateTime.UtcNow.AddDays(14), cancellationToken);
+```
+
+A requirement binds from `effectiveFrom`. A user is pending for the document from then, unless the
+user's latest acceptance of it, of any version, was made at or after the time of the call. An
+acceptance before `effectiveFrom` still counts, so a person can accept ahead of the day. Accepting
+always works, and a pending user always gets a new row. The version in the requirement is a record and
+is never compared.
+
+For an opted-in app, `login` and `refresh-token` answer `{ token, refreshToken, emailVerified,
+pendingConsents }`, where `pendingConsents` lists `document` and `version`.
+
+### Filters
+
+Two filters work on an endpoint or a group. Both let an anonymous request through to the normal
+authorization answer, so combine them with `RequireAuthorization`. They throw on the first request if
+the app did not opt in.
+
+```csharp
+app.MapGroup("/api/orders").RequireAuthorization().RequireVerifiedEmail().RequireCurrentTerms();
+```
+
+| Filter | Answer for a signed-in user it stops |
+| --- | --- |
+| `RequireVerifiedEmail()` | `403 emailNotVerified`, for an unconfirmed email. |
+| `RequireCurrentTerms()` | `403 termsNotAccepted`, for a user with a pending document. |
+
+A user who is unverified or pending can still call every endpoint without a filter. That includes
+`verify-email`, `resend-verification`, `accept-terms`, and the account endpoints for their own profile,
+export, and deletion. Verifying and accepting take effect at once on the instance that served them.
+
+### Email limits
+
+Counts live in the database per UTC day, so they hold across instances and restarts.
+
+- Anyone who types an address causes the notice and the verification email at `register`. Together
+  they share `MaxEmailsPerAddressPerDay` for the mailbox.
+- The owner causes `resend-verification` and the removal reminders. Together they share
+  `MaxOwnerEmailsPerAddressPerDay` for the account, so people who are not signed in cannot use it up.
+- No mailbox gets more than the two caps together, whatever the accounts.
+- Over a cap, `register` sends nothing and answers the same. `resend-verification` answers
+  `429 tooManyRequests`.
+
+Two addresses share a mailbox when they match after the mailbox key folds them. The key is a best
+effort. It ignores case, drops a `+tag`, drops a trailing dot on the domain, writes an
+internationalised domain in ASCII, counts `googlemail.com` as `gmail.com`, and removes dots in the
+local part for Gmail. It applies no other provider rule.
+
+Each `register` request that passes the field, guard, and terms checks counts once for its network,
+whether or not the email has an account. The network is the caller's address cut to its first three
+parts for IPv4 and 48 bits for IPv6. Over `MaxSignUpsPerNetworkPerDay` the answer is `429` and nothing
+else happens. A caller with no known address is not counted. Behind a proxy, set up forwarded headers
+as the Hosting package describes, or every caller shares the proxy's address. A mobile carrier or an
+office can share one network, so an app may raise the cap.
+
+To check a request before a sign-up goes on, register an `ISignUpGuard`. It runs after the field
+checks and before any lookup by email. When it returns false, `register` answers `400 signUpRefused`.
+
+```csharp
+public sealed class CaptchaGuard(ICaptchaVerifier captcha) : ISignUpGuard
+{
+    public Task<bool> MaySignUpAsync(HttpContext http, string email) =>
+        captcha.VerifyAsync(http.Request.Headers["X-Captcha-Token"].ToString(), http.RequestAborted);
+}
+
+builder.Services.AddScoped<ISignUpGuard, CaptchaGuard>();
+```
+
+`ICaptchaVerifier` is your own.
+
+### Unverified accounts
+
+`IUnverifiedAccountCleanup.RunOnceAsync` removes an account when it is active, its email is
+unconfirmed, it holds a consent row with the source `register`, and it is older than
+`UnverifiedLifetime`. An invited account never matches. Each account is removed in its own
+transaction after every `IAccountDataEraser<User>` has run. The user row is deleted for real, with its
+refresh tokens and consents, so the email is free again. An account with a live verification code
+stays until the code expires, and at most one day past its removal time.
+
+Before that, it sends the reminders of `RemindBefore` through `IRegistrationEmails<User>`, once each. A
+run after a long stop sends the latest due one only. A reminder carries a fresh code and counts toward
+the owner cap. Over the cap it waits for a later run. The run also deletes the email counts from before
+yesterday. One failing account is logged and does not stop the run.
+
+A hosted service runs it at startup and once a day. To use your own scheduler, set
+`RunCleanupInBackground` to `false` and call it. The result holds `Removed`, `Reminded`, and `Failed`.
+
+```csharp
+var cleanup = app.Services.GetRequiredService<IUnverifiedAccountCleanup>();
+var result = await cleanup.RunOnceAsync(cancellationToken);
+```
+
+### Password reset
+
+Someone may sign up with an address that is not theirs. The owner of the address gets the notice
+email, and the password reset is the way in. A right reset code sets the owner's password, and in an
+opted-in app it also confirms the email and runs the `IEmailVerifiedHandler<User>` services. Every
+session of the account ends, including the sessions of whoever signed up.
+
+### Tokens
+
+In an opted-in app an access token carries the claim `sst`, a short hash of the user's security stamp.
+The bearer check refuses a token whose stamp differs from the user's. A password change, a password
+reset, a verification, and an account deletion rotate the stamp, so they end the access tokens at once
+on the instance that served them. A token without the claim, issued before the opt-in, stays valid
+until it expires.
+
+### Export and delete
+
+`GET {id}/export` also answers `consents`, with `document`, `version`, `acceptedAt`, `source`, and
+`locale` for each row. It never holds the shortened address. Deleting an account clears the address
+and the locale of its consent rows and keeps the rows.
+
+### Limits
+
+- Instances must share a clock. The times of acceptances and requirements are compared.
+- After a requirement takes effect at once, another instance may let a pending user through for up to
+  70 seconds. That is 10 seconds of requirement cache plus `UserCheckCacheDuration`. Marking a
+  requirement clears the cache of the instance that did it.
+- After a verification or a password reset, another instance may accept an older token for up to
+  `UserCheckCacheDuration`.
+- Someone who types an address can use up that mailbox's sign-up emails for a day. The password reset
+  still works.
+- The mailbox key is a best effort. Other spellings of one inbox count apart.
+- The counts are hashed with a key from the signing key. Changing the signing key resets them.
+- A new and an existing address answer the same, but the response time still differs a little.
+
+### Rate limits
+
+Add rules for the four routes to the `RateLimiting` section of the Hosting package. The caps above
+bound the emails, and these bound the requests.
+
+```json
+"RateLimiting": {
+  "Rules": [
+    { "Endpoint": "POST:/api/auth/register", "Period": "1m", "Limit": 5 },
+    { "Endpoint": "POST:/api/auth/verify-email", "Period": "1m", "Limit": 10 },
+    { "Endpoint": "POST:/api/auth/resend-verification", "Period": "1m", "Limit": 3 },
+    { "Endpoint": "POST:/api/auth/accept-terms", "Period": "1m", "Limit": 20 }
+  ]
+}
+```
 
 ## Links
 
