@@ -29,12 +29,6 @@ public class AccountConsent
     public DateTime AcceptedAt { get; set; }
     /// <summary>How the acceptance came about, such as <c>register</c>, <c>reaccept</c> or <c>migration</c>. At most 16 characters.</summary>
     public string Source { get; set; } = default!;
-    /// <summary>
-    /// The id of the requirement in force when the user accepted, or 0 when there was none. The unique index on user,
-    /// document, version and this value keeps two parallel requests from adding the same acceptance twice, while an acceptance
-    /// after a newer requirement is a new row.
-    /// </summary>
-    public int RequirementId { get; set; }
     /// <summary>The shortened IP address of the request, or null when the app does not record it. At most 45 characters.</summary>
     public string? Ip { get; set; }
 }
@@ -117,9 +111,8 @@ public static class AccountConsentModelBuilderExtensions
     /// <summary>
     /// Maps <see cref="AccountConsent"/> to the <c>AccountConsents</c> table and <see cref="ConsentRequirement"/>
     /// to the <c>ConsentRequirements</c> table. A consent has a required foreign key from <c>UserId</c> to
-    /// <typeparamref name="TUser"/> that cascades on delete. It is unique on user, document, version and
-    /// <see cref="AccountConsent.RequirementId"/>, and indexed on user, document and acceptance time. A requirement is unique on
-    /// document and effective time. <see cref="SignUpMailLog"/> is mapped to the
+    /// <typeparamref name="TUser"/> that cascades on delete. It is indexed on user, document and acceptance
+    /// time, and is not unique. A requirement is unique on document and effective time. <see cref="SignUpMailLog"/> is mapped to the
     /// <c>SignUpMailLogs</c> table, unique on address hash, kind and day. It also makes
     /// the index on the normalised email of <typeparamref name="TUser"/> unique, so the database refuses a second
     /// account for one email even when two sign-ups race. A database that already holds two accounts for one email
@@ -138,7 +131,6 @@ public static class AccountConsentModelBuilderExtensions
             e.Property(c => c.Locale).HasMaxLength(16);
             e.Property(c => c.Source).IsRequired().HasMaxLength(16);
             e.Property(c => c.Ip).HasMaxLength(45);
-            e.HasIndex(c => new { c.UserId, c.Document, c.Version, c.RequirementId }).IsUnique();
             e.HasIndex(c => new { c.UserId, c.Document, c.AcceptedAt });
             e.HasOne<TUser>().WithMany().HasForeignKey(c => c.UserId).OnDelete(DeleteBehavior.Cascade).IsRequired();
         });

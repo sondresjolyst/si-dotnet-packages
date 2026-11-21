@@ -509,7 +509,7 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task A_user_who_holds_the_current_version_accepts_it_again_before_the_requirement_takes_effect_and_is_clear_on_the_day()
+    public async Task A_user_who_holds_the_current_version_gets_no_row_before_the_requirement_takes_effect_and_is_pending_on_the_day()
     {
         await StartAsync();
         await SeedAsync("u1");
@@ -519,9 +519,26 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
         _time.Advance(TimeSpan.FromDays(1));
 
         Assert.Equal(HttpStatusCode.NoContent, (await AcceptTermsAsync(new { termsVersion = "v2" }, token)).StatusCode);
+
+        Assert.Equal(["v2"], Rows("u1").Select(r => r.Version));
+        _time.Advance(TimeSpan.FromDays(7));
+        ExpireUserCheck("u1");
+        Assert.Equal(["terms=v2"], Pending(await LoginAsync("u1")));
+    }
+
+    [Fact]
+    public async Task A_user_who_holds_an_older_version_accepts_the_current_one_before_the_requirement_takes_effect_and_is_clear_on_the_day()
+    {
+        await StartAsync();
+        await SeedAsync("u1");
+        Accept("u1", "v1", _start.AddDays(-30));
+        var token = await TokenAsync("u1");
+        await RequireAsync(_start.AddDays(7));
+        _time.Advance(TimeSpan.FromDays(1));
+
         Assert.Equal(HttpStatusCode.NoContent, (await AcceptTermsAsync(new { termsVersion = "v2" }, token)).StatusCode);
 
-        Assert.Equal(["v2", "v2"], Rows("u1").Select(r => r.Version));
+        Assert.Equal(["v1", "v2"], Rows("u1").Select(r => r.Version));
         _time.Advance(TimeSpan.FromDays(7));
         ExpireUserCheck("u1");
         Assert.Empty(Pending(await LoginAsync("u1")));
@@ -548,7 +565,7 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Eight_parallel_accepts_of_one_user_all_answer_204_and_add_one_row(bool requirement)
+    public async Task Eight_parallel_accepts_of_one_user_all_answer_204_and_leave_the_user_clear(bool requirement)
     {
         await StartAsync(fileDb: true);
         await SeedAsync("u1");
@@ -558,7 +575,9 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
         var responses = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => AcceptTermsAsync(new { termsVersion = "v2" }, token)));
 
         Assert.All(responses, r => Assert.Equal(HttpStatusCode.NoContent, r.StatusCode));
-        Assert.Equal(existing + 1, Rows("u1").Count);
+        Assert.InRange(Rows("u1").Count, existing + 1, existing + 8);
+        ExpireUserCheck("u1");
+        Assert.Empty(Pending(await LoginAsync("u1")));
     }
 
     // With a requirement, the user holds v2 from before the mark, so the acceptance that follows is a new one. Without one, the

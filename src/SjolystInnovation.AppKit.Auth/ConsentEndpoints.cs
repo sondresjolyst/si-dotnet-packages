@@ -16,8 +16,7 @@ internal static class ConsentHandlers<TUser, TContext>
 
     private static T Get<T>(HttpContext http) where T : notnull => http.RequestServices.GetRequiredService<T>();
 
-    // Records that the signed-in user accepted the current terms. It runs without a transaction of its own, so a lost
-    // race on the unique index is caught and checked on a connection that is still usable.
+    // Records that the signed-in user accepted the current terms. Two parallel requests of one user may add two rows.
     public static async Task<IResult> AcceptTermsAsync(AcceptTermsRequest request, HttpContext http)
     {
         if (http.User.GetUserId() is not { } userId)

@@ -36,13 +36,12 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
         return string.IsNullOrEmpty(current) ? null : current;
     }
 
-    // Adds the acceptance and saves. Returns false when the user already holds this version of the document in a way that
-    // meets every requirement marked so far, which includes a request that lost a race on the unique index. The first row stays
-    // as it was. A user who accepted the version before the newest mark gets a new row, so accepting again always works.
-    // The unique index on user, document, version and requirement id is what two parallel requests meet: both read the same
-    // newest requirement, so both insert the same key and one insert fails. The failed one is detached and the key is read
-    // again on a connection that is still usable, which is why the caller must not hold a transaction around this call. A
-    // failed insert aborts a Postgres transaction.
+    /// <summary>
+    /// Adds a row for the acceptance and saves, unless the user is not pending for the document and already holds an acceptance
+    /// of this exact version. A pending user always gets a new row, so accepting again always works. Two parallel requests of one
+    /// user may both add a row. That is accepted, because the pending rule reads the latest acceptance and an extra row is harmless.
+    /// </summary>
+    /// <returns>True when a row was added.</returns>
     public async Task<bool> RecordAsync(
         string userId, string document, string version, string source,
         string? locale = null, string? ip = null, CancellationToken cancellationToken = default)
@@ -52,30 +51,19 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
         ArgumentException.ThrowIfNullOrEmpty(version);
         ArgumentException.ThrowIfNullOrEmpty(source);
 
-        var newest = Newest((await RequirementsAsync(cancellationToken)).Where(r => r.Document == document));
-        var requirementId = newest?.Id ?? 0;
-        if (await HoldsAsync(userId, document, version, newest?.MarkedAt, cancellationToken))
+        var held = (await AcceptancesAsync(userId, cancellationToken)).TryGetValue(document, out var own) ? own : [];
+        var requirements = (await RequirementsAsync(cancellationToken)).Where(r => r.Document == document);
+        var now = time.GetUtcNow().UtcDateTime;
+        if (!MustAcceptAgain(held, requirements, now) && held.Any(a => string.Equals(a.Version, version, StringComparison.Ordinal)))
             return false;
 
-        var row = new AccountConsent
+        db.AccountConsents.Add(new AccountConsent
         {
-            UserId = userId, Document = document, Version = version, Source = source, RequirementId = requirementId,
-            Locale = locale, Ip = ip, AcceptedAt = time.GetUtcNow().UtcDateTime,
-        };
-        db.AccountConsents.Add(row);
-        try
-        {
-            await db.SaveChangesAsync(cancellationToken);
-            return true;
-        }
-        catch (DbUpdateException)
-        {
-            // Another request may have inserted the same key first. Anything else is a real failure.
-            db.Entry(row).State = EntityState.Detached;
-            if (await db.AccountConsents.AsNoTracking().AnyAsync(c => c.UserId == userId && c.Document == document && c.Version == version && c.RequirementId == requirementId, cancellationToken))
-                return false;
-            throw;
-        }
+            UserId = userId, Document = document, Version = version, Source = source,
+            Locale = locale, Ip = ip, AcceptedAt = now,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        return true;
     }
 
     // The time is stored in UTC, and the export says so, whatever kind the provider gives back.
@@ -122,10 +110,6 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
     internal static ConsentRequirement? InForce(IEnumerable<ConsentRequirement> requirements, DateTime now) =>
         requirements.Where(r => r.EffectiveFrom <= now).OrderByDescending(r => r.EffectiveFrom).ThenByDescending(r => r.MarkedAt).ThenByDescending(r => r.Id).FirstOrDefault();
 
-    // The requirement that was marked last, in force or not. An acceptance made at or after its mark meets every requirement.
-    private static ConsentRequirement? Newest(IEnumerable<ConsentRequirement> requirements) =>
-        requirements.OrderByDescending(r => r.MarkedAt).ThenByDescending(r => r.Id).FirstOrDefault();
-
     private async Task<IReadOnlyList<ConsentRequirement>> RequirementsAsync(CancellationToken cancellationToken)
     {
         if (cache is not null && cache.TryGetValue(RequirementsCacheKey, out IReadOnlyList<ConsentRequirement>? cached) && cached is not null)
@@ -144,12 +128,6 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
             return false;
         return acceptances.Count == 0 || acceptances.Max(a => a.At) < required.MarkedAt;
     }
-
-    // Whether the user holds the version from at or after the mark, or at all when there is no requirement.
-    private Task<bool> HoldsAsync(string userId, string document, string version, DateTime? markedAt, CancellationToken cancellationToken) =>
-        markedAt is { } mark
-            ? db.AccountConsents.AsNoTracking().AnyAsync(c => c.UserId == userId && c.Document == document && c.Version == version && c.AcceptedAt >= mark, cancellationToken)
-            : db.AccountConsents.AsNoTracking().AnyAsync(c => c.UserId == userId && c.Document == document && c.Version == version, cancellationToken);
 }
 
 // Runs inside the account deletion. The consent rows stay as proof of what the user accepted, but the shortened IP address

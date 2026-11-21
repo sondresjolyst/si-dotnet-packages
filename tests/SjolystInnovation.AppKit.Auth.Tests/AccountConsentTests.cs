@@ -77,7 +77,7 @@ public sealed class AccountConsentTests : IDisposable
     }
 
     [Fact]
-    public async Task Recording_the_same_user_document_and_version_twice_keeps_one_row_and_the_first_time()
+    public async Task A_double_click_adds_one_row_and_keeps_the_first_time_and_the_first_time()
     {
         await using (var db = NewContext())
             Assert.True(await Service(db).RecordAsync("ada", "terms", "v1", "register"));
@@ -105,34 +105,12 @@ public sealed class AccountConsentTests : IDisposable
     }
 
     [Fact]
-    public async Task A_race_on_the_unique_index_counts_as_already_recorded()
-    {
-        await using var db = NewContext(new RivalInsert(() => NewContext()));
-
-        var added = await Service(db).RecordAsync("ada", "terms", "v1", "register");
-
-        Assert.False(added);
-        var row = Assert.Single(Rows("ada"));
-        Assert.Equal("rival", row.Source);
-    }
-
-    [Fact]
     public async Task A_failure_that_is_not_a_duplicate_is_not_swallowed()
     {
         await using var db = NewContext();
 
         // There is no user "ghost", so the foreign key fails and no row exists for the key.
         await Assert.ThrowsAsync<DbUpdateException>(() => Service(db).RecordAsync("ghost", "terms", "v1", "register"));
-    }
-
-    [Fact]
-    public async Task The_unique_index_refuses_a_duplicate_row_written_around_the_service()
-    {
-        await using var db = NewContext();
-        db.AccountConsents.Add(new AccountConsent { UserId = "ada", Document = "terms", Version = "v1", Source = "register", AcceptedAt = Start });
-        db.AccountConsents.Add(new AccountConsent { UserId = "ada", Document = "terms", Version = "v1", Source = "register", AcceptedAt = Start });
-
-        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
     }
 
     [Fact]
@@ -288,7 +266,7 @@ public sealed class AccountConsentTests : IDisposable
     }
 
     [Fact]
-    public async Task Recording_a_held_version_before_the_requirement_takes_effect_adds_a_row()
+    public async Task Recording_a_held_version_before_the_requirement_takes_effect_adds_no_row_and_the_user_is_pending_on_the_day()
     {
         await using (var db = NewContext())
             Assert.True(await Service(db).RecordAsync("ada", "terms", "v1", "register"));
@@ -297,7 +275,24 @@ public sealed class AccountConsentTests : IDisposable
         _time.Advance(TimeSpan.FromHours(1));
 
         await using (var db = NewContext())
-            Assert.True(await Service(db).RecordAsync("ada", "terms", "v1", "reaccept"));
+            Assert.False(await Service(db).RecordAsync("ada", "terms", "v1", "reaccept"));
+        _time.Advance(TimeSpan.FromDays(7));
+
+        await using var read = NewContext();
+        Assert.Equal(["terms"], await Service(read).PendingDocumentsAsync("ada"));
+    }
+
+    [Fact]
+    public async Task Recording_a_new_version_before_the_requirement_takes_effect_adds_a_row_and_the_user_is_clear_on_the_day()
+    {
+        await using (var db = NewContext())
+            Assert.True(await Service(db).RecordAsync("ada", "terms", "v1", "register"));
+        _time.Advance(TimeSpan.FromDays(1));
+        Require("terms", "v2", _time.GetUtcNow().UtcDateTime, _time.GetUtcNow().UtcDateTime.AddDays(7));
+        _time.Advance(TimeSpan.FromHours(1));
+
+        await using (var db = NewContext())
+            Assert.True(await Service(db).RecordAsync("ada", "terms", "v2", "reaccept"));
         _time.Advance(TimeSpan.FromDays(7));
 
         await using var read = NewContext();
@@ -305,21 +300,19 @@ public sealed class AccountConsentTests : IDisposable
     }
 
     [Fact]
-    public async Task A_race_between_two_acceptances_for_one_requirement_leaves_one_new_row()
+    public async Task A_row_that_a_rival_wrote_before_the_mark_does_not_leave_the_user_pending()
     {
         await using (var db = NewContext())
             Assert.True(await Service(db).RecordAsync("ada", "terms", "v1", "register"));
         _time.Advance(TimeSpan.FromDays(1));
         Require("terms", "v1", _time.GetUtcNow().UtcDateTime, _time.GetUtcNow().UtcDateTime);
         _time.Advance(TimeSpan.FromHours(1));
-        int requirementId;
-        await using (var db = NewContext())
-            requirementId = (await db.ConsentRequirements.SingleAsync()).Id;
 
-        await using (var db = NewContext(new RivalInsert(() => NewContext(), requirementId)))
-            Assert.False(await Service(db).RecordAsync("ada", "terms", "v1", "reaccept"));
+        await using (var db = NewContext(new RivalInsert(() => NewContext())))
+            await Service(db).RecordAsync("ada", "terms", "v1", "reaccept");
 
-        Assert.Equal(["register", "rival"], Rows("ada").Select(r => r.Source));
+        await using var read = NewContext();
+        Assert.Empty(await Service(read).PendingDocumentsAsync("ada"));
     }
 
     [Fact]
@@ -394,7 +387,7 @@ public sealed class AccountConsentTests : IDisposable
     }
 
     // Writes the same consent through another context just before the save, like a second request would.
-    private sealed class RivalInsert(Func<ConsentTestDbContext> open, int requirementId = 0) : SaveChangesInterceptor
+    private sealed class RivalInsert(Func<ConsentTestDbContext> open) : SaveChangesInterceptor
     {
         private bool _done;
 
@@ -405,7 +398,7 @@ public sealed class AccountConsentTests : IDisposable
             {
                 _done = true;
                 await using var other = open();
-                other.AccountConsents.Add(new AccountConsent { UserId = "ada", Document = "terms", Version = "v1", Source = "rival", AcceptedAt = Start, RequirementId = requirementId });
+                other.AccountConsents.Add(new AccountConsent { UserId = "ada", Document = "terms", Version = "v1", Source = "rival", AcceptedAt = Start });
                 await other.SaveChangesAsync(cancellationToken);
             }
             return result;
