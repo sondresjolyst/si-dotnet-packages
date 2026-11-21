@@ -32,8 +32,11 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
 
         public Task SendVerificationAsync(IdentityTestUser user, string code, string? locale, CancellationToken cancellationToken)
         {
-            Verifications.Add((user.Id, code));
-            VerificationLocales.Add(locale);
+            lock (Verifications)
+            {
+                Verifications.Add((user.Id, code));
+                VerificationLocales.Add(locale);
+            }
             return Task.CompletedTask;
         }
 
@@ -717,6 +720,55 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.OK, (await ResendAsync(token)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await ResendAsync(token)).StatusCode);
         Assert.Equal(HttpStatusCode.TooManyRequests, (await ResendAsync(token)).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_resend_whose_new_code_cannot_be_saved_answers_409_tryAgain_and_spends_nothing()
+    {
+        await StartAsync(o => o.ResendCooldown = TimeSpan.Zero);
+        await SeedAsync("u1");
+        var token = await AccessTokenAsync("u1");
+        _lostRace.Active = true;
+
+        var response = await ResendAsync(token);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("tryAgain", await ErrorJson.CodeAsync(response));
+        Assert.Empty(_emails.Verifications);
+        Assert.Equal(0, Db(db => db.SignUpMailLogs.Sum(l => l.Count)));
+    }
+
+    [Fact]
+    public async Task Twenty_parallel_resends_from_one_account_never_answer_500_and_send_one_email_per_reservation()
+    {
+        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxOwnerEmailsPerAddressPerDay = 50; }, fileDb: true);
+        await SeedAsync("u1");
+        var token = await AccessTokenAsync("u1");
+
+        var responses = await Task.WhenAll(Enumerable.Range(0, 20).Select(_ => Task.Run(() => ResendAsync(token))));
+
+        Assert.DoesNotContain(responses, r => r.StatusCode == HttpStatusCode.InternalServerError);
+        Assert.All(responses, r => Assert.Contains(r.StatusCode, new[] { HttpStatusCode.OK, HttpStatusCode.Conflict }));
+        var reserved = Db(db => db.SignUpMailLogs.Where(l => l.Kind == SignUpMailKinds.Resend).Sum(l => l.Count));
+        Assert.Equal(responses.Count(r => r.StatusCode == HttpStatusCode.OK), reserved);
+        Assert.Equal(reserved, _emails.Verifications.Count);
+        Assert.Equal(reserved, Db(db => db.SignUpMailLogs.Where(l => l.Kind == SignUpMailKinds.OwnerBudget).Sum(l => l.Count)));
+    }
+
+    [Fact]
+    public async Task Sequential_resends_with_a_cap_of_five_and_no_cooldown_send_exactly_five()
+    {
+        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxOwnerEmailsPerAddressPerDay = 5; });
+        await SeedAsync("u1");
+        var token = await AccessTokenAsync("u1");
+
+        var statuses = new List<HttpStatusCode>();
+        for (var i = 0; i < 8; i++)
+            statuses.Add((await ResendAsync(token)).StatusCode);
+
+        Assert.Equal(5, statuses.Count(s => s == HttpStatusCode.OK));
+        Assert.Equal(3, statuses.Count(s => s == HttpStatusCode.TooManyRequests));
+        Assert.Equal(5, _emails.Verifications.Count);
     }
 
     [Fact]
