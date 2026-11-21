@@ -28,7 +28,8 @@ public class AccountConsent
 
 /// <summary>
 /// Says that a document must be accepted again. A user is pending for the document when a requirement is in
-/// effect and the latest acceptance of the document by the user is older than <see cref="MarkedAt"/>.
+/// effect and the user holds no acceptance of its <see cref="Version"/>, or of the current version from
+/// <see cref="IConsentVersionSource"/>, whenever it was made.
 /// </summary>
 public class ConsentRequirement
 {
@@ -38,7 +39,7 @@ public class ConsentRequirement
     public string Document { get; set; } = default!;
     /// <summary>The version to accept. At most 64 characters.</summary>
     public string Version { get; set; } = default!;
-    /// <summary>When the app marked the requirement, in UTC. An acceptance at or after this time satisfies it.</summary>
+    /// <summary>When the app marked the requirement, in UTC. The newest mark decides between requirements.</summary>
     public DateTime MarkedAt { get; set; }
     /// <summary>From when the requirement binds, in UTC. A user may accept earlier.</summary>
     public DateTime EffectiveFrom { get; set; }

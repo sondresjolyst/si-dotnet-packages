@@ -37,8 +37,8 @@ public sealed class AccountConsentTests : IDisposable
 
     private AccountConsentService<ConsentTestDbContext> Service(ConsentTestDbContext db) => new(db, _time);
 
-    private static bool MustAccept(DateTime? latest, DateTime now, params ConsentRequirement[] requirements) =>
-        MustAccept(latest is { } at ? [("v2", at)] : [], null, now, requirements);
+    private static bool MustAccept(DateTime? acceptedAt, DateTime now, params ConsentRequirement[] requirements) =>
+        MustAccept(acceptedAt is { } at ? [("v2", at)] : [], null, now, requirements);
 
     private static bool MustAccept(IReadOnlyList<(string Version, DateTime At)> acceptances, string? current, DateTime now, params ConsentRequirement[] requirements) =>
         AccountConsentService<ConsentTestDbContext>.MustAcceptAgain(acceptances, current, requirements, now);
@@ -191,9 +191,9 @@ public sealed class AccountConsentTests : IDisposable
     }
 
     [Fact]
-    public void A_requirement_in_effect_binds_a_user_whose_latest_acceptance_is_older_than_it_was_marked()
+    public void A_requirement_in_effect_binds_a_user_who_holds_no_acceptance_of_its_version()
     {
-        Assert.True(MustAccept(Start.AddSeconds(-1), Start, Requirement("v2", Start, Start)));
+        Assert.True(MustAccept([("v1", Start.AddDays(1))], null, Start.AddDays(2), Requirement("v2", Start, Start)));
     }
 
     [Fact]
@@ -238,21 +238,50 @@ public sealed class AccountConsentTests : IDisposable
     }
 
     [Fact]
-    public void An_acceptance_of_the_current_source_version_satisfies_the_requirement_when_it_is_not_older_than_the_marking()
+    public void An_acceptance_of_the_current_source_version_satisfies_the_requirement_whenever_it_was_made()
     {
         var requirement = Requirement("v2", Start, Start);
 
         Assert.False(MustAccept([("v3", Start)], "v3", Start.AddMinutes(10), requirement));
-        Assert.True(MustAccept([("v3", Start.AddSeconds(-1))], "v3", Start.AddMinutes(10), requirement));
+        Assert.False(MustAccept([("v3", Start.AddSeconds(-1))], "v3", Start.AddMinutes(10), requirement));
     }
 
     [Fact]
-    public void Only_an_acceptance_at_or_after_the_marking_counts_even_when_an_older_one_has_the_right_version()
+    public void An_acceptance_of_the_required_version_satisfies_the_requirement_whenever_it_was_made()
     {
         var requirement = Requirement("v2", Start, Start);
 
-        Assert.True(MustAccept([("v2", Start.AddDays(-1)), ("v1", Start.AddDays(1))], null, Start.AddDays(2), requirement));
-        Assert.False(MustAccept([("v2", Start.AddDays(-1)), ("v2", Start.AddDays(1))], null, Start.AddDays(2), requirement));
+        Assert.False(MustAccept([("v2", Start.AddDays(-1))], null, Start.AddDays(2), requirement));
+        Assert.False(MustAccept([("v1", Start.AddDays(-2)), ("v2", Start.AddDays(1))], null, Start.AddDays(2), requirement));
+    }
+
+    [Fact]
+    public async Task A_user_who_accepted_a_version_before_the_app_marked_it_is_not_pending()
+    {
+        await using (var db = NewContext())
+            await Service(db).RecordAsync("ada", "terms", "v2", "register");
+        _time.Advance(TimeSpan.FromDays(1));
+        Require("terms", "v2", _time.GetUtcNow().UtcDateTime, _time.GetUtcNow().UtcDateTime);
+
+        await using var read = NewContext();
+        Assert.Empty(await Service(read).PendingDocumentsAsync("ada"));
+    }
+
+    [Fact]
+    public async Task A_user_who_accepted_only_an_older_version_is_pending_until_the_new_version_is_accepted()
+    {
+        await using (var db = NewContext())
+            await Service(db).RecordAsync("ada", "terms", "v1", "register");
+        _time.Advance(TimeSpan.FromDays(1));
+        Require("terms", "v2", _time.GetUtcNow().UtcDateTime, _time.GetUtcNow().UtcDateTime);
+
+        await using (var read = NewContext())
+            Assert.Equal(["terms"], await Service(read).PendingDocumentsAsync("ada"));
+
+        await using (var db = NewContext())
+            await Service(db).RecordAsync("ada", "terms", "v2", "reaccept");
+        await using (var read = NewContext())
+            Assert.Empty(await Service(read).PendingDocumentsAsync("ada"));
     }
 
     [Fact]

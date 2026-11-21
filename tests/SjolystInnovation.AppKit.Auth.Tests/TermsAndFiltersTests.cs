@@ -456,13 +456,60 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
     [Theory]
     [InlineData("v3")]
     [InlineData("v2")]
-    public async Task An_acceptance_of_the_required_or_the_current_source_version_after_the_marking_clears_it(string version)
+    public async Task An_acceptance_of_the_required_or_the_current_source_version_clears_it(string version)
     {
         await StartAsync();
         await SeedAsync("u1");
         await RequireAsync("v3", _start);
         _time.Advance(TimeSpan.FromHours(1));
         Accept("u1", version, _start.AddHours(1));
+        ExpireUserCheck("u1");
+
+        Assert.Empty(Pending(await LoginAsync("u1")));
+    }
+
+    [Fact]
+    public async Task A_version_accepted_before_the_app_marked_it_does_not_leave_the_user_pending()
+    {
+        await StartAsync();
+        await SeedAsync("u1");
+        Accept("u1", "v2", _start.AddDays(-30));
+        var token = await TokenAsync("u1");
+        _time.Advance(TimeSpan.FromDays(1));
+
+        await RequireAsync("v2", _start);
+        ExpireUserCheck("u1");
+
+        Assert.Empty(Pending(await LoginAsync("u1")));
+        Assert.Equal(HttpStatusCode.OK, (await GetAsync("/terms", token)).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_user_who_accepted_only_an_older_version_is_pending_and_accept_terms_clears_it()
+    {
+        await StartAsync();
+        await SeedAsync("u1");
+        Accept("u1", "v1", _start.AddDays(-30));
+        var token = await TokenAsync("u1");
+        _time.Advance(TimeSpan.FromDays(1));
+
+        await RequireAsync("v2", _start);
+        ExpireUserCheck("u1");
+        Assert.Equal(["terms=v2"], Pending(await LoginAsync("u1")));
+
+        Assert.Equal(HttpStatusCode.NoContent, (await AcceptTermsAsync(new { termsVersion = "v2" }, token)).StatusCode);
+        Assert.Empty(Pending(await LoginAsync("u1")));
+    }
+
+    [Fact]
+    public async Task An_acceptance_made_before_the_requirement_takes_effect_counts()
+    {
+        await StartAsync();
+        await SeedAsync("u1");
+        Accept("u1", "v2", _start.AddDays(-1));
+        await RequireAsync("v2", _start.AddDays(7));
+
+        _time.Advance(TimeSpan.FromDays(8));
         ExpireUserCheck("u1");
 
         Assert.Empty(Pending(await LoginAsync("u1")));
@@ -590,6 +637,7 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
     {
         await StartAsync();
         await SeedAsync("u1");
+        _version.Current = "v3";
         Accept("u1", "v1", _start);
         var token = await TokenAsync("u1");
         _time.Advance(TimeSpan.FromDays(1));
@@ -601,7 +649,6 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
         Assert.Equal(["terms=v3"], Pending(await LoginAsync("u1")));
         Assert.Equal(HttpStatusCode.Forbidden, (await GetAsync("/terms", token)).StatusCode);
 
-        _version.Current = "v3";
         Assert.Equal(HttpStatusCode.NoContent, (await AcceptTermsAsync(new { termsVersion = "v3" }, token)).StatusCode);
         Assert.Empty(Pending(await LoginAsync("u1")));
         Assert.Equal(HttpStatusCode.OK, (await GetAsync("/terms", token)).StatusCode);
