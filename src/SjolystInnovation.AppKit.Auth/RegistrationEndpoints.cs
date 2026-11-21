@@ -187,7 +187,7 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
             }
             if (code is not null)
             {
-                if (await Get<SignUpMailLimiter<TContext>>(http).TryReserveAsync(email, probe.NormalizedEmail, SignUpMailKinds.Verification, options.MaxEmailsPerAddressPerDay, TimeSpan.Zero, cancellationToken))
+                if (await Get<SignUpMailLimiter<TContext>>(http).TryReserveAsync(email, probe.NormalizedEmail, SignUpMailKinds.Verification, options.MaxEmailsPerAddressPerDay, options.MaxOwnerEmailsPerAddressPerDay, TimeSpan.Zero, cancellationToken))
                     await emails.SendVerificationAsync(probe, code, locale, cancellationToken);
                 AuthEndpointsExtensions.Log.RegistrationHandled(logger, probe.Id, RegistrationOutcome.Created);
                 return Ok();
@@ -333,7 +333,7 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
             AuthEndpointsExtensions.Log.RegistrationHandled(logger, existing?.Id, RegistrationOutcome.Ignored);
             return;
         }
-        if (!await Get<SignUpMailLimiter<TContext>>(http).TryReserveAsync(probe.Email!, existing.NormalizedEmail, SignUpMailKinds.Notice, options.MaxEmailsPerAddressPerDay, options.ResendCooldown, cancellationToken))
+        if (!await Get<SignUpMailLimiter<TContext>>(http).TryReserveAsync(probe.Email!, existing.NormalizedEmail, SignUpMailKinds.Notice, options.MaxEmailsPerAddressPerDay, options.MaxOwnerEmailsPerAddressPerDay, options.ResendCooldown, cancellationToken))
         {
             AuthEndpointsExtensions.Log.RegistrationHandled(logger, existing.Id, RegistrationOutcome.NoticeHeldBack);
             return;

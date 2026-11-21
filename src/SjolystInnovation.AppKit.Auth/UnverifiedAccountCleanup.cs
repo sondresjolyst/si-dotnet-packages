@@ -180,7 +180,7 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
             return CleanupOutcome.Skipped;
 
         // Over the cap of the address no code is issued, and the reminder is tried again in a later run.
-        if (!await scope.ServiceProvider.GetRequiredService<SignUpMailLimiter<TContext>>().TryReserveAsync(user.Email!, user.NormalizedEmail, SignUpMailKinds.Reminder, settings.MaxOwnerEmailsPerAddressPerDay, TimeSpan.Zero, cancellationToken))
+        if (!await scope.ServiceProvider.GetRequiredService<SignUpMailLimiter<TContext>>().TryReserveAsync(user.Email!, user.NormalizedEmail, SignUpMailKinds.Reminder, settings.MaxEmailsPerAddressPerDay, settings.MaxOwnerEmailsPerAddressPerDay, TimeSpan.Zero, cancellationToken))
             return CleanupOutcome.Skipped;
 
         var code = EmailVerificationCodes.Issue(user, time);

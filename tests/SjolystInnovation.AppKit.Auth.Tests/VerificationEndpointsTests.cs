@@ -625,6 +625,77 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Accounts_on_one_mailbox_cannot_together_push_it_past_the_total()
+    {
+        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxEmailsPerAddressPerDay = 1; o.MaxOwnerEmailsPerAddressPerDay = 2; });
+        var tokens = new List<string>();
+        foreach (var id in new[] { "name+a", "name+b", "name+c" })
+        {
+            await SeedAsync(id);
+            tokens.Add(await AccessTokenAsync(id));
+        }
+
+        var statuses = new List<HttpStatusCode>();
+        for (var round = 0; round < 2; round++)
+            foreach (var token in tokens)
+                statuses.Add((await ResendAsync(token)).StatusCode);
+
+        Assert.Equal(3, _emails.Verifications.Count);
+        Assert.Equal(3, statuses.Count(s => s == HttpStatusCode.TooManyRequests));
+    }
+
+    [Fact]
+    public async Task One_accounts_resends_do_not_use_the_owner_budget_of_another_account_on_the_mailbox()
+    {
+        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxOwnerEmailsPerAddressPerDay = 1; });
+        await SeedAsync("name+a");
+        await SeedAsync("name+b");
+        var a = await AccessTokenAsync("name+a");
+        var b = await AccessTokenAsync("name+b");
+
+        Assert.Equal(HttpStatusCode.OK, (await ResendAsync(a)).StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await ResendAsync(a)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await ResendAsync(b)).StatusCode);
+    }
+
+    [Fact]
+    public async Task The_total_for_a_mailbox_is_reached_by_a_mix_of_kinds_and_then_the_notice_is_held_back()
+    {
+        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxEmailsPerAddressPerDay = 2; o.MaxOwnerEmailsPerAddressPerDay = 2; });
+        await SeedAsync("name+a");
+        await SeedAsync("name+b");
+        var a = await AccessTokenAsync("name+a");
+        var b = await AccessTokenAsync("name+b");
+        for (var i = 0; i < 2; i++)
+        {
+            await ResendAsync(a);
+            await ResendAsync(b);
+        }
+        Assert.Equal(4, _emails.Verifications.Count);
+
+        var answer = await RegisterAsync("name+a@example.invalid");
+
+        Assert.Equal(HttpStatusCode.OK, answer.StatusCode);
+        Assert.Empty(_emails.AlreadyRegistered);
+    }
+
+    [Fact]
+    public async Task Notices_and_verification_emails_to_the_mailbox_leave_room_for_the_total_of_the_owner_budget()
+    {
+        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxEmailsPerAddressPerDay = 2; o.MaxOwnerEmailsPerAddressPerDay = 2; });
+        await SeedAsync("name+a");
+        for (var i = 0; i < 4; i++)
+            await RegisterAsync("name+a@example.invalid");
+        Assert.Equal(2, _emails.AlreadyRegistered.Count);
+
+        var token = await AccessTokenAsync("name+a");
+
+        Assert.Equal(HttpStatusCode.OK, (await ResendAsync(token)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await ResendAsync(token)).StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await ResendAsync(token)).StatusCode);
+    }
+
+    [Fact]
     public async Task A_resend_for_a_verified_account_answers_409_and_sends_nothing()
     {
         await StartAsync();

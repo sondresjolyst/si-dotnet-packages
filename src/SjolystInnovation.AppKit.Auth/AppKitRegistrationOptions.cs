@@ -38,13 +38,15 @@ public sealed class AppKitRegistrationOptions<TUser>
     /// <summary>
     /// The most emails per address and UTC day that anyone who types the address can cause: the notice to an existing
     /// account and the verification email that register sends for a new account. A <c>+tag</c> in the local part is
-    /// ignored when addresses are compared. Over the cap nothing is sent and the answers do not change. Defaults to 5.
+    /// ignored when addresses are compared, so it counts per mailbox. Over the cap nothing is sent and the answers do not change.
+    /// No mailbox gets more than this and <see cref="MaxOwnerEmailsPerAddressPerDay"/> together from the sign-up in a day, however many
+    /// accounts point at it. Defaults to 5.
     /// </summary>
     public int MaxEmailsPerAddressPerDay { get; set; } = 5;
 
     /// <summary>
     /// The most emails per account and UTC day that the owner causes: <c>resend-verification</c> and the removal
-    /// reminders. It has its own count, so people who are not signed in cannot use it up. A resend over the cap answers
+    /// reminders. An account is its exact normalised address. It has its own count, so people who are not signed in cannot use it up. A resend over the cap answers
     /// 429 <c>tooManyRequests</c>. Defaults to 5.
     /// </summary>
     public int MaxOwnerEmailsPerAddressPerDay { get; set; } = 5;

@@ -18,15 +18,20 @@ internal static class SignUpMailKinds
     private static readonly string[] Anonymous = [Verification, Notice];
     private static readonly string[] Owner = [Resend, Reminder];
 
+    public static bool IsOwner(string kind) => Array.IndexOf(Owner, kind) >= 0;
+
     // The kinds that count against the same cap as the kind.
     public static string[] BudgetOf(string kind) => Array.IndexOf(Owner, kind) >= 0 ? Owner : Anonymous;
 }
 
 internal static class SignUpMailAddress
 {
-    // The hash of the normalised address, as Identity normalises it for lookups. A +tag in the local part does not change
-    // it, so name+one@ and name+two@ count against the same address as name@.
-    public static string Hash(string normalizedEmail)
+    // The hash of the normalised address exactly as it is, as Identity normalises it for lookups.
+    public static string Hash(string normalizedEmail) =>
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedEmail.Trim())));
+
+    // The hash of the mailbox. A +tag in the local part does not change it, so name+one@ and name+two@ are the mailbox of name@.
+    public static string MailboxHash(string normalizedEmail)
     {
         var key = normalizedEmail.Trim();
         var at = key.LastIndexOf('@');
@@ -36,7 +41,7 @@ internal static class SignUpMailAddress
             if (plus > 0 && plus < at)
                 key = string.Concat(key.AsSpan(0, plus), key.AsSpan(at));
         }
-        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(key)));
+        return Hash(key);
     }
 }
 
@@ -47,28 +52,37 @@ internal sealed class SignUpMailLimiter<TContext>(TContext db, TimeProvider time
 {
     private const int Attempts = 3;
 
-    // Counts one email of the kind for the address and returns true, unless the address already got the most emails of the
-    // day in the budget of the kind, or the cooldown has not passed since the last email of the same kind. Nothing is counted
-    // when it returns false. The key is the normalised address the account stores, or the request's address normalised the
-    // way Identity does it when there is no account, so every spelling that finds the account shares one counter.
-    public async Task<bool> TryReserveAsync(string email, string? storedNormalizedEmail, string kind, int maxPerDay, TimeSpan cooldown, CancellationToken cancellationToken)
+    // Counts one email of the kind for the address and returns true only when every rule that applies allows it. Nothing is
+    // counted when it returns false. The anonymous kinds count per mailbox against the anonymous cap. The owner kinds count
+    // per account, by its exact normalised address, against the owner cap. Over every kind and every account, a mailbox gets
+    // at most the two caps together per day. A cooldown holds between emails of the same kind. The key is the normalised
+    // address the account stores, or the request's address normalised the way Identity does it when there is no account,
+    // so every spelling that finds the account shares its counters.
+    public async Task<bool> TryReserveAsync(string email, string? storedNormalizedEmail, string kind, int anonymousCap, int ownerCap, TimeSpan cooldown, CancellationToken cancellationToken)
     {
-        var hash = SignUpMailAddress.Hash(storedNormalizedEmail ?? (normalizer?.NormalizeEmail(email.Trim()) ?? email.Trim().ToUpperInvariant()));
+        var exact = storedNormalizedEmail ?? (normalizer?.NormalizeEmail(email.Trim()) ?? email.Trim().ToUpperInvariant());
+        var mailbox = SignUpMailAddress.MailboxHash(exact);
+        var isOwner = SignUpMailKinds.IsOwner(kind);
+        var hash = isOwner ? SignUpMailAddress.Hash(exact) : mailbox;
         var budget = SignUpMailKinds.BudgetOf(kind);
+        var cap = isOwner ? ownerCap : anonymousCap;
         for (var attempt = 0; attempt < Attempts; attempt++)
         {
             var now = time.GetUtcNow().UtcDateTime;
             var today = now.Date;
             // Yesterday's rows are read too, so a cooldown holds across midnight.
-            var rows = await db.SignUpMailLogs.Where(l => l.AddressHash == hash && l.Day >= today.AddDays(-1)).ToListAsync(cancellationToken);
-            if (rows.Where(r => r.Day == today && budget.Contains(r.Kind)).Sum(r => r.Count) >= maxPerDay)
+            var rows = await db.SignUpMailLogs.Where(l => l.MailboxHash == mailbox && l.Day >= today.AddDays(-1)).ToListAsync(cancellationToken);
+            var todays = rows.Where(r => r.Day == today).ToList();
+            if (todays.Sum(r => r.Count) >= anonymousCap + ownerCap)
                 return false;
-            if (cooldown > TimeSpan.Zero && rows.Any(r => r.Kind == kind && now - r.LastSentAt < cooldown))
+            if (todays.Where(r => r.AddressHash == hash && budget.Contains(r.Kind)).Sum(r => r.Count) >= cap)
+                return false;
+            if (cooldown > TimeSpan.Zero && rows.Any(r => r.AddressHash == hash && r.Kind == kind && now - r.LastSentAt < cooldown))
                 return false;
 
-            var row = rows.FirstOrDefault(r => r.Kind == kind && r.Day == today);
+            var row = rows.FirstOrDefault(r => r.AddressHash == hash && r.Kind == kind && r.Day == today);
             if (row is null)
-                db.SignUpMailLogs.Add(row = new SignUpMailLog { AddressHash = hash, Kind = kind, Day = today, Count = 1, LastSentAt = now });
+                db.SignUpMailLogs.Add(row = new SignUpMailLog { AddressHash = hash, MailboxHash = mailbox, Kind = kind, Day = today, Count = 1, LastSentAt = now });
             else
             {
                 row.Count++;

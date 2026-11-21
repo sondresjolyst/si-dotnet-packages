@@ -258,6 +258,27 @@ public sealed class ResetConfirmsEmailTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task A_reset_request_still_sends_its_email_when_the_mailbox_is_at_the_sign_up_total()
+    {
+        await StartAsync(optIn: true);
+        await SeedAsync("u1", verified: true);
+        using (var scope = _host!.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<RegistrationTestDbContext>();
+            var hash = SignUpMailAddress.Hash("U1@EXAMPLE.INVALID");
+            db.SignUpMailLogs.AddRange(
+                new SignUpMailLog { AddressHash = hash, MailboxHash = hash, Kind = "notice", Day = _time.GetUtcNow().UtcDateTime.Date, Count = 50, LastSentAt = _time.GetUtcNow().UtcDateTime },
+                new SignUpMailLog { AddressHash = hash, MailboxHash = hash, Kind = "resend", Day = _time.GetUtcNow().UtcDateTime.Date, Count = 50, LastSentAt = _time.GetUtcNow().UtcDateTime });
+            db.SaveChanges();
+        }
+
+        var code = await RequestCodeAsync("u1");
+
+        Assert.Equal(6, code.Length);
+        Assert.Equal(HttpStatusCode.OK, (await ResetAsync("u1", code)).StatusCode);
+    }
+
+    [Fact]
     public async Task A_wrong_code_confirms_nothing()
     {
         await StartAsync(optIn: true);

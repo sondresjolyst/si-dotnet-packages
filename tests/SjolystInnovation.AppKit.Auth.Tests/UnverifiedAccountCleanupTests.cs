@@ -406,7 +406,7 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
     {
         using var scope = _host!.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<RegistrationTestDbContext>();
-        db.SignUpMailLogs.Add(new SignUpMailLog { AddressHash = SignUpMailAddress.Hash(email.ToUpperInvariant()), Kind = kind, Day = day, Count = count, LastSentAt = day });
+        db.SignUpMailLogs.Add(new SignUpMailLog { AddressHash = SignUpMailAddress.Hash(email.ToUpperInvariant()), MailboxHash = SignUpMailAddress.Hash(email.ToUpperInvariant()), Kind = kind, Day = day, Count = count, LastSentAt = day });
         db.SaveChanges();
     }
 
@@ -432,8 +432,8 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
         await StartAsync(o => o.MaxOwnerEmailsPerAddressPerDay = 1);
         await SeedAsync("u1", TimeSpan.Zero);
         _time.Advance(TimeSpan.FromDays(16));
-        SeedMailCount("u1@example.invalid", "notice", Now.Date, 9);
-        SeedMailCount("u1@example.invalid", "verification", Now.Date, 9);
+        SeedMailCount("u1@example.invalid", "notice", Now.Date, 3);
+        SeedMailCount("u1@example.invalid", "verification", Now.Date, 2);
 
         Assert.Equal(new UnverifiedCleanupResult(0, 1, 0), await RunAsync());
     }

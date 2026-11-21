@@ -54,8 +54,13 @@ public class SignUpMailLog
 {
     /// <summary>The row id.</summary>
     public int Id { get; set; }
-    /// <summary>The hash of the normalised address, as 64 lowercase hex characters.</summary>
+    /// <summary>
+    /// The hash that the count belongs to, as 64 lowercase hex characters. It is the mailbox for the emails that anyone
+    /// can cause, and the exact normalised address of the account for the emails that its owner causes.
+    /// </summary>
     public string AddressHash { get; set; } = default!;
+    /// <summary>The hash of the mailbox, the normalised address with a <c>+tag</c> removed, as 64 lowercase hex characters.</summary>
+    public string MailboxHash { get; set; } = default!;
     /// <summary>The kind of email, <c>verification</c>, <c>notice</c> or <c>reminder</c>. At most 16 characters.</summary>
     public string Kind { get; set; } = default!;
     /// <summary>The UTC day of the emails, at midnight.</summary>
@@ -119,9 +124,11 @@ public static class AccountConsentModelBuilderExtensions
             e.ToTable("SignUpMailLogs");
             e.HasKey(l => l.Id);
             e.Property(l => l.AddressHash).IsRequired().HasMaxLength(64);
+            e.Property(l => l.MailboxHash).IsRequired().HasMaxLength(64);
             e.Property(l => l.Kind).IsRequired().HasMaxLength(16);
             e.Property(l => l.Count).IsConcurrencyToken();
             e.HasIndex(l => new { l.AddressHash, l.Kind, l.Day }).IsUnique();
+            e.HasIndex(l => new { l.MailboxHash, l.Day });
             e.HasIndex(l => l.Day);
         });
         modelBuilder.Entity<TUser>().HasIndex("NormalizedEmail").IsUnique();
