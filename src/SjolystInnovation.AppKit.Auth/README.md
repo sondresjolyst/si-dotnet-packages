@@ -442,7 +442,7 @@ the user changes their own password.
 | --- | --- | --- |
 | `GET {id}/profile` | The user or an admin | Answers `{ id, userName, firstName, lastName, email, createdAt }`. |
 | `PUT {id}/profile` with `firstName`, `lastName` | The user or an admin | Saves and answers the updated profile. Names are required, at most 50 characters. |
-| `PUT {id}/password` with `currentPassword`, `newPassword` | The user | Changes the password and answers `200`. A wrong current password is a validation problem on `CurrentPassword`, and a weak new one on `NewPassword`. |
+| `PUT {id}/password` with `currentPassword`, `newPassword` | The user | Changes the password, ends every session of the user, this device's included, and answers `200`. Every device signs in again. A wrong current password is a validation problem on `CurrentPassword`, and a weak new one on `NewPassword`. Neither ends a session. |
 | `GET {id}/export` | The user or an admin | Answers `{ account, roles, exportedAt }`, plus `data` from an `IAccountDataExporter<TUser>` when the app registers one. |
 | `DELETE {id}/account` | The user or an admin | Deletes the account through `IAccountDeleter<TUser>` and answers `204`. The last admin, or a change that collided with it, gives `409`. |
 
@@ -460,7 +460,7 @@ internal, so the rules below hold for every app.
 - Signing out deletes the token while it is live, so a stale tab that sends it later gets a plain
   refusal instead of setting off replay detection. A token that was already used stays, so presenting
   it still revokes every session of the user.
-- A password reset deletes every live token of the user, so each device signs in again.
+- A password reset or a password change deletes every live token of the user, so each device signs in again.
 
 `IJwtTokenService` stays public. `Build(user, roles)` writes an access token for a user and roles,
 and `ReadUserIdFromExpired(token)` reads the user ID from an access token that may have expired.
