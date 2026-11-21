@@ -403,6 +403,49 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
         Assert.False(created.EmailConfirmed);
     }
 
+    // The factory of the app may set any user name. Only the person's chosen name or a generated one is used.
+    private static void NameFromEmail(AppKitRegistrationOptions<IdentityTestUser> o) =>
+        o.NewUser = r => new IdentityTestUser { Email = r.Email, UserName = r.Email.Split('@')[0] };
+
+    [Fact]
+    public async Task A_user_name_that_the_factory_takes_from_the_email_is_replaced_so_the_answer_does_not_depend_on_the_email()
+    {
+        await StartAsync(NameFromEmail);
+        using (var scope = _host!.Services.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityTestUser>>();
+            Assert.True((await users.CreateAsync(new IdentityTestUser { Id = "holder", UserName = "taken", Email = "taken@example.invalid", EmailConfirmed = true }, "Original1")).Succeeded);
+        }
+
+        var forExisting = await RegisterAsync(Body("taken@example.invalid"));
+        var forNew = await RegisterAsync(Body("taken@other.invalid"));
+
+        Assert.Equal(HttpStatusCode.OK, forExisting.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, forNew.StatusCode);
+        Assert.Equal(await TextAsync(forExisting), await TextAsync(forNew));
+        var created = Db(db => db.Users.Single(u => u.Email == "taken@other.invalid"));
+        Assert.Matches("^[0-9a-f]{32}$", created.UserName);
+        Assert.False(created.EmailConfirmed);
+    }
+
+    [Theory]
+    [InlineData(false, null, null)]
+    [InlineData(true, null, null)]
+    [InlineData(true, "ada", "ada")]
+    [InlineData(false, "ada", null)]
+    public async Task The_user_name_of_a_new_account_is_the_chosen_one_or_a_generated_one_whatever_the_factory_sets(bool allowUserName, string? sent, string? expected)
+    {
+        await StartAsync(o => { NameFromEmail(o); o.AllowUserName = allowUserName; });
+
+        await RegisterAsync(Body("chosen@example.invalid", ("userName", sent)));
+
+        var user = Db(db => db.Users.Single());
+        if (expected is null)
+            Assert.Matches("^[0-9a-f]{32}$", user.UserName);
+        else
+            Assert.Equal(expected, user.UserName);
+    }
+
     // The network cap
 
     private static string NetworkEmail(int n) => $"n{n}@example.invalid";

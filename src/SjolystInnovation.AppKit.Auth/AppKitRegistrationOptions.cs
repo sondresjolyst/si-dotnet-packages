@@ -11,7 +11,10 @@ public sealed record AppKitRegistration(string Email, string? UserName, string F
 /// <summary>The options for the opt-in public sign-up, set through <see cref="SelfRegistrationServiceCollectionExtensions.AddAppKitSelfRegistration{TUser, TContext}"/>.</summary>
 public sealed class AppKitRegistrationOptions<TUser>
 {
-    /// <summary>A function that creates a user from an <see cref="AppKitRegistration"/>. Required.</summary>
+    /// <summary>
+    /// A function that creates a user from an <see cref="AppKitRegistration"/>. Required. The sign-up replaces the user name that it
+    /// sets with the one the person chose when <see cref="AllowUserName"/> is on and one was sent, and otherwise with a generated one.
+    /// </summary>
     public Func<AppKitRegistration, TUser>? NewUser { get; set; }
 
     /// <summary>The role to give a new user, or null for none.</summary>

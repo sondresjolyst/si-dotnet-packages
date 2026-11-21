@@ -39,8 +39,8 @@ public static partial class AuthEndpointsExtensions
     /// told that someone tried, at most once per <see cref="AppKitRegistrationOptions{TUser}.ResendCooldown"/>. No address gets more than <see cref="AppKitRegistrationOptions{TUser}.MaxEmailsPerAddressPerDay"/> of these emails a day, and over the cap nothing is sent and the answer is the same. A resend has its own cap, <see cref="AppKitRegistrationOptions{TUser}.MaxOwnerEmailsPerAddressPerDay"/>, and over it answers 429 <c>tooManyRequests</c>.
     /// The app's <see cref="ISignUpGuard"/>, when registered, runs after the field checks and before any lookup, and a no answers 400 <c>signUpRefused</c>.
     /// No network gets more than <see cref="AppKitRegistrationOptions{TUser}.MaxSignUpsPerNetworkPerDay"/> sign-ups a day. A request counts once the field checks, the guard and the terms check have passed and before the lookup by email, and over the cap it answers 429 <c>tooManyRequests</c> and nothing happens.
-    /// Every other one of these cases answers 200 with the same body. An account that does not choose a user name gets a
-    /// generated one, a new GUID in its <c>N</c> form, never the email. Sign-in is by email, so the user name is not shown or typed.
+    /// Every other one of these cases answers 200 with the same body. Whatever user name the factory in <see cref="AppKitRegistrationOptions{TUser}.NewUser"/> sets is replaced. The account gets the user name the person chose
+    /// when <see cref="AppKitRegistrationOptions{TUser}.AllowUserName"/> is on and one was sent, and otherwise a generated one, a new GUID in its <c>N</c> form, never the email. Sign-in is by email, so the user name is not shown or typed.
     /// A user name that contains <c>@</c> is refused, because a chosen one could otherwise look like another person's email.
     /// A chosen user name also goes through the allowed characters and the duplicate check of Identity before any lookup by email,
     /// so a bad name is <c>invalidUserName</c> and a taken one is <c>userNameTaken</c>, the same for a new and an existing email.
@@ -151,11 +151,10 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
         CheckFields(errors, options, request, email, termsVersion, locale, registration);
         var probe = options.NewUser!(registration);
         probe.Email = email;
-        // An account that did not choose a user name gets one that cannot clash or fail validation. The email is never used
-        // as one, because Identity would then judge the email as a user name only when the account is created.
-        if (registration.UserName is null && (string.IsNullOrEmpty(probe.UserName) || string.Equals(probe.UserName, email, StringComparison.OrdinalIgnoreCase)))
-            probe.UserName = Guid.NewGuid().ToString("N");
-        if (options.AllowUserName && registration.UserName is not null && !errors.Has("UserName"))
+        // The user name comes only from the person or from the library. Whatever the app's factory set is replaced by the name the
+        // person chose, or by a generated one that cannot clash or fail validation, so no user name check depends on the email.
+        probe.UserName = registration.UserName ?? Guid.NewGuid().ToString("N");
+        if (registration.UserName is not null && !errors.Has("UserName"))
             await CheckUserNameAsync(errors, users, probe);
         if (!string.IsNullOrWhiteSpace(password) && password.Length <= MaxPassword)
             await CheckPasswordAsync(errors, users, probe, password, Get<IOptions<IdentityOptions>>(http).Value.Password.RequiredLength);
