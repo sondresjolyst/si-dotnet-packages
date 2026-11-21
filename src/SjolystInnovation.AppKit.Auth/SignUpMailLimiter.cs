@@ -95,23 +95,25 @@ internal static class SignUpMailAddress
 
 // Decides whether a sign-up email may go to an address now, and counts it when it may. The counts live in the database,
 // so the caps and the cooldown hold across instances and restarts. The rows are keyed by keyed hashes (see SignUpMailAddress),
-// so changing the signing key resets the counts. The caller must not hold a transaction around the call,
-// and sends the email only after this returns true, which is after the counts are saved.
+// so changing the signing key resets the counts. The caller must not hold a transaction around the call and must have no
+// pending changes on the context, and sends the email only after this returns true, which is after the counts are saved.
 //
 // Three rules hold, each with its own running count row per day. The anonymous count per mailbox, the owner count per
 // account, and the total per mailbox over every kind. A row per kind also keeps the time of the last email for the cooldown.
-// One reservation raises its rows in one SaveChanges. Every count is an EF Core concurrency token, so when two requests
-// raise the same row from the same value, one save fails with a concurrency conflict. A new row can lose to the unique index
-// on hash, kind and day. Either way the rows are read again and the reservation tried again, a fixed number of times, and
-// it fails closed after that. The mechanism is optimistic concurrency, so it needs no raw SQL and no isolation level.
+// Every count is raised by one conditional UPDATE that the database runs as one statement. The cap, and the cooldown where
+// there is one, are in its WHERE, and zero changed rows means the cap or the cooldown holds. So parallel requests never pass a
+// cap and none needs a retry. A reservation raises its rows in a fixed order, total, budget, kind, inside one transaction on the
+// context, and rolls back at the first refusal, so a refusal by a later count leaves the earlier ones unchanged. A missing row
+// is created first, with a count of zero, outside that transaction. Two creators can collide on the unique index of hash, kind
+// and day. The loser detaches its entity, checks that the row exists, and goes on, so a lost insert never aborts the
+// transaction of the counts and never leaves a failed entity tracked. It needs no raw SQL and no provider specific code.
 internal sealed class SignUpMailLimiter<TContext>(TContext db, TimeProvider time, IOptions<AppKitAuthOptions> auth, ILookupNormalizer? normalizer = null)
     where TContext : DbContext, IAccountConsentDbContext
 {
-    private readonly byte[] _key = SignUpMailAddress.DeriveKey(auth.Value.Key);
+    // One count row to raise. A cap of int.MaxValue means the row only keeps the time of the last email.
+    private readonly record struct Counter(string Hash, string Kind, int Cap, TimeSpan Cooldown);
 
-    // Every failed attempt means another reservation was saved in between. More attempts than the largest cap in a burst
-    // would never be needed, and a few more than a usual cap are enough.
-    private const int Attempts = 8;
+    private readonly byte[] _key = SignUpMailAddress.DeriveKey(auth.Value.Key);
 
     // Counts one email of the kind for the address and returns true only when every rule that applies allows it. Nothing is
     // counted when it returns false. The anonymous kinds count per mailbox against the anonymous cap. The owner kinds count
@@ -119,94 +121,87 @@ internal sealed class SignUpMailLimiter<TContext>(TContext db, TimeProvider time
     // at most the two caps together per day. A cooldown holds between emails of the same kind. The key is the normalised
     // address the account stores, or the request's address normalised the way Identity does it when there is no account,
     // so every spelling that finds the account shares its counters.
-    public async Task<bool> TryReserveAsync(string email, string? storedNormalizedEmail, string kind, int anonymousCap, int ownerCap, TimeSpan cooldown, CancellationToken cancellationToken)
+    public Task<bool> TryReserveAsync(string email, string? storedNormalizedEmail, string kind, int anonymousCap, int ownerCap, TimeSpan cooldown, CancellationToken cancellationToken)
     {
         var exact = storedNormalizedEmail ?? (normalizer?.NormalizeEmail(email.Trim()) ?? email.Trim().ToUpperInvariant());
         var mailbox = SignUpMailAddress.MailboxHash(_key, exact);
         var isOwner = SignUpMailKinds.IsOwner(kind);
         var hash = isOwner ? SignUpMailAddress.Hash(_key, exact) : mailbox;
-        var budgetKind = isOwner ? SignUpMailKinds.OwnerBudget : SignUpMailKinds.AnonymousBudget;
-        var cap = isOwner ? ownerCap : anonymousCap;
-        for (var attempt = 0; attempt < Attempts; attempt++)
-        {
-            var now = time.GetUtcNow().UtcDateTime;
-            var today = now.Date;
-            // Yesterday's rows are read too, so a cooldown holds across midnight.
-            var rows = await db.SignUpMailLogs.Where(l => l.MailboxHash == mailbox && l.Day >= today.AddDays(-1)).ToListAsync(cancellationToken);
-            SignUpMailLog? Find(string rowHash, string rowKind) => rows.FirstOrDefault(r => r.AddressHash == rowHash && r.Kind == rowKind && r.Day == today);
-
-            var total = Find(mailbox, SignUpMailKinds.Total);
-            var budget = Find(hash, budgetKind);
-            if ((total?.Count ?? 0) >= anonymousCap + ownerCap || (budget?.Count ?? 0) >= cap)
-                return false;
-            if (cooldown > TimeSpan.Zero && rows.Any(r => r.AddressHash == hash && r.Kind == kind && now - r.LastSentAt < cooldown))
-                return false;
-
-            var raised = new List<SignUpMailLog>
-            {
-                Raise(total, mailbox, mailbox, SignUpMailKinds.Total, today, now),
-                Raise(budget, hash, mailbox, budgetKind, today, now),
-                Raise(Find(hash, kind), hash, mailbox, kind, today, now),
-            };
-            try
-            {
-                await db.SaveChangesAsync(cancellationToken);
-                return true;
-            }
-            catch (DbUpdateException)
-            {
-                // A concurrency conflict or a lost insert. Read the counts again.
-                foreach (var tracked in rows.Concat(raised))
-                    db.Entry(tracked).State = EntityState.Detached;
-            }
-        }
-        return false;
+        return TryRaiseAsync(mailbox,
+        [
+            new Counter(mailbox, SignUpMailKinds.Total, anonymousCap + ownerCap, TimeSpan.Zero),
+            new Counter(hash, isOwner ? SignUpMailKinds.OwnerBudget : SignUpMailKinds.AnonymousBudget, isOwner ? ownerCap : anonymousCap, TimeSpan.Zero),
+            new Counter(hash, kind, int.MaxValue, cooldown),
+        ], cancellationToken);
     }
 
     // Counts one sign-up from the network, given as the shortened address of the caller, and returns true only when
-    // the network has not reached the cap today. It uses the same optimistic concurrency as the email counts, and fails
-    // closed when it cannot save after a few attempts. The row keeps the network hash in both hash columns.
-    public async Task<bool> TryCountNetworkAsync(string shortenedAddress, int cap, CancellationToken cancellationToken)
+    // the network has not reached the cap today. The row keeps the network hash in both hash columns.
+    public Task<bool> TryCountNetworkAsync(string shortenedAddress, int cap, CancellationToken cancellationToken)
     {
         var networkHash = SignUpMailAddress.NetworkHash(_key, shortenedAddress);
-        for (var attempt = 0; attempt < Attempts; attempt++)
+        return TryRaiseAsync(networkHash, [new Counter(networkHash, SignUpMailKinds.Network, cap, TimeSpan.Zero)], cancellationToken);
+    }
+
+    // Raises every counter by one, in the order given, or none of them.
+    private async Task<bool> TryRaiseAsync(string mailbox, Counter[] counters, CancellationToken cancellationToken)
+    {
+        var now = time.GetUtcNow().UtcDateTime;
+        var today = now.Date;
+        await EnsureRowsAsync(mailbox, counters, today, cancellationToken);
+
+        await using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
+        foreach (var (hash, kind, cap, cooldown) in counters)
         {
-            var now = time.GetUtcNow().UtcDateTime;
-            var today = now.Date;
-            var row = await db.SignUpMailLogs.FirstOrDefaultAsync(l => l.AddressHash == networkHash && l.Kind == SignUpMailKinds.Network && l.Day == today, cancellationToken);
-            if ((row?.Count ?? 0) >= cap)
+            var row = db.SignUpMailLogs.Where(l => l.AddressHash == hash && l.Kind == kind && l.Day == today && l.Count < cap);
+            if (cooldown > TimeSpan.Zero)
+            {
+                var sentBefore = now - cooldown;
+                row = row.Where(l => l.LastSentAt <= sentBefore);
+            }
+            var changed = await row.ExecuteUpdateAsync(set => set.SetProperty(l => l.Count, l => l.Count + 1).SetProperty(l => l.LastSentAt, now), cancellationToken);
+            if (changed == 0)
+            {
+                await tx.RollbackAsync(cancellationToken);
                 return false;
-            var raised = Raise(row, networkHash, networkHash, SignUpMailKinds.Network, today, now);
+            }
+        }
+        await tx.CommitAsync(cancellationToken);
+        return true;
+    }
+
+    // Makes the rows of today that the counters need, with a count of zero. A new row starts with the time of the last email of
+    // the row of yesterday, so a cooldown holds across midnight.
+    private async Task EnsureRowsAsync(string mailbox, Counter[] counters, DateTime today, CancellationToken cancellationToken)
+    {
+        var yesterday = today.AddDays(-1);
+        var rows = await db.SignUpMailLogs.AsNoTracking().Where(l => l.MailboxHash == mailbox && l.Day >= yesterday)
+            .Select(l => new { l.AddressHash, l.Kind, l.Day, l.LastSentAt }).ToListAsync(cancellationToken);
+        foreach (var (hash, kind, _, _) in counters)
+        {
+            if (rows.Any(r => r.AddressHash == hash && r.Kind == kind && r.Day == today))
+                continue;
+            var lastSentAt = rows.FirstOrDefault(r => r.AddressHash == hash && r.Kind == kind && r.Day == yesterday)?.LastSentAt ?? DateTime.UnixEpoch;
+            var created = new SignUpMailLog { AddressHash = hash, MailboxHash = mailbox, Kind = kind, Day = today, Count = 0, LastSentAt = lastSentAt };
+            db.SignUpMailLogs.Add(created);
             try
             {
                 await db.SaveChangesAsync(cancellationToken);
-                return true;
             }
             catch (DbUpdateException)
             {
-                db.Entry(raised).State = EntityState.Detached;
+                // Another request made the row first. Anything else is a real failure.
+                db.Entry(created).State = EntityState.Detached;
+                if (!await db.SignUpMailLogs.AnyAsync(l => l.AddressHash == hash && l.Kind == kind && l.Day == today, cancellationToken))
+                    throw;
             }
         }
-        return false;
     }
 
-    private SignUpMailLog Raise(SignUpMailLog? row, string hash, string mailbox, string kind, DateTime today, DateTime now)
-    {
-        if (row is null)
-            db.SignUpMailLogs.Add(row = new SignUpMailLog { AddressHash = hash, MailboxHash = mailbox, Kind = kind, Day = today, Count = 1, LastSentAt = now });
-        else
-        {
-            row.Count++;
-            row.LastSentAt = now;
-        }
-        return row;
-    }
-
-    // Removes the rows that no cooldown or cap can read any more, those from before yesterday.
-    public async Task RemoveOldAsync(CancellationToken cancellationToken)
+    // Removes the rows that no cooldown or cap can read any more, those from before yesterday. Two hosts may run it at once.
+    public Task RemoveOldAsync(CancellationToken cancellationToken)
     {
         var cutoff = time.GetUtcNow().UtcDateTime.Date.AddDays(-1);
-        db.SignUpMailLogs.RemoveRange(await db.SignUpMailLogs.Where(l => l.Day < cutoff).ToListAsync(cancellationToken));
-        await db.SaveChangesAsync(cancellationToken);
+        return db.SignUpMailLogs.Where(l => l.Day < cutoff).ExecuteDeleteAsync(cancellationToken);
     }
 }

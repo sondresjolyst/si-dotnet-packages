@@ -141,7 +141,6 @@ public static class AccountConsentModelBuilderExtensions
             e.Property(l => l.AddressHash).IsRequired().HasMaxLength(64);
             e.Property(l => l.MailboxHash).IsRequired().HasMaxLength(64);
             e.Property(l => l.Kind).IsRequired().HasMaxLength(16);
-            e.Property(l => l.Count).IsConcurrencyToken();
             e.HasIndex(l => new { l.AddressHash, l.Kind, l.Day }).IsUnique();
             e.HasIndex(l => new { l.MailboxHash, l.Day });
             e.HasIndex(l => l.Day);
