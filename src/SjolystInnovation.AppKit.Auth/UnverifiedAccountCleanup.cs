@@ -33,7 +33,7 @@ public interface IUnverifiedAccountCleanup
     /// expired, but never more than one day past its removal time. Then it sends the reminders of
     /// <see cref="AppKitRegistrationOptions{TUser}.RemindBefore"/> that are due, once each, when the user type
     /// implements <see cref="IRemovalReminderUser"/>. A reminder carries a fresh code, counts toward
-    /// <see cref="AppKitRegistrationOptions{TUser}.MaxEmailsPerAddressPerDay"/> and waits for a later run when the address is over it. An account that is locked after
+    /// <see cref="AppKitRegistrationOptions{TUser}.MaxOwnerEmailsPerAddressPerDay"/> and waits for a later run when the address is over it. An account that is locked after
     /// too many wrong codes is reminded in a later run. One failing account is logged and does not stop the run.
     /// The run also removes the sign-up email counts from before yesterday.
     /// </summary>
@@ -180,7 +180,7 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
             return CleanupOutcome.Skipped;
 
         // Over the cap of the address no code is issued, and the reminder is tried again in a later run.
-        if (!await scope.ServiceProvider.GetRequiredService<SignUpMailLimiter<TContext>>().TryReserveAsync(user.Email!, SignUpMailKinds.Reminder, settings.MaxEmailsPerAddressPerDay, TimeSpan.Zero, cancellationToken))
+        if (!await scope.ServiceProvider.GetRequiredService<SignUpMailLimiter<TContext>>().TryReserveAsync(user.Email!, user.NormalizedEmail, SignUpMailKinds.Reminder, settings.MaxOwnerEmailsPerAddressPerDay, TimeSpan.Zero, cancellationToken))
             return CleanupOutcome.Skipped;
 
         var code = EmailVerificationCodes.Issue(user, time);

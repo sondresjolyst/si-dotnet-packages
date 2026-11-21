@@ -36,11 +36,18 @@ public sealed class AppKitRegistrationOptions<TUser>
     public TimeSpan ResendCooldown { get; set; } = TimeSpan.FromMinutes(1);
 
     /// <summary>
-    /// The most sign-up emails one address may get in a UTC day, counting the notice to an existing account, the
-    /// verification emails from register and resend, and the removal reminders together. A <c>+tag</c> in the local part is
+    /// The most emails per address and UTC day that anyone who types the address can cause: the notice to an existing
+    /// account and the verification email that register sends for a new account. A <c>+tag</c> in the local part is
     /// ignored when addresses are compared. Over the cap nothing is sent and the answers do not change. Defaults to 5.
     /// </summary>
     public int MaxEmailsPerAddressPerDay { get; set; } = 5;
+
+    /// <summary>
+    /// The most emails per account and UTC day that the owner causes: <c>resend-verification</c> and the removal
+    /// reminders. It has its own count, so people who are not signed in cannot use it up. A resend over the cap answers
+    /// 429 <c>tooManyRequests</c>. Defaults to 5.
+    /// </summary>
+    public int MaxOwnerEmailsPerAddressPerDay { get; set; } = 5;
 
     /// <summary>How long an account may stay unverified before it is removed. Defaults to 30 days.</summary>
     public TimeSpan UnverifiedLifetime { get; set; } = TimeSpan.FromDays(30);

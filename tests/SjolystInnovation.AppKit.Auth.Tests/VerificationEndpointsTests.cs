@@ -580,9 +580,9 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task A_resend_over_the_daily_cap_of_the_address_answers_200_and_sends_nothing()
+    public async Task A_resend_over_the_owner_cap_answers_429_tooManyRequests_and_sends_nothing_more()
     {
-        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxEmailsPerAddressPerDay = 2; });
+        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxOwnerEmailsPerAddressPerDay = 2; });
         await SeedAsync("u1");
         var token = await AccessTokenAsync("u1");
 
@@ -590,8 +590,38 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
         for (var i = 0; i < 4; i++)
             statuses.Add((await ResendAsync(token)).StatusCode);
 
-        Assert.All(statuses, s => Assert.Equal(HttpStatusCode.OK, s));
+        Assert.Equal([HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.TooManyRequests, HttpStatusCode.TooManyRequests], statuses);
         Assert.Equal(2, _emails.Verifications.Count);
+        Assert.Equal("tooManyRequests", await ErrorJson.CodeAsync(await ResendAsync(token)));
+    }
+
+    [Fact]
+    public async Task Sign_up_attempts_by_others_do_not_use_up_the_resend_of_the_owner()
+    {
+        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxEmailsPerAddressPerDay = 2; });
+        await SeedAsync("u1");
+        var token = await AccessTokenAsync("u1");
+
+        for (var i = 0; i < 5; i++)
+            await RegisterAsync("u1@example.invalid");
+        Assert.Equal(2, _emails.AlreadyRegistered.Count);
+
+        Assert.Equal(HttpStatusCode.OK, (await ResendAsync(token)).StatusCode);
+        Assert.Single(_emails.Verifications);
+    }
+
+    [Fact]
+    public async Task Resends_by_the_owner_do_not_use_up_the_notices_to_the_address()
+    {
+        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxOwnerEmailsPerAddressPerDay = 1; });
+        await SeedAsync("u1");
+        var token = await AccessTokenAsync("u1");
+
+        Assert.Equal(HttpStatusCode.OK, (await ResendAsync(token)).StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await ResendAsync(token)).StatusCode);
+
+        await RegisterAsync("u1@example.invalid");
+        Assert.Single(_emails.AlreadyRegistered);
     }
 
     [Fact]

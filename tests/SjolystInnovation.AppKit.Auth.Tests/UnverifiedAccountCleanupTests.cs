@@ -406,17 +406,17 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
     {
         using var scope = _host!.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<RegistrationTestDbContext>();
-        db.SignUpMailLogs.Add(new SignUpMailLog { AddressHash = SignUpMailAddress.Hash(email), Kind = kind, Day = day, Count = count, LastSentAt = day });
+        db.SignUpMailLogs.Add(new SignUpMailLog { AddressHash = SignUpMailAddress.Hash(email.ToUpperInvariant()), Kind = kind, Day = day, Count = count, LastSentAt = day });
         db.SaveChanges();
     }
 
     [Fact]
     public async Task A_reminder_over_the_daily_cap_of_the_address_is_held_back_and_goes_out_the_next_day()
     {
-        await StartAsync(o => o.MaxEmailsPerAddressPerDay = 1);
+        await StartAsync(o => o.MaxOwnerEmailsPerAddressPerDay = 1);
         await SeedAsync("u1", TimeSpan.Zero);
         _time.Advance(TimeSpan.FromDays(16));
-        SeedMailCount("u1@example.invalid", "verification", Now.Date, 1);
+        SeedMailCount("u1@example.invalid", "resend", Now.Date, 1);
 
         Assert.Equal(new UnverifiedCleanupResult(0, 0, 0), await RunAsync());
         Assert.Empty(_emails.Reminders);
@@ -424,6 +424,18 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
         _time.Advance(TimeSpan.FromDays(1));
         Assert.Equal(new UnverifiedCleanupResult(0, 1, 0), await RunAsync());
         Assert.Single(_emails.Reminders);
+    }
+
+    [Fact]
+    public async Task Sign_up_emails_to_the_address_do_not_hold_back_the_reminder()
+    {
+        await StartAsync(o => o.MaxOwnerEmailsPerAddressPerDay = 1);
+        await SeedAsync("u1", TimeSpan.Zero);
+        _time.Advance(TimeSpan.FromDays(16));
+        SeedMailCount("u1@example.invalid", "notice", Now.Date, 9);
+        SeedMailCount("u1@example.invalid", "verification", Now.Date, 9);
+
+        Assert.Equal(new UnverifiedCleanupResult(0, 1, 0), await RunAsync());
     }
 
     [Fact]
@@ -437,7 +449,7 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
 
         var row = Db(db => db.SignUpMailLogs.Single());
         Assert.Equal(("reminder", 1, Now.Date), (row.Kind, row.Count, row.Day));
-        Assert.Equal(SignUpMailAddress.Hash("u1@example.invalid"), row.AddressHash);
+        Assert.Equal(SignUpMailAddress.Hash("U1@EXAMPLE.INVALID"), row.AddressHash);
     }
 
     [Fact]

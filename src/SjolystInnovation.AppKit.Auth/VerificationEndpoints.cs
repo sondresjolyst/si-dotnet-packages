@@ -122,9 +122,9 @@ internal sealed class VerificationHandlers<TUser, TContext>(ILogger logger)
         if (due == CodeDue.Cooldown)
             return AuthResults.Error(AuthErrorCodes.TooManyRequests, "A code was sent a moment ago. Wait a little before asking for another.", StatusCodes.Status429TooManyRequests);
 
-        // Over the cap of the address nothing is issued or sent, and the answer is the same.
-        if (!await Get<SignUpMailLimiter<TContext>>(http).TryReserveAsync(user.Email!, SignUpMailKinds.Verification, options.MaxEmailsPerAddressPerDay, TimeSpan.Zero, http.RequestAborted))
-            return TypedResults.Ok(new MessageResponse("A new verification code is on its way to your email address."));
+        // The caller is the owner, so over the owner's cap for the address the answer says so. Nothing is issued or sent.
+        if (!await Get<SignUpMailLimiter<TContext>>(http).TryReserveAsync(user.Email!, user.NormalizedEmail, SignUpMailKinds.Resend, options.MaxOwnerEmailsPerAddressPerDay, TimeSpan.Zero, http.RequestAborted))
+            return AuthResults.Error(AuthErrorCodes.TooManyRequests, "Too many codes were sent to this address today. Try again tomorrow.", StatusCodes.Status429TooManyRequests);
         var code = EmailVerificationCodes.Issue(user, time);
         var updated = await Get<UserManager<TUser>>(http).UpdateAsync(user);
         if (!updated.Succeeded)

@@ -832,6 +832,46 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
         Assert.Equal(1, Db(db => db.SignUpMailLogs.Count()));
     }
 
+    [Fact]
+    public async Task The_notice_counter_is_shared_by_every_spelling_of_the_address()
+    {
+        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxEmailsPerAddressPerDay = 1; });
+        await SeedAsync("taken", verified: true);
+
+        await RegisterAsync(Body("taken@example.invalid"));
+        await RegisterAsync(Body("  TAKEN@Example.Invalid "));
+        await RegisterAsync(Body("Taken@example.invalid"));
+
+        Assert.Single(_emails.AlreadyRegistered);
+        Assert.Single(Db(db => db.SignUpMailLogs.Select(l => l.AddressHash).Distinct().ToList()));
+    }
+
+    [Fact]
+    public async Task The_counter_key_of_a_new_account_is_the_hash_of_the_normalised_address()
+    {
+        await StartAsync();
+
+        await RegisterAsync(Body("  Case@Example.Invalid "));
+
+        var user = Db(db => db.Users.Single());
+        Assert.Equal(SignUpMailAddress.Hash(user.NormalizedEmail!), Db(db => db.SignUpMailLogs.Single().AddressHash));
+        Assert.Equal("CASE@EXAMPLE.INVALID", user.NormalizedEmail);
+    }
+
+    [Fact]
+    public async Task The_verification_and_the_notice_share_the_counter_of_the_account_whatever_the_spelling()
+    {
+        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxEmailsPerAddressPerDay = 2; });
+
+        await RegisterAsync(Body("name@example.invalid"));
+        await RegisterAsync(Body(" NAME@example.invalid"));
+        await RegisterAsync(Body("Name@EXAMPLE.invalid"));
+
+        Assert.Single(_emails.Verifications);
+        Assert.Single(_emails.AlreadyRegistered);
+        Assert.Single(Db(db => db.SignUpMailLogs.Select(l => l.AddressHash).Distinct().ToList()));
+    }
+
     // IP
 
     [Fact]

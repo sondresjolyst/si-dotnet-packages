@@ -35,7 +35,7 @@ public static partial class AuthEndpointsExtensions
     /// validation problem, and a terms version that is not the current one answers 409 with the code
     /// <c>termsChanged</c>. A new email creates an unverified user, its consent rows and a verification code in one
     /// transaction, then sends the code. An existing email changes nothing. An active account, verified or not, is
-    /// told that someone tried, at most once per <see cref="AppKitRegistrationOptions{TUser}.ResendCooldown"/>. No address gets more than <see cref="AppKitRegistrationOptions{TUser}.MaxEmailsPerAddressPerDay"/> sign-up emails a day, and over the cap nothing is sent and the answer is the same.
+    /// told that someone tried, at most once per <see cref="AppKitRegistrationOptions{TUser}.ResendCooldown"/>. No address gets more than <see cref="AppKitRegistrationOptions{TUser}.MaxEmailsPerAddressPerDay"/> of these emails a day, and over the cap nothing is sent and the answer is the same. A resend has its own cap, <see cref="AppKitRegistrationOptions{TUser}.MaxOwnerEmailsPerAddressPerDay"/>, and over it answers 429 <c>tooManyRequests</c>.
     /// Every one of these cases answers 200 with the same body. A user name that contains <c>@</c> is refused,
     /// because the user name defaults to the email and a chosen one could otherwise take another person's email.
     /// A chosen user name also goes through the allowed characters and the duplicate check of Identity before any lookup by email,
@@ -187,7 +187,7 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
             }
             if (code is not null)
             {
-                if (await Get<SignUpMailLimiter<TContext>>(http).TryReserveAsync(email, SignUpMailKinds.Verification, options.MaxEmailsPerAddressPerDay, TimeSpan.Zero, cancellationToken))
+                if (await Get<SignUpMailLimiter<TContext>>(http).TryReserveAsync(email, probe.NormalizedEmail, SignUpMailKinds.Verification, options.MaxEmailsPerAddressPerDay, TimeSpan.Zero, cancellationToken))
                     await emails.SendVerificationAsync(probe, code, locale, cancellationToken);
                 AuthEndpointsExtensions.Log.RegistrationHandled(logger, probe.Id, RegistrationOutcome.Created);
                 return Ok();
@@ -333,7 +333,7 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
             AuthEndpointsExtensions.Log.RegistrationHandled(logger, existing?.Id, RegistrationOutcome.Ignored);
             return;
         }
-        if (!await Get<SignUpMailLimiter<TContext>>(http).TryReserveAsync(probe.Email!, SignUpMailKinds.Notice, options.MaxEmailsPerAddressPerDay, options.ResendCooldown, cancellationToken))
+        if (!await Get<SignUpMailLimiter<TContext>>(http).TryReserveAsync(probe.Email!, existing.NormalizedEmail, SignUpMailKinds.Notice, options.MaxEmailsPerAddressPerDay, options.ResendCooldown, cancellationToken))
         {
             AuthEndpointsExtensions.Log.RegistrationHandled(logger, existing.Id, RegistrationOutcome.NoticeHeldBack);
             return;
