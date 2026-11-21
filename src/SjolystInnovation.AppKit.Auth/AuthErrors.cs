@@ -29,7 +29,7 @@ public static class AuthErrorCodes
     /// <summary>The field is blank and must have a value.</summary>
     public const string Required = "required";
 
-    /// <summary>The value is not an email address. On an invite, it is also longer than 200 characters.</summary>
+    /// <summary>The value is not an email address. On an invite or a sign-up, it is also longer than 200 characters.</summary>
     public const string InvalidEmail = "invalidEmail";
 
     /// <summary>The text is longer than its limit. The <c>limits</c> extension holds the limit for the field.</summary>
@@ -106,6 +106,44 @@ public static class AuthErrorCodes
 
     /// <summary>The email already has an account.</summary>
     public const string EmailTaken = "emailTaken";
+
+    /// <summary>The person did not confirm the minimum age. The error is keyed by <c>AgeConfirmed</c>.</summary>
+    public const string AgeNotConfirmed = "ageNotConfirmed";
+
+    /// <summary>The person did not accept the terms. At sign-up the error is keyed by <c>TermsAccepted</c>. As a 403 from <c>RequireCurrentTerms</c> it means the user must accept a document again.</summary>
+    public const string TermsNotAccepted = "termsNotAccepted";
+
+    /// <summary>The user name is already taken by another account. The error is keyed by <c>UserName</c>.</summary>
+    public const string UserNameTaken = "userNameTaken";
+
+    /// <summary>The user name has characters Identity does not allow. The error is keyed by <c>UserName</c>.</summary>
+    public const string InvalidUserName = "invalidUserName";
+
+    /// <summary>The terms version the client sent is not the current one. The answer is 409, and the client should reload the terms.</summary>
+    public const string TermsChanged = "termsChanged";
+
+    /// <summary>The verification code is wrong or expired.</summary>
+    public const string InvalidCode = "invalidCode";
+
+    /// <summary>The email address is already verified.</summary>
+    public const string AlreadyVerified = "alreadyVerified";
+
+    /// <summary>
+    /// The verification code has had too many wrong attempts. A new code can be requested once the current one has expired.
+    /// </summary>
+    public const string TooManyAttempts = "tooManyAttempts";
+
+    /// <summary>The request came too soon after the last one of its kind. Try again after the cooldown.</summary>
+    public const string TooManyRequests = "tooManyRequests";
+
+    /// <summary>The request could not be saved, for example because another request changed the same account at the same time. Try again.</summary>
+    public const string TryAgain = "tryAgain";
+
+    /// <summary>The signed-in user has not confirmed the email address, and the endpoint needs that. The answer is 403.</summary>
+    public const string EmailNotVerified = "emailNotVerified";
+
+    /// <summary>The app's <see cref="ISignUpGuard"/> did not let the sign-up go on, for example because a captcha or an app attestation check failed. The answer is 400.</summary>
+    public const string SignUpRefused = "signUpRefused";
 }
 
 /// <summary>The body of an error that belongs to no field: the English message and its code.</summary>
@@ -115,6 +153,10 @@ internal static class AuthResults
 {
     public static JsonHttpResult<AuthError> Error(string code, string message, int status) =>
         TypedResults.Json(new AuthError(message, code), statusCode: status);
+
+    /// <summary>The answer when a check could not store its result, so the caller learns nothing about the code.</summary>
+    public static JsonHttpResult<AuthError> TryAgain() =>
+        Error(AuthErrorCodes.TryAgain, "The request could not be completed. Try again.", StatusCodes.Status409Conflict);
 }
 
 /// <summary>The field errors of one request, with a code for each message and the limit that goes with a code.</summary>
@@ -128,6 +170,8 @@ internal sealed class AuthFieldErrors
     private readonly Dictionary<string, int> _limits = [];
 
     public bool Any => _errors.Count > 0;
+
+    public bool Has(string field) => _errors.ContainsKey(field);
 
     public AuthFieldErrors Add(string field, string code, string message, int? limit = null)
     {

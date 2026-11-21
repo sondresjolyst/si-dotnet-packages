@@ -60,6 +60,38 @@ public sealed class RateLimitingTests
     }
 
     [Fact]
+    public async Task The_429_body_carries_a_stable_code_and_a_message()
+    {
+        await using var app = await StartAsync(Rules(("*:/api/auth/login", "1m", 1)));
+
+        await app.SendAsync("/api/auth/login");
+        var rejected = await app.SendAsync("/api/auth/login");
+
+        using var problem = JsonDocument.Parse(await TestApp.BodyAsync(rejected));
+        Assert.Equal("tooManyRequests", problem.RootElement.GetProperty("code").GetString());
+        Assert.Equal("Too many requests", problem.RootElement.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task The_429_answer_keeps_its_earlier_fields_and_headers()
+    {
+        await using var app = await StartAsync(Rules(("*:/api/auth/login", "1m", 1)));
+
+        await app.SendAsync("/api/auth/login");
+        var rejected = await app.SendAsync("/api/auth/login");
+
+        using var problem = JsonDocument.Parse(await TestApp.BodyAsync(rejected));
+        var fields = problem.RootElement.EnumerateObject().Where(p => p.Name is not ("code" or "message")).ToDictionary(p => p.Name, p => p.Value.ToString());
+        Assert.Equal(StatusCodes.Status429TooManyRequests, rejected.Response.StatusCode);
+        Assert.Equal("429", fields["status"]);
+        Assert.Equal("Too many requests", fields["title"]);
+        Assert.False(fields.ContainsKey("detail"));
+        Assert.True(rejected.Response.Headers.ContainsKey("Retry-After"));
+        Assert.Equal(2, fields.Count);
+        Assert.Equal("application/json", rejected.Response.ContentType?.Split(';')[0]);
+    }
+
+    [Fact]
     public async Task Each_client_ip_has_its_own_limit()
     {
         await using var app = await StartAsync(Rules(("*:/api/auth/login", "1m", 2)));
