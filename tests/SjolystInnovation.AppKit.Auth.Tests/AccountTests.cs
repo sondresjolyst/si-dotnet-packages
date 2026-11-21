@@ -487,6 +487,46 @@ public sealed class AccountTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Changing_the_password_ends_every_session_of_the_user_and_no_one_elses()
+    {
+        await StartAsync();
+        await UserAsync("u1");
+        await UserAsync("u2");
+
+        var response = await SendAsync(HttpMethod.Put, "/api/users/u1/password", new { currentPassword = "Password1", newPassword = "NewPassword2" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("Password changed.", (await JsonAsync(response)).GetProperty("message").GetString());
+        Assert.Equal(0, Tokens("u1"));
+        Assert.Equal(1, Tokens("u2"));
+    }
+
+    [Fact]
+    public async Task Changing_the_password_logs_the_user_id_and_the_number_of_sessions_ended()
+    {
+        await StartAsync();
+        await UserAsync("u1");
+
+        await SendAsync(HttpMethod.Put, "/api/users/u1/password", new { currentPassword = "Password1", newPassword = "NewPassword2" });
+
+        var record = Assert.Single(_logs.GetSnapshot(), r => r.Category == "SjolystInnovation.AppKit.Auth.Account");
+        Assert.Contains("u1", record.Message, StringComparison.Ordinal);
+        Assert.Contains("1 session", record.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_failed_password_change_keeps_the_sessions()
+    {
+        await StartAsync();
+        await UserAsync("u1");
+
+        await SendAsync(HttpMethod.Put, "/api/users/u1/password", new { currentPassword = "Wrong1234", newPassword = "NewPassword2" });
+        await SendAsync(HttpMethod.Put, "/api/users/u1/password", new { currentPassword = "Password1", newPassword = "abc" });
+
+        Assert.Equal(1, Tokens("u1"));
+    }
+
+    [Fact]
     public async Task A_wrong_current_password_is_a_validation_problem_on_the_current_one()
     {
         await StartAsync();
