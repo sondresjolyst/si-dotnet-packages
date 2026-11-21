@@ -69,8 +69,8 @@ internal sealed class AccountsRegistered;
 public static class AccountServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers <see cref="IAccountDeleter{TUser}"/> and <see cref="AppKitAccountOptions"/>. Register erasers and
-    /// handlers as scoped services.
+    /// Registers <see cref="IAccountDeleter{TUser}"/>, <see cref="AppKitAccountOptions"/>, and the refresh token
+    /// service that a password change uses to end the sessions. Register erasers and handlers as scoped services.
     /// </summary>
     public static IServiceCollection AddAppKitAccounts<TUser, TContext>(this IServiceCollection services, Action<AppKitAccountOptions>? configure = null)
         where TUser : IdentityUser, IAppKitAccount
@@ -82,6 +82,7 @@ public static class AccountServiceCollectionExtensions
         services.AddMemoryCache();
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddScoped<IAccountDeleter<TUser>, AccountDeleter<TUser, TContext>>();
+        services.TryAddScoped<IRefreshTokenService, RefreshTokenService<TContext>>();
         return services;
     }
 }

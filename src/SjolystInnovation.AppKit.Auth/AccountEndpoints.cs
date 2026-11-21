@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace SjolystInnovation.AppKit.Auth;
@@ -25,7 +26,7 @@ internal sealed record AccountExport(AccountProfile Account, IList<string> Roles
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] object? Data);
 
 /// <summary>Maps the account endpoints.</summary>
-public static class AccountEndpointsExtensions
+public static partial class AccountEndpointsExtensions
 {
     /// <summary>
     /// Maps the account endpoints for signed-in users under <paramref name="prefix"/>: <c>GET</c> and
@@ -33,19 +34,27 @@ public static class AccountEndpointsExtensions
     /// The user or an admin may call them, except that only the user can change their own password.
     /// Deleting goes through <see cref="IAccountDeleter{TUser}"/>, so you must register
     /// <see cref="AccountServiceCollectionExtensions.AddAppKitAccounts{TUser, TContext}"/>. The admin role
-    /// comes from its options.
+    /// comes from its options. A password change ends every session of the user, so each device signs in
+    /// again.
     /// </summary>
     public static RouteGroupBuilder MapAppKitAccount<TUser>(this IEndpointRouteBuilder endpoints, string prefix = "/api/users")
         where TUser : IdentityUser, IAppKitAccount
     {
         ArgumentNullException.ThrowIfNull(endpoints);
+        var logger = endpoints.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("SjolystInnovation.AppKit.Auth.Account");
         var group = endpoints.MapGroup(prefix).RequireAuthorization();
         group.MapGet("{id}/profile", (string id, HttpContext http) => AccountHandlers<TUser>.GetAsync(id, http));
         group.MapPut("{id}/profile", (string id, UpdateProfileRequest request, HttpContext http) => AccountHandlers<TUser>.UpdateAsync(id, request, http));
-        group.MapPut("{id}/password", (string id, ChangePasswordRequest request, HttpContext http) => AccountHandlers<TUser>.ChangePasswordAsync(id, request, http));
+        group.MapPut("{id}/password", (string id, ChangePasswordRequest request, HttpContext http) => AccountHandlers<TUser>.ChangePasswordAsync(id, request, http, logger));
         group.MapGet("{id}/export", (string id, HttpContext http) => AccountHandlers<TUser>.ExportAsync(id, http));
         group.MapDelete("{id}/account", (string id, HttpContext http) => AccountHandlers<TUser>.DeleteAsync(id, http));
         return group;
+    }
+
+    internal static partial class Log
+    {
+        [LoggerMessage(Level = LogLevel.Information, Message = "Password changed for user {UserId}, which signed out {Sessions} session(s).")]
+        public static partial void PasswordChanged(ILogger logger, string userId, int sessions);
     }
 }
 
@@ -94,7 +103,7 @@ internal static class AccountHandlers<TUser>
         return result.Succeeded ? TypedResults.Ok(Profile(user)) : AuthResults.Error(AuthErrorCodes.ProfileUpdateFailed, "Failed to update profile.", StatusCodes.Status400BadRequest);
     }
 
-    public static async Task<IResult> ChangePasswordAsync(string id, ChangePasswordRequest request, HttpContext http)
+    public static async Task<IResult> ChangePasswordAsync(string id, ChangePasswordRequest request, HttpContext http, ILogger logger)
     {
         var errors = new AuthFieldErrors();
         if (string.IsNullOrWhiteSpace(request.CurrentPassword))
@@ -108,9 +117,13 @@ internal static class AccountHandlers<TUser>
         if (refusal is not null)
             return refusal;
         var result = await Get<UserManager<TUser>>(http).ChangePasswordAsync(user!, request.CurrentPassword!, request.NewPassword!);
-        return result.Succeeded
-            ? TypedResults.Ok(new MessageResponse("Password changed."))
-            : new AuthFieldErrors().Password("NewPassword", result.Errors, Get<IOptions<IdentityOptions>>(http).Value.Password.RequiredLength, currentField: "CurrentPassword").ToResult();
+        if (!result.Succeeded)
+            return new AuthFieldErrors().Password("NewPassword", result.Errors, Get<IOptions<IdentityOptions>>(http).Value.Password.RequiredLength, currentField: "CurrentPassword").ToResult();
+
+        // A new password ends every session, the caller's included, so a session that someone took over cannot continue.
+        var sessions = await Get<IRefreshTokenService>(http).RevokeAllForUserAsync(user!.Id, http.RequestAborted);
+        AccountEndpointsExtensions.Log.PasswordChanged(logger, user.Id, sessions);
+        return TypedResults.Ok(new MessageResponse("Password changed."));
     }
 
     public static async Task<IResult> ExportAsync(string id, HttpContext http)

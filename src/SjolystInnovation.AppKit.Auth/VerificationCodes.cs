@@ -69,6 +69,9 @@ internal static class PasswordResetCodes
     /// <summary>How long a reset code lasts by default. 30 minutes.</summary>
     public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(30);
 
+    /// <summary>How long a code that has used up its attempts blocks a new code.</summary>
+    public static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(15);
+
     /// <summary>
     /// Stores the hash of a new code and returns the code. The code is valid for 30 minutes, or for
     /// <paramref name="lifetime"/> when given, for example a longer one for an invitation.
@@ -83,6 +86,24 @@ internal static class PasswordResetCodes
         return code;
     }
 
+    /// <summary>
+    /// Whether a new code may be issued. It may when there is no live code, when the live code was issued
+    /// at least <paramref name="cooldown"/> ago, or when the live code outlasts the default lifetime, as
+    /// an invitation does, because its issue time cannot be read from its expiry. It may not once the
+    /// live code has used up its attempts, until that code expires, which is after the lock time at the latest.
+    /// </summary>
+    public static bool CanIssue<TUser>(TUser user, TimeSpan cooldown, TimeProvider? time = null) where TUser : IdentityUser, IPasswordResetUser
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        var now = (time ?? TimeProvider.System).GetUtcNow().UtcDateTime;
+        if (user.PasswordResetCodeHash is null || user.PasswordResetCodeExpiration is not { } expires || expires <= now)
+            return true;
+        if (user.PasswordResetAttempts >= VerificationCodes.MaxAttempts)
+            return false;
+        var issued = expires - Lifetime;
+        return issued > now || now - issued >= cooldown;
+    }
+
     /// <summary>Checks a code. A wrong or expired code counts as an attempt.</summary>
     public static CodeCheck Check<TUser>(TUser user, string code, TimeProvider? time = null) where TUser : IdentityUser, IPasswordResetUser
     {
@@ -92,6 +113,14 @@ internal static class PasswordResetCodes
         if (!VerificationCodes.Matches(user.PasswordResetCodeHash, user.PasswordResetCodeExpiration, code, time))
         {
             user.PasswordResetAttempts++;
+            // A code that has used up its attempts expires after the lock time at the latest, so a new code
+            // can be asked for then, however long the code was meant to live.
+            if (user.PasswordResetAttempts >= VerificationCodes.MaxAttempts)
+            {
+                var lockedUntil = (time ?? TimeProvider.System).GetUtcNow().UtcDateTime.Add(LockDuration);
+                if (user.PasswordResetCodeExpiration is not { } expires || expires > lockedUntil)
+                    user.PasswordResetCodeExpiration = lockedUntil;
+            }
             return CodeCheck.Invalid;
         }
         return CodeCheck.Valid;

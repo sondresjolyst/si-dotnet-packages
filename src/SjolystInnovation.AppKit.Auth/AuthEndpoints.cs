@@ -51,7 +51,7 @@ public static partial class AuthEndpointsExtensions
     /// Identity with a <see cref="SignInManager{TUser}"/>, <see cref="AuthServiceCollectionExtensions.AddAppKitAuth{TContext}"/>,
     /// and an <see cref="IAuthEmails{TUser}"/>. An error returns a <c>message</c> and a <c>code</c>. A
     /// missing or malformed field, or a password Identity rejects, returns a validation problem with a
-    /// code for each field error. <see cref="AuthErrorCodes"/> lists the codes.
+    /// code for each field error. A reset whose result cannot be saved answers 409 <c>tryAgain</c>. <see cref="AuthErrorCodes"/> lists the codes.
     /// </summary>
     public static RouteGroupBuilder MapAppKitAuth<TUser, TContext>(this IEndpointRouteBuilder endpoints,
         string prefix = "/api/auth", Action<AppKitAuthEndpointOptions<TUser>>? configure = null)
@@ -191,20 +191,21 @@ internal sealed class AuthHandlers<TUser, TContext>(AppKitAuthEndpointOptions<TU
 
     public async Task<IResult> RequestResetAsync(PasswordResetRequest request, HttpContext http)
     {
-        var (users, emails) = (Get<UserManager<TUser>>(http), Get<IAuthEmails<TUser>>(http));
+        var (users, emails, time) = (Get<UserManager<TUser>>(http), Get<IAuthEmails<TUser>>(http), Get<TimeProvider>(http));
         if (Validate(("Email", request.Email, true)) is { } invalid)
             return invalid;
 
         var user = await users.FindByEmailAsync(request.Email!);
-        if (Active(user))
+        if (Active(user) && PasswordResetCodes.CanIssue(user!, Get<IOptions<AppKitAuthOptions>>(http).Value.ResetCodeCooldown, time))
         {
-            var code = PasswordResetCodes.Issue(user!);
+            var code = PasswordResetCodes.Issue(user!, time);
             await users.UpdateAsync(user!);
             await emails.SendPasswordResetAsync(user!, code, http.RequestAborted);
             AuthEndpointsExtensions.Log.ResetRequested(logger, user!.Id);
         }
 
-        // An unknown address gets the same response, so the endpoint does not reveal who has an account.
+        // An unknown address, or one that gets no new code yet, gets the same response, so the endpoint does
+        // not reveal who has an account.
         return TypedResults.Ok(new MessageResponse("If this email is registered, a reset code has been sent."));
     }
 
@@ -223,20 +224,26 @@ internal sealed class AuthHandlers<TUser, TContext>(AppKitAuthEndpointOptions<TU
             case CodeCheck.TooManyAttempts:
                 return Error(AuthErrorCodes.TooManyResetAttempts, "Too many attempts. Request a new reset code.", StatusCodes.Status429TooManyRequests);
             case CodeCheck.Invalid:
-                await users.UpdateAsync(user!);
+                // Only a request whose attempt was stored learns that the code was wrong.
+                if (!(await users.UpdateAsync(user!)).Succeeded)
+                    return AuthResults.TryAgain();
                 return Error(AuthErrorCodes.InvalidResetCode, InvalidResetCode, StatusCodes.Status400BadRequest);
         }
 
         var token = await users.GeneratePasswordResetTokenAsync(user!);
         var result = await users.ResetPasswordAsync(user!, token, request.NewPassword!);
+        if (result.Errors.Any(e => e.Code == nameof(IdentityErrorDescriber.ConcurrencyFailure)))
+            return AuthResults.TryAgain();
         if (!result.Succeeded)
             return new AuthFieldErrors().Password("NewPassword", result.Errors, Get<IOptions<IdentityOptions>>(http).Value.Password.RequiredLength).ToResult();
 
         PasswordResetCodes.Complete(user!);
-        await users.UpdateAsync(user!);
+        var completed = await users.UpdateAsync(user!);
         // A new password ends every session, so a session that someone took over cannot continue.
         var sessions = await refreshTokens.RevokeAllForUserAsync(user!.Id, http.RequestAborted);
         AuthEndpointsExtensions.Log.PasswordReset(logger, user.Id, sessions);
+        if (!completed.Succeeded)
+            return AuthResults.TryAgain();
         return TypedResults.Ok(new MessageResponse("Password reset successfully."));
     }
 }
