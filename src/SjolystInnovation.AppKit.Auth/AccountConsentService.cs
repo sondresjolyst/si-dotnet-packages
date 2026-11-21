@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 
@@ -10,9 +11,18 @@ internal interface IPendingConsentReader
     Task<IReadOnlyList<PendingConsent>> GetPendingAsync(string userId, CancellationToken cancellationToken = default);
 }
 
+/// <summary>One consent row of the account export. The shortened IP address is never part of it.</summary>
+internal sealed record ConsentExportRow(string Document, string Version, DateTime AcceptedAt, string Source, string? Locale);
+
+// Lists the consent rows of a user for the account export. Registered only when the app opted in to sign-up.
+internal interface IAccountConsentExporter
+{
+    Task<IReadOnlyList<ConsentExportRow>> ExportAsync(string userId, CancellationToken cancellationToken);
+}
+
 // Records acceptances and tells whether a user must accept a document again. Time comes from the TimeProvider.
 // The requirement rows are cached for a short time when a cache is given. Marking a requirement clears them.
-internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider time, IMemoryCache? cache = null, IConsentVersionSource? versions = null) : IPendingConsentReader
+internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider time, IMemoryCache? cache = null, IConsentVersionSource? versions = null) : IPendingConsentReader, IAccountConsentExporter
     where TContext : DbContext, IAccountConsentDbContext
 {
     internal const string RequirementsCacheKey = "SjolystInnovation.AppKit.Auth:consent-requirements";
@@ -53,6 +63,16 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
                 return false;
             throw;
         }
+    }
+
+    // The time is stored in UTC, and the export says so, whatever kind the provider gives back.
+    public async Task<IReadOnlyList<ConsentExportRow>> ExportAsync(string userId, CancellationToken cancellationToken)
+    {
+        var rows = await db.AccountConsents.AsNoTracking()
+            .Where(c => c.UserId == userId)
+            .OrderBy(c => c.AcceptedAt).ThenBy(c => c.Id)
+            .ToListAsync(cancellationToken);
+        return [.. rows.Select(c => new ConsentExportRow(c.Document, c.Version, DateTime.SpecifyKind(c.AcceptedAt, DateTimeKind.Utc), c.Source, c.Locale))];
     }
 
     // Every acceptance of the user, grouped by document.
@@ -140,4 +160,21 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
 
     private Task<bool> ExistsAsync(string userId, string document, string version, CancellationToken cancellationToken) =>
         db.AccountConsents.AsNoTracking().AnyAsync(c => c.UserId == userId && c.Document == document && c.Version == version, cancellationToken);
+}
+
+// Runs inside the account deletion. The consent rows stay as proof of what the user accepted, but the shortened IP address
+// and the locale are personal data and are cleared. Registered only when the app opted in to sign-up.
+internal sealed class AccountConsentEraser<TUser, TContext>(TContext db) : IAccountDataEraser<TUser>
+    where TUser : IdentityUser
+    where TContext : DbContext, IAccountConsentDbContext
+{
+    public async Task EraseAsync(TUser user, CancellationToken cancellationToken)
+    {
+        foreach (var row in await db.AccountConsents.Where(c => c.UserId == user.Id && (c.Ip != null || c.Locale != null)).ToListAsync(cancellationToken))
+        {
+            row.Ip = null;
+            row.Locale = null;
+        }
+        await db.SaveChangesAsync(cancellationToken);
+    }
 }
