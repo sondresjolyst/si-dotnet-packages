@@ -55,8 +55,8 @@ public sealed class AppKitRegistrationOptions<TUser>
     /// <summary>
     /// The most sign-ups per network and UTC day. The network is the caller's address cut to its first three parts for IPv4 and
     /// its first 48 bits for IPv6, and kept only as a hash. Every register request that passes the checks counts, whether or not
-    /// its email has an account. Over the cap register still answers its normal 200 body and does nothing, so no account is made
-    /// and no email is sent. An app behind a proxy must set up forwarded headers, as the rate limiter needs, or every caller
+    /// its email has an account. Over the cap register answers 429 <c>tooManyRequests</c> and does nothing, so no account is made
+    /// and no email is sent. The count comes before the lookup by email, so the answer never depends on the email. An app behind a proxy must set up forwarded headers, as the rate limiter needs, or every caller
     /// shares the address of the proxy. Shared networks, such as mobile carriers, can reach the cap, so an app may raise it.
     /// Defaults to 20.
     /// </summary>

@@ -409,7 +409,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
     private List<string> Emails() => Db(db => db.Users.Select(u => u.Email!).OrderBy(e => e).ToList());
 
     [Fact]
-    public async Task Over_the_network_cap_register_answers_the_same_and_does_nothing()
+    public async Task Over_the_network_cap_register_answers_429_tooManyRequests_and_does_nothing()
     {
         await StartAsync(o => o.MaxSignUpsPerNetworkPerDay = 2, remoteIp: IPAddress.Parse("203.0.113.10"));
 
@@ -417,10 +417,11 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
         var second = await RegisterAsync(Body(NetworkEmail(2)));
         var third = await RegisterAsync(Body(NetworkEmail(3)));
 
-        Assert.Equal(HttpStatusCode.OK, third.StatusCode);
-        Assert.Equal(first.StatusCode, third.StatusCode);
-        Assert.Equal(await TextAsync(first), await TextAsync(third));
-        Assert.Equal(await TextAsync(second), await TextAsync(third));
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, third.StatusCode);
+        Assert.Equal("tooManyRequests", await ErrorJson.CodeAsync(third));
+        Assert.Equal(["message", "code"], JsonElement.Parse(await TextAsync(third)).EnumerateObject().Select(p => p.Name).ToArray());
         Assert.Equal([NetworkEmail(1), NetworkEmail(2)], Emails());
         Assert.Equal(2, _emails.Total);
     }
@@ -435,7 +436,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
         await RegisterAsync(Body(NetworkEmail(1)));
         var over = await RegisterAsync(Body(NetworkEmail(2)));
 
-        Assert.Equal(HttpStatusCode.OK, over.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, over.StatusCode);
         Assert.Equal([NetworkEmail(1), "taken@example.invalid"], Emails());
         Assert.Equal(2, _emails.Total);
     }
@@ -448,8 +449,10 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
 
         await RegisterAsync(Body(NetworkEmail(1)));
         var over = await RegisterAsync(Body("taken@example.invalid"));
+        var overNew = await RegisterAsync(Body(NetworkEmail(2)));
 
-        Assert.Equal(HttpStatusCode.OK, over.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, over.StatusCode);
+        Assert.Equal(await TextAsync(overNew), await TextAsync(over));
         Assert.Empty(_emails.AlreadyRegistered);
         Assert.Single(_emails.Verifications);
     }
