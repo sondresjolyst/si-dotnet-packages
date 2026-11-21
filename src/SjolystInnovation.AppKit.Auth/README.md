@@ -763,7 +763,7 @@ the owner cap. Over the cap it waits for a later run. The run also deletes the e
 yesterday. One failing account is logged and does not stop the run.
 
 A hosted service runs it at startup and once a day. To use your own scheduler, set
-`RunCleanupInBackground` to `false` and call it. The result holds `Removed`, `Reminded`, and `Failed`.
+`RunCleanupInBackground` to `false` and call it. The result holds `Removed`, `Reminded`, `Failed`, and `Skipped`. A skipped account is one that another host removed or changed at the same moment.
 
 ```csharp
 var cleanup = app.Services.GetRequiredService<IUnverifiedAccountCleanup>();
