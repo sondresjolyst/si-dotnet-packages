@@ -128,7 +128,7 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
 
     private Task<UnverifiedCleanupResult> RunAsync() => Cleanup.RunOnceAsync();
 
-    private static void SeedUser(IHost host, string id, TimeSpan age, DateTime now, bool verified, bool deleted = false, string? code = null, TimeSpan? codeExpiresIn = null)
+    private static void SeedUser(IHost host, string id, TimeSpan age, DateTime now, bool verified, bool deleted = false, string? code = null, TimeSpan? codeExpiresIn = null, string? consentSource = "register")
     {
         using var scope = host.Services.CreateScope();
         var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityTestUser>>();
@@ -144,13 +144,14 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
         Assert.True(users.CreateAsync(user).GetAwaiter().GetResult().Succeeded);
         var db = scope.ServiceProvider.GetRequiredService<RegistrationTestDbContext>();
         db.RefreshTokens.Add(new RefreshToken { Token = $"token-{id}", UserId = id, Created = now - age, Expires = now.AddDays(30) });
-        db.AccountConsents.Add(new AccountConsent { UserId = id, Document = "terms", Version = "v1", Source = "register", AcceptedAt = now - age });
+        if (consentSource is not null)
+            db.AccountConsents.Add(new AccountConsent { UserId = id, Document = "terms", Version = "v1", Source = consentSource, AcceptedAt = now - age });
         db.SaveChanges();
     }
 
-    private Task SeedAsync(string id, TimeSpan age, bool verified = false, bool deleted = false, string? code = null, TimeSpan? codeExpiresIn = null)
+    private Task SeedAsync(string id, TimeSpan age, bool verified = false, bool deleted = false, string? code = null, TimeSpan? codeExpiresIn = null, string? consentSource = "register")
     {
-        SeedUser(_host!, id, age, Now, verified, deleted, code, codeExpiresIn);
+        SeedUser(_host!, id, age, Now, verified, deleted, code, codeExpiresIn, consentSource);
         return Task.CompletedTask;
     }
 
@@ -192,6 +193,33 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
         Assert.Empty(Db(db => db.AccountConsents.Where(c => c.UserId == "old").ToList()));
         using var scope = _host!.Services.CreateScope();
         Assert.Null(await scope.ServiceProvider.GetRequiredService<UserManager<IdentityTestUser>>().FindByEmailAsync("old@example.invalid"));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("migration")]
+    [InlineData("reaccept")]
+    public async Task An_old_unverified_account_without_a_sign_up_consent_is_never_touched(string? consentSource)
+    {
+        await StartAsync();
+        await SeedAsync("older", Lifetime + TimeSpan.FromDays(400), consentSource: consentSource);
+
+        var result = await RunAsync();
+
+        Assert.Equal(new UnverifiedCleanupResult(0, 0, 0), result);
+        Assert.True(Exists("older"));
+        Assert.Empty(_erased);
+    }
+
+    [Fact]
+    public async Task A_young_unverified_account_without_a_sign_up_consent_gets_no_reminder()
+    {
+        await StartAsync();
+        await SeedAsync("u1", TimeSpan.Zero, consentSource: null);
+        _time.Advance(TimeSpan.FromDays(16));
+
+        Assert.Equal(new UnverifiedCleanupResult(0, 0, 0), await RunAsync());
+        Assert.Empty(_emails.Reminders);
     }
 
     [Fact]

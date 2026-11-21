@@ -22,11 +22,11 @@ public interface IRemovalReminderUser
 /// <param name="Failed">How many accounts failed and were left as they were.</param>
 public sealed record UnverifiedCleanupResult(int Removed, int Reminded, int Failed);
 
-/// <summary>Removes accounts whose email is never verified, and reminds their owners first.</summary>
+/// <summary>Removes accounts that came through the sign-up and never verified their email, and reminds their owners first.</summary>
 public interface IUnverifiedAccountCleanup
 {
     /// <summary>
-    /// Runs the cleanup once. It removes every active account whose email is still unconfirmed when it is older than
+    /// Runs the cleanup once. It removes every active account that holds a consent row with the source <c>register</c> and whose email is still unconfirmed when it is older than
     /// <see cref="AppKitRegistrationOptions{TUser}.UnverifiedLifetime"/>, each in its own transaction, after every
     /// <see cref="IAccountDataEraser{TUser}"/> has run. The user is deleted for real, so its refresh tokens and consents
     /// go with it and the email is free again. An account with a live verification code is kept until the code has
@@ -55,6 +55,9 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
 {
     // An owner who asks for codes keeps the account for at most this long after its removal time.
     internal static readonly TimeSpan Grace = TimeSpan.FromDays(1);
+
+    // The consent source that the sign-up writes. Only an account with such a row came through the sign-up.
+    private const string SignUpSource = "register";
 
     private readonly bool _canRemind = CheckReminders(options.Value, logger);
 
@@ -120,7 +123,7 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
     {
         using var scope = services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<TContext>();
-        return await db.Set<TUser>().AsNoTracking().Where(u => !u.EmailConfirmed && !u.IsDeleted).Where(filter).Select(u => u.Id).ToListAsync(cancellationToken);
+        return await db.Set<TUser>().AsNoTracking().Where(u => !u.EmailConfirmed && !u.IsDeleted && db.AccountConsents.Any(c => c.UserId == u.Id && c.Source == SignUpSource)).Where(filter).Select(u => u.Id).ToListAsync(cancellationToken);
     }
 
     // Loads the account again inside its own transaction. It is skipped when it is now confirmed or deleted, when it is not
@@ -135,7 +138,8 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
         var users = scope.ServiceProvider.GetRequiredService<UserManager<TUser>>();
 
         await using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
-        if (await users.FindByIdAsync(userId) is not { EmailConfirmed: false, IsDeleted: false } user || user.CreatedAt >= now - lifetime)
+        if (await users.FindByIdAsync(userId) is not { EmailConfirmed: false, IsDeleted: false } user || user.CreatedAt >= now - lifetime
+            || !await CameThroughSignUpAsync(db, userId, cancellationToken))
             return CleanupOutcome.Skipped;
         if (user.EmailVerificationCodeExpiration > now && user.CreatedAt >= now - lifetime - Grace)
             return CleanupOutcome.Skipped;
@@ -163,7 +167,8 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
         using var scope = services.CreateScope();
         var users = scope.ServiceProvider.GetRequiredService<UserManager<TUser>>();
 
-        if (await users.FindByIdAsync(userId) is not { EmailConfirmed: false, IsDeleted: false } user || user is not IRemovalReminderUser reminder)
+        if (await users.FindByIdAsync(userId) is not { EmailConfirmed: false, IsDeleted: false } user || user is not IRemovalReminderUser reminder
+            || !await CameThroughSignUpAsync(scope.ServiceProvider.GetRequiredService<TContext>(), userId, cancellationToken))
             return CleanupOutcome.Skipped;
         var removalAt = user.CreatedAt + settings.UnverifiedLifetime;
         if (removalAt <= now)
@@ -191,6 +196,9 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
         Log.Reminded(logger, userId);
         return CleanupOutcome.Reminded;
     }
+
+    private static Task<bool> CameThroughSignUpAsync(TContext db, string userId, CancellationToken cancellationToken) =>
+        db.AccountConsents.AsNoTracking().AnyAsync(c => c.UserId == userId && c.Source == SignUpSource, cancellationToken);
 
     private static partial class Log
     {
