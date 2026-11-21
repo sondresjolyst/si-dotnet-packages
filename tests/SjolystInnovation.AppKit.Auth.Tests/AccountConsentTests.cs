@@ -257,6 +257,16 @@ public sealed class AccountConsentTests : IDisposable
     }
 
     [Fact]
+    public void An_acceptance_with_the_unversioned_marker_never_meets_a_requirement()
+    {
+        var requirement = Requirement("v2", Start, Start);
+
+        Assert.True(MustAccept([(AccountConsent.Unversioned, Start.AddDays(1))], null, Start.AddDays(2), requirement));
+        Assert.True(MustAccept([(AccountConsent.Unversioned, Start.AddDays(1))], AccountConsent.Unversioned, Start.AddDays(2), requirement));
+        Assert.True(MustAccept([(AccountConsent.Unversioned, Start.AddDays(1))], null, Start.AddDays(2), Requirement(AccountConsent.Unversioned, Start, Start)));
+    }
+
+    [Fact]
     public async Task A_user_who_accepted_a_version_before_the_app_marked_it_is_not_pending()
     {
         await using (var db = NewContext())

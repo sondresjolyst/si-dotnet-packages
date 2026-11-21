@@ -88,10 +88,13 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
         }
     }
 
-    private sealed class FixedVersions(string? version) : IConsentVersionSource
+    private sealed class FixedVersions(string? version, List<string?>? locales = null) : IConsentVersionSource
     {
-        public Task<string?> GetCurrentVersionAsync(string document, string? locale, CancellationToken cancellationToken) =>
-            Task.FromResult(document == "terms" ? version : null);
+        public Task<string?> GetCurrentVersionAsync(string document, string? locale, CancellationToken cancellationToken)
+        {
+            locales?.Add(locale);
+            return Task.FromResult(document == "terms" ? version : null);
+        }
     }
 
     private sealed class CountingHasher : PasswordHasher<IdentityTestUser>
@@ -142,6 +145,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
     private readonly FakeRegistrationEmails _emails = new();
     private readonly CountingHasher _hasher = new();
     private readonly RaceInterceptor _race = new();
+    private readonly List<string?> _locales = [];
     private readonly FakeTimeProvider _time = new(DateTimeOffset.UtcNow);
     private readonly FakeLogCollector _logs = new();
     private IHost? _host;
@@ -186,7 +190,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
                     });
                     s.AddSingleton<IRegistrationEmails<IdentityTestUser>>(_emails);
                     if (versionSource)
-                        s.AddSingleton<IConsentVersionSource>(new FixedVersions(termsVersion));
+                        s.AddSingleton<IConsentVersionSource>(new FixedVersions(termsVersion, _locales));
                     if (handler)
                         s.AddScoped<IRegistrationHandler<IdentityTestUser>, ProfileHandler>();
                     if (throwingHandler)
@@ -517,25 +521,25 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task A_source_that_returns_null_accepts_any_version_as_sent()
+    public async Task A_source_that_returns_null_accepts_any_version_and_stores_the_unversioned_marker()
     {
         await StartAsync(termsVersion: null);
 
         var response = await RegisterAsync(Body(NewEmail, ("termsVersion", "whatever")));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("whatever", Db(db => db.AccountConsents.Single(c => c.Document == "terms").Version));
+        Assert.Equal(AccountConsent.Unversioned, Db(db => db.AccountConsents.Single(c => c.Document == "terms").Version));
     }
 
     [Fact]
-    public async Task No_version_source_is_treated_as_null()
+    public async Task No_version_source_is_treated_as_null_and_stores_the_unversioned_marker()
     {
         await StartAsync(versionSource: false);
 
         var response = await RegisterAsync(Body(NewEmail, ("termsVersion", "any")));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("any", Db(db => db.AccountConsents.Single(c => c.Document == "terms").Version));
+        Assert.Equal(AccountConsent.Unversioned, Db(db => db.AccountConsents.Single(c => c.Document == "terms").Version));
     }
 
     private async Task RequireAsync(string version, TimeSpan effectiveIn, string document = "terms")
@@ -609,6 +613,40 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal(0, _emails.Total);
+    }
+
+    [Fact]
+    public async Task An_acceptance_with_the_unversioned_marker_never_meets_a_requirement_that_comes_later()
+    {
+        await StartAsync(versionSource: false);
+        await RegisterAsync(Body(NewEmail, ("termsVersion", "v3")));
+        var userId = Db(db => db.Users.Single().Id);
+        await RequireAsync("v3", TimeSpan.Zero);
+
+        using var scope = _host!.Services.CreateScope();
+        var pending = await scope.ServiceProvider.GetRequiredService<AccountConsentService<RegistrationTestDbContext>>().GetPendingAsync(userId);
+
+        Assert.Equal([new PendingConsent("terms", "v3")], pending);
+    }
+
+    [Fact]
+    public async Task A_requirement_cannot_be_marked_with_the_unversioned_marker()
+    {
+        await StartAsync(versionSource: false);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => RequireAsync(AccountConsent.Unversioned, TimeSpan.Zero));
+    }
+
+    [Fact]
+    public async Task The_version_source_is_asked_without_a_locale()
+    {
+        await StartAsync();
+
+        await RegisterAsync(Body(NewEmail, ("locale", "nb")));
+
+        Assert.NotEmpty(_locales);
+        Assert.All(_locales, Assert.Null);
+        Assert.Equal("nb", Db(db => db.AccountConsents.First(c => c.Document == "terms").Locale));
     }
 
     // Existing emails

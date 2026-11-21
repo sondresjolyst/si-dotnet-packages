@@ -134,8 +134,8 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
     {
         if (NewestInEffect(requirements, now) is not { } required)
             return false;
-        return !acceptances.Any(a => string.Equals(a.Version, required.Version, StringComparison.Ordinal)
-            || string.Equals(a.Version, currentVersion, StringComparison.Ordinal));
+        return !acceptances.Any(a => a.Version != AccountConsent.Unversioned
+            && (string.Equals(a.Version, required.Version, StringComparison.Ordinal) || string.Equals(a.Version, currentVersion, StringComparison.Ordinal)));
     }
 
     private Task<bool> ExistsAsync(string userId, string document, string version, CancellationToken cancellationToken) =>

@@ -159,7 +159,8 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
         if (errors.Any)
             return errors.ToResult();
 
-        // A requirement in effect decides the version, then the source. With neither, any version is stored as sent.
+        // A requirement in effect decides the version, then the source. With neither, the client's version is not stored and
+        // the unversioned marker is stored instead, so only a version the server knows is ever stored.
         var current = await Get<AccountConsentService<TContext>>(http).AcceptableVersionAsync(options.TermsDocument, notYetInEffect: false, cancellationToken);
         if (current is not null && !string.Equals(current, termsVersion, StringComparison.Ordinal))
             return AuthResults.Error(AuthErrorCodes.TermsChanged, "The terms have changed. Read the current terms and accept them again.", StatusCodes.Status409Conflict);
@@ -172,7 +173,7 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
             string? code;
             try
             {
-                var created = await CreateAsync(http, options, users, db, probe, password, registration, termsVersion);
+                var created = await CreateAsync(http, options, users, db, probe, password, registration, current ?? AccountConsent.Unversioned);
                 if (created.Problem is { } problem)
                     return problem;
                 code = created.Code;

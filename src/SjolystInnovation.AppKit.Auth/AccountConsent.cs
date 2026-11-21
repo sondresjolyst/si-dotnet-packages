@@ -8,6 +8,14 @@ namespace SjolystInnovation.AppKit.Auth;
 /// </summary>
 public class AccountConsent
 {
+    /// <summary>
+    /// The version that a sign-up stores for the terms when the app gave it no version to store, which is when
+    /// <see cref="IConsentVersionSource"/> has none and no requirement is in effect. The version the client sent is not
+    /// stored then. An acceptance with this version never meets a requirement, so the user must accept once the app
+    /// marks one. Its value is <c>unversioned</c>.
+    /// </summary>
+    public const string Unversioned = "unversioned";
+
     /// <summary>The row id.</summary>
     public int Id { get; set; }
     /// <summary>The id of the user who accepted.</summary>

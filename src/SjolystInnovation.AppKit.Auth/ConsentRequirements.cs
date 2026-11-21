@@ -12,6 +12,8 @@ internal sealed class ConsentRequirements<TContext>(TContext db, TimeProvider ti
     {
         ArgumentException.ThrowIfNullOrEmpty(document);
         ArgumentException.ThrowIfNullOrEmpty(version);
+        if (version == AccountConsent.Unversioned)
+            throw new ArgumentException($"The version {AccountConsent.Unversioned} marks an acceptance that never meets a requirement.", nameof(version));
 
         if (!await ExistsAsync(document, version, cancellationToken))
         {

@@ -87,7 +87,13 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
     {
         public string? Current { get; set; } = "v2";
 
-        public Task<string?> GetCurrentVersionAsync(string document, string? locale, CancellationToken cancellationToken) => Task.FromResult(Current);
+        public List<string?> Locales { get; } = [];
+
+        public Task<string?> GetCurrentVersionAsync(string document, string? locale, CancellationToken cancellationToken)
+        {
+            Locales.Add(locale);
+            return Task.FromResult(Current);
+        }
     }
 
     private sealed class QuietEmails : IRegistrationEmails<IdentityTestUser>
@@ -288,6 +294,19 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
         var row = Assert.Single(Rows("u1"));
         Assert.Equal(("terms", "v2", "reaccept", "nb"), (row.Document, row.Version, row.Source, row.Locale));
         Assert.Equal(_time.GetUtcNow().UtcDateTime, row.AcceptedAt);
+    }
+
+    [Fact]
+    public async Task Accepting_asks_the_version_source_without_a_locale_and_stores_the_locale_as_sent()
+    {
+        await StartAsync();
+        await SeedAsync("u1");
+
+        await AcceptTermsAsync(new { termsVersion = "v2", locale = "nb" }, await TokenAsync("u1"));
+
+        Assert.NotEmpty(_version.Locales);
+        Assert.All(_version.Locales, Assert.Null);
+        Assert.Equal("nb", Assert.Single(Rows("u1")).Locale);
     }
 
     [Fact]

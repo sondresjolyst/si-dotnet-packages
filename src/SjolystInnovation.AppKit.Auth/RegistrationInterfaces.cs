@@ -5,7 +5,7 @@ public interface IConsentVersionSource
 {
     /// <summary>
     /// Returns the current version of <paramref name="document"/>, as a person sees it in <paramref name="locale"/>,
-    /// or null when the app has no such document. The sign-up then accepts any version and stores it as sent.
+    /// or null when the app has no such document. The sign-up and the accept-terms endpoint ask without a locale, because a requirement does not belong to one. With no version here and no requirement in effect, the sign-up stores <see cref="AccountConsent.Unversioned"/> and ignores the version the client sent.
     /// </summary>
     Task<string?> GetCurrentVersionAsync(string document, string? locale, CancellationToken cancellationToken);
 }
