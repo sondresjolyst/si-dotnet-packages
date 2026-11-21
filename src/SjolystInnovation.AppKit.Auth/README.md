@@ -671,7 +671,9 @@ how a version is made.
 
 ### Asking people to accept again
 
-When a document changes, publish the new text first. Then call `RequireAcceptanceAsync` on an injected
+When a document changes, publish the new text first, in every language the app serves. A person who
+accepts in a language whose text was not updated still meets the requirement, since acceptances are
+compared by time. Then call `RequireAcceptanceAsync` on an injected
 `IConsentRequirements`, without a transaction around it. Calling it twice with the same document and
 time changes nothing.
 

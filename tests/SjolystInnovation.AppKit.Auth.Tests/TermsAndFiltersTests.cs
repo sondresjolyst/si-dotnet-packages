@@ -124,10 +124,15 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
         // A source whose version differs per language. A locale it does not know gets the first language.
         public bool PerLocale { get; set; }
 
+        // A source that gives no version for a locale it does not know, and one for a request without a locale.
+        public bool NullForUnknownLocale { get; set; }
+
         public async Task<string?> GetCurrentVersionAsync(string document, string? locale, CancellationToken cancellationToken)
         {
             Locales.Add(locale);
             var current = PerLocale ? (locale == "en" ? "en-1" : "nb-1") : Current;
+            if (NullForUnknownLocale && locale is not null and not "nb" and not "en")
+                current = null;
             if (OnFirstRead is { } hook)
             {
                 OnFirstRead = null;
@@ -406,6 +411,28 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal("termsChanged", await ErrorJson.CodeAsync(response));
         Assert.Empty(Db(db => db.AccountConsents.ToList()));
+    }
+
+    [Fact]
+    public async Task A_locale_the_source_does_not_know_is_checked_against_the_version_without_a_locale()
+    {
+        await StartAsync();
+        _version.PerLocale = true;
+        _version.NullForUnknownLocale = true;
+        await SeedAsync("u1");
+        var token = await TokenAsync("u1");
+
+        var wrong = await AcceptTermsAsync(new { termsVersion = "anything", locale = "zz" }, token);
+        Assert.Equal(HttpStatusCode.Conflict, wrong.StatusCode);
+        Assert.Equal("termsChanged", await ErrorJson.CodeAsync(wrong));
+        Assert.Empty(Rows("u1"));
+
+        var right = await AcceptTermsAsync(new { termsVersion = "nb-1", locale = "zz" }, token);
+        Assert.Equal(HttpStatusCode.NoContent, right.StatusCode);
+        Assert.Equal("nb-1", Assert.Single(Rows("u1")).Version);
+
+        var signUp = await RegisterInAsync("new@example.invalid", "anything", "zz");
+        Assert.Equal(HttpStatusCode.Conflict, signUp.StatusCode);
     }
 
     [Theory]

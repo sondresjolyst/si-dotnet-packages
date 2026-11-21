@@ -34,9 +34,15 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
     private static readonly TimeSpan RequirementsCacheDuration = TimeSpan.FromSeconds(10);
 
     // The version of the document as a person sees it in the locale, or null when the app has no source or the source gives none.
+    // A source that gives no version for a locale is asked again with no locale, so a locale the app does not know
+    // is checked against the version every person gets by default, never against nothing.
     public async Task<string?> CurrentVersionAsync(string document, string? locale, CancellationToken cancellationToken = default)
     {
-        var current = versions is null ? null : await versions.GetCurrentVersionAsync(document, locale, cancellationToken);
+        if (versions is null)
+            return null;
+        var current = await versions.GetCurrentVersionAsync(document, locale, cancellationToken);
+        if (string.IsNullOrEmpty(current) && locale is not null)
+            current = await versions.GetCurrentVersionAsync(document, null, cancellationToken);
         return string.IsNullOrEmpty(current) ? null : current;
     }
 
