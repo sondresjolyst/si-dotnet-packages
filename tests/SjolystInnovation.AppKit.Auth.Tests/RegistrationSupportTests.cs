@@ -31,17 +31,6 @@ public class IpShorteningTests
 
 public class RegistrationEmailsTests
 {
-    private sealed class FakeVerificationEmails : IVerificationEmails<IdentityTestUser>
-    {
-        public List<(string UserId, string Code)> Sent { get; } = [];
-
-        public Task SendEmailVerificationAsync(IdentityTestUser user, string code, CancellationToken cancellationToken)
-        {
-            Sent.Add((user.Id, code));
-            return Task.CompletedTask;
-        }
-    }
-
     private sealed class FakeSender : IEmailSender
     {
         public List<EmailMessage> Sent { get; } = [];
@@ -60,39 +49,72 @@ public class RegistrationEmailsTests
 
     private static readonly DateTime RemovalAt = new(2026, 12, 5, 9, 30, 0, DateTimeKind.Utc);
 
-    private static (RegistrationEmails<IdentityTestUser> Emails, FakeVerificationEmails Inner, FakeSender Sender) Build(Action<AppKitAuthEmailOptions>? configure = null)
+    private static (RegistrationEmails<IdentityTestUser> Emails, FakeSender Sender) Build(Action<AppKitAuthEmailOptions>? configure = null)
     {
-        var inner = new FakeVerificationEmails();
         var sender = new FakeSender();
         var options = new AppKitAuthEmailOptions { SetPasswordUrl = "https://app.example/reset-password", VerifyEmailUrl = "https://app.example/profile" };
         configure?.Invoke(options);
-        return (new RegistrationEmails<IdentityTestUser>(inner, sender, new FakeBrand(), Options.Create(options)), inner, sender);
+        return (new RegistrationEmails<IdentityTestUser>(sender, new FakeBrand(), Options.Create(options), TimeProvider.System), sender);
     }
 
     private static IdentityTestUser User() => new() { Id = "u1", Email = "kari+test@example.no", FirstName = "Kari" };
 
-    [Fact]
-    public async Task The_verification_email_goes_through_IVerificationEmails()
+    [Theory]
+    [InlineData("Kari")]
+    [InlineData("<b>Kari</b>")]
+    public async Task The_verification_email_uses_the_neutral_greeting_whatever_name_the_user_holds(string firstName)
     {
-        var (emails, inner, sender) = Build();
+        var (emails, sender) = Build();
+        var user = User();
+        user.FirstName = firstName;
+        var expires = EmailVerificationCodes.Lifetime;
+        user.EmailVerificationCodeExpiration = DateTime.UtcNow + expires;
 
-        await emails.SendVerificationAsync(new IdentityTestUser { Id = "u1" }, "ABC123", "nb", CancellationToken.None);
+        await emails.SendVerificationAsync(user, "ABC123", "nb", CancellationToken.None);
 
-        Assert.Equal([("u1", "ABC123")], inner.Sent);
-        Assert.Empty(sender.Sent);
+        var email = Assert.Single(sender.Sent);
+        Assert.Equal("kari+test@example.no", email.To);
+        Assert.Equal("Verify your email", email.Subject);
+        Assert.Contains(">Hi,</p>", email.HtmlBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("Kari", email.HtmlBody, StringComparison.Ordinal);
+        Assert.Contains(">ABC123</div>", email.HtmlBody, StringComparison.Ordinal);
+        Assert.Contains("<a href=\"https://app.example/profile?email=kari%2Btest%40example.no&amp;code=ABC123\"", email.HtmlBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_verification_email_without_a_verify_page_fails_with_a_message_that_names_the_option()
+    {
+        var (emails, _) = Build(o => o.VerifyEmailUrl = string.Empty);
+        var user = User();
+        user.EmailVerificationCodeExpiration = DateTime.UtcNow + EmailVerificationCodes.Lifetime;
+
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => emails.SendVerificationAsync(user, "ABC123", null, CancellationToken.None));
+
+        Assert.Contains("VerifyEmailUrl", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_removal_reminder_uses_the_neutral_greeting_whatever_name_the_user_holds()
+    {
+        var (emails, sender) = Build();
+
+        await emails.SendRemovalReminderAsync(User(), "AB12CD", RemovalAt, null, CancellationToken.None);
+
+        var email = Assert.Single(sender.Sent);
+        Assert.Contains(">Hi,</p>", email.HtmlBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("Kari", email.HtmlBody, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task The_already_registered_email_has_no_code_and_links_to_the_reset_page()
     {
-        var (emails, inner, sender) = Build();
+        var (emails, sender) = Build();
         var user = User();
         EmailVerificationCodes.Issue(user);
 
         await emails.SendAlreadyRegisteredAsync(user, "nb", CancellationToken.None);
 
         var email = Assert.Single(sender.Sent);
-        Assert.Empty(inner.Sent);
         Assert.Equal("kari+test@example.no", email.To);
         Assert.Equal("Someone tried to sign up at Pyttogpanne", email.Subject);
         Assert.Contains(">Hi Kari,</p>", email.HtmlBody);
@@ -108,7 +130,7 @@ public class RegistrationEmailsTests
     [Fact]
     public async Task The_already_registered_email_names_the_step_in_words_when_there_is_no_reset_page()
     {
-        var (emails, _, sender) = Build(o => o.SetPasswordUrl = string.Empty);
+        var (emails, sender) = Build(o => o.SetPasswordUrl = string.Empty);
 
         await emails.SendAlreadyRegisteredAsync(User(), null, CancellationToken.None);
 
@@ -121,12 +143,11 @@ public class RegistrationEmailsTests
     [Fact]
     public async Task The_removal_reminder_gives_the_date_the_steps_and_the_fresh_code()
     {
-        var (emails, inner, sender) = Build();
+        var (emails, sender) = Build();
 
         await emails.SendRemovalReminderAsync(User(), "AB12CD", RemovalAt, "nb", CancellationToken.None);
 
         var email = Assert.Single(sender.Sent);
-        Assert.Empty(inner.Sent);
         Assert.Equal("kari+test@example.no", email.To);
         Assert.Equal("Your account at Pyttogpanne will be removed", email.Subject);
         Assert.Contains("is not verified yet", email.HtmlBody);
@@ -140,7 +161,7 @@ public class RegistrationEmailsTests
     [Fact]
     public async Task The_removal_reminder_has_no_button_without_a_verify_page()
     {
-        var (emails, _, sender) = Build(o => o.VerifyEmailUrl = string.Empty);
+        var (emails, sender) = Build(o => o.VerifyEmailUrl = string.Empty);
 
         await emails.SendRemovalReminderAsync(User(), "AB12CD", RemovalAt, null, CancellationToken.None);
 
@@ -152,7 +173,7 @@ public class RegistrationEmailsTests
     [Fact]
     public async Task Both_emails_are_written_in_Norwegian_when_the_options_say_so()
     {
-        var (emails, _, sender) = Build(o => o.Language = EmailLanguage.Norwegian);
+        var (emails, sender) = Build(o => o.Language = EmailLanguage.Norwegian);
 
         await emails.SendAlreadyRegisteredAsync(User(), null, CancellationToken.None);
         await emails.SendRemovalReminderAsync(User(), "AB12CD", RemovalAt, null, CancellationToken.None);
@@ -167,7 +188,7 @@ public class RegistrationEmailsTests
     [Fact]
     public async Task A_name_and_brand_with_markup_are_encoded()
     {
-        var (emails, _, sender) = Build();
+        var (emails, sender) = Build();
         var user = User();
         user.FirstName = "<b>Kari</b>";
 

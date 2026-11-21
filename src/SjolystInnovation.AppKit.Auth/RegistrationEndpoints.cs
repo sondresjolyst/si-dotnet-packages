@@ -351,14 +351,24 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
     }
 }
 
-// The default sender. The verification email goes through IVerificationEmails. The notice to the owner of an existing
-// account and the removal reminder are rendered by RegistrationEmailRenderer in the same layout.
-internal sealed class RegistrationEmails<TUser>(IVerificationEmails<TUser> verification, IEmailSender sender, IEmailBrand brands, IOptions<AppKitAuthEmailOptions> options)
+// The default sender. The verification email, the notice to the owner of an existing account and the removal reminder
+// are rendered in the layout of the other auth emails. The verification email and the reminder greet with no name,
+// because the name of an unverified account was typed by whoever signed up. The notice carries the name of the account
+// it goes to.
+internal sealed class RegistrationEmails<TUser>(IEmailSender sender, IEmailBrand brands, IOptions<AppKitAuthEmailOptions> options, TimeProvider time)
     : IRegistrationEmails<TUser>
     where TUser : IdentityUser
 {
-    public Task SendVerificationAsync(TUser user, string code, string? locale, CancellationToken cancellationToken) =>
-        verification.SendEmailVerificationAsync(user, code, cancellationToken);
+    public async Task SendVerificationAsync(TUser user, string code, string? locale, CancellationToken cancellationToken)
+    {
+        if (!AppKitAuthEmailOptions.IsPageUrl(options.Value.VerifyEmailUrl))
+            throw new InvalidOperationException("AppKitAuthEmailOptions.VerifyEmailUrl must be an absolute http or https address to send the verification email.");
+        var expires = (user as IEmailVerificationUser)?.EmailVerificationCodeExpiration
+            ?? throw new InvalidOperationException("The user has no verification code. Issue one with EmailVerificationCodes.Issue first.");
+        var brand = await brands.GetBrandAsync(cancellationToken);
+        await sender.SendAsync(AuthEmailRenderer.Render(AuthEmailKind.Verify, options.Value, brand, null, user.Email!, code,
+            expires - time.GetUtcNow().UtcDateTime, options.Value.VerifyEmailUrl), cancellationToken);
+    }
 
     // The language of the emails comes from the email options, like the other auth emails, so the locale is not used.
     public async Task SendAlreadyRegisteredAsync(TUser user, string? locale, CancellationToken cancellationToken)
@@ -370,7 +380,7 @@ internal sealed class RegistrationEmails<TUser>(IVerificationEmails<TUser> verif
     public async Task SendRemovalReminderAsync(TUser user, string code, DateTime removalAt, string? locale, CancellationToken cancellationToken)
     {
         var brand = await brands.GetBrandAsync(cancellationToken);
-        await sender.SendAsync(RegistrationEmailRenderer.Reminder(options.Value, brand, FirstName(user), user.Email!, code, removalAt), cancellationToken);
+        await sender.SendAsync(RegistrationEmailRenderer.Reminder(options.Value, brand, null, user.Email!, code, removalAt), cancellationToken);
     }
 
     private static string? FirstName(TUser user) => user is IAppKitAccount account ? account.FirstName : null;
