@@ -36,8 +36,9 @@ public static partial class AuthEndpointsExtensions
     /// <c>termsChanged</c>. A new email creates an unverified user, its consent rows and a verification code in one
     /// transaction, then sends the code. An existing email changes nothing. An active account, verified or not, is
     /// told that someone tried, at most once per <see cref="AppKitRegistrationOptions{TUser}.ResendCooldown"/>. No address gets more than <see cref="AppKitRegistrationOptions{TUser}.MaxEmailsPerAddressPerDay"/> of these emails a day, and over the cap nothing is sent and the answer is the same. A resend has its own cap, <see cref="AppKitRegistrationOptions{TUser}.MaxOwnerEmailsPerAddressPerDay"/>, and over it answers 429 <c>tooManyRequests</c>.
-    /// Every one of these cases answers 200 with the same body. A user name that contains <c>@</c> is refused,
-    /// because the user name defaults to the email and a chosen one could otherwise take another person's email.
+    /// Every one of these cases answers 200 with the same body. An account that does not choose a user name gets a
+    /// generated one, a new GUID in its <c>N</c> form, never the email. Sign-in is by email, so the user name is not shown or typed.
+    /// A user name that contains <c>@</c> is refused, because a chosen one could otherwise look like another person's email.
     /// A chosen user name also goes through the allowed characters and the duplicate check of Identity before any lookup by email,
     /// so a bad name is <c>invalidUserName</c> and a taken one is <c>userNameTaken</c>, the same for a new and an existing email.
     /// It also maps <c>POST verify-email</c> with the body <c>code</c> and <c>POST resend-verification</c> with no body.
@@ -147,9 +148,12 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
         CheckFields(errors, options, request, email, termsVersion, locale, registration);
         var probe = options.NewUser!(registration);
         probe.Email = email;
+        // An account that did not choose a user name gets one that cannot clash or fail validation. The email is never used
+        // as one, because Identity would then judge the email as a user name only when the account is created.
+        if (registration.UserName is null && (string.IsNullOrEmpty(probe.UserName) || string.Equals(probe.UserName, email, StringComparison.OrdinalIgnoreCase)))
+            probe.UserName = Guid.NewGuid().ToString("N");
         if (options.AllowUserName && registration.UserName is not null && !errors.Has("UserName"))
             await CheckUserNameAsync(errors, users, probe);
-        probe.UserName ??= email;
         if (!string.IsNullOrWhiteSpace(password) && password.Length <= MaxPassword)
             await CheckPasswordAsync(errors, users, probe, password, Get<IOptions<IdentityOptions>>(http).Value.Password.RequiredLength);
         if (!request.AgeConfirmed)

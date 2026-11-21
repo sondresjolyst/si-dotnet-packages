@@ -801,7 +801,9 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.BadRequest, squatter.StatusCode);
         Assert.Equal(["UserName=invalidUserName"], await ErrorJson.FieldCodesAsync(squatter));
         Assert.Equal(HttpStatusCode.OK, victim.StatusCode);
-        Assert.Equal(["victim@example.invalid"], Db(db => db.Users.Select(u => u.UserName!).ToList()));
+        var created = Assert.Single(Db(db => db.Users.ToList()));
+        Assert.Equal("victim@example.invalid", created.Email);
+        Assert.NotEqual("victim@example.invalid", created.UserName);
         Assert.Single(_emails.Verifications);
     }
 

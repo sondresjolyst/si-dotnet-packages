@@ -345,14 +345,43 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task Without_a_user_name_the_email_is_the_user_name_and_names_are_ignored_when_not_required()
+    public async Task Without_a_user_name_the_account_gets_a_generated_one_and_names_are_ignored_when_not_required()
     {
         await StartAsync();
 
         await RegisterAsync(Body(NewEmail, ("firstName", "Ada"), ("userName", "ada")));
 
         var user = Db(db => db.Users.Single());
-        Assert.Equal((NewEmail, ""), (user.UserName, user.FirstName));
+        Assert.Matches("^[0-9a-f]{32}$", user.UserName);
+        Assert.Equal("", user.FirstName);
+    }
+
+    // The user name is never the email, so an email Identity would refuse as a user name, or one that another account
+    // uses as its user name, is answered like any other.
+    [Theory]
+    [InlineData("o'brien@example.invalid", "o'neil@example.invalid", null)]
+    [InlineData("søren@example.invalid", "åse@example.invalid", null)]
+    [InlineData("taken@example.invalid", "other@example.invalid", "taken@example.invalid")]
+    public async Task An_email_that_is_not_a_valid_user_name_reads_the_same_for_a_new_and_an_existing_address(string newEmail, string existingEmail, string? otherUserName)
+    {
+        await StartAsync();
+        using (var scope = _host!.Services.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityTestUser>>();
+            Assert.True((await users.CreateAsync(new IdentityTestUser { Id = "owner", UserName = "owner", Email = existingEmail, EmailConfirmed = true }, "Original1")).Succeeded);
+            if (otherUserName is not null)
+                Assert.True((await users.CreateAsync(new IdentityTestUser { Id = "holder", UserName = otherUserName, Email = "holder@example.invalid", EmailConfirmed = true }, "Original1")).Succeeded);
+        }
+
+        var forNew = await RegisterAsync(Body(newEmail));
+        var forExisting = await RegisterAsync(Body(existingEmail));
+
+        Assert.Equal(HttpStatusCode.OK, forNew.StatusCode);
+        Assert.Equal(forNew.StatusCode, forExisting.StatusCode);
+        Assert.Equal(await TextAsync(forNew), await TextAsync(forExisting));
+        var created = Db(db => db.Users.Single(u => u.Email == newEmail));
+        Assert.Matches("^[0-9a-f]{32}$", created.UserName);
+        Assert.False(created.EmailConfirmed);
     }
 
     // Field errors
