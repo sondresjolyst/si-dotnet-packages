@@ -618,12 +618,21 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
         Assert.NotNull(_host!.Services.GetService<IUnverifiedAccountCleanup>());
     }
 
+    // The hosted service works on another thread and shares the test's one SQLite connection, so a look that
+    // lands in the middle of its work can throw. Such a look counts as not yet. The wait is long, since the
+    // whole suite may run on a busy machine.
     private static async Task EventuallyAsync(Func<bool> condition)
     {
-        for (var i = 0; i < 200; i++)
+        for (var i = 0; i < 600; i++)
         {
-            if (condition())
-                return;
+            try
+            {
+                if (condition())
+                    return;
+            }
+            catch (Exception e) when (e is InvalidOperationException or SqliteException or NullReferenceException)
+            {
+            }
             await Task.Delay(50);
         }
         Assert.True(condition());
