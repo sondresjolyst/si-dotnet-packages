@@ -580,6 +580,21 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task A_resend_over_the_daily_cap_of_the_address_answers_200_and_sends_nothing()
+    {
+        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxEmailsPerAddressPerDay = 2; });
+        await SeedAsync("u1");
+        var token = await AccessTokenAsync("u1");
+
+        var statuses = new List<HttpStatusCode>();
+        for (var i = 0; i < 4; i++)
+            statuses.Add((await ResendAsync(token)).StatusCode);
+
+        Assert.All(statuses, s => Assert.Equal(HttpStatusCode.OK, s));
+        Assert.Equal(2, _emails.Verifications.Count);
+    }
+
+    [Fact]
     public async Task A_resend_for_a_verified_account_answers_409_and_sends_nothing()
     {
         await StartAsync();

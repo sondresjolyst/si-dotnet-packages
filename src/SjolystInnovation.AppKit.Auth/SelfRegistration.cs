@@ -34,6 +34,7 @@ public static class SelfRegistrationServiceCollectionExtensions
             .Validate(o => o.NewUser is not null, "AppKitRegistrationOptions.NewUser is required. Set it in AddAppKitSelfRegistration.")
             .Validate(o => o.UnverifiedLifetime > TimeSpan.Zero, "The unverified account lifetime must be positive.")
             .Validate(o => o.ResendCooldown >= TimeSpan.Zero, "The resend cooldown must not be negative.")
+            .Validate(o => o.MaxEmailsPerAddressPerDay > 0, "The most emails per address per day must be positive.")
             .Validate(o => o.MinimumAge > 0, "The minimum age must be positive.")
             .Validate(o => !string.IsNullOrWhiteSpace(o.TermsDocument), "The terms document name must not be blank.")
             .Validate(o => o.RemindBefore is not null && o.RemindBefore.All(r => r > TimeSpan.Zero && r < o.UnverifiedLifetime),
@@ -43,6 +44,7 @@ public static class SelfRegistrationServiceCollectionExtensions
         services.TryAddSingleton<SelfRegistrationRegistered>();
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddScoped<AccountConsentService<TContext>>();
+        services.TryAddScoped<SignUpMailLimiter<TContext>>();
         services.TryAddScoped<IPendingConsentReader>(sp => sp.GetRequiredService<AccountConsentService<TContext>>());
         services.TryAddScoped<IConsentRequirements, ConsentRequirements<TContext>>();
         services.TryAddScoped<IRegistrationEmails<TUser>, RegistrationEmails<TUser>>();

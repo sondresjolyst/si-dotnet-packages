@@ -17,6 +17,7 @@ public class UnmappedConsentDbContext(DbContextOptions<UnmappedConsentDbContext>
     public DbSet<TestUser> Users => Set<TestUser>();
     public DbSet<AccountConsent> AccountConsents => Set<AccountConsent>();
     public DbSet<ConsentRequirement> ConsentRequirements => Set<ConsentRequirement>();
+    public DbSet<SignUpMailLog> SignUpMailLogs => Set<SignUpMailLog>();
 }
 
 public sealed class OneAccountPerEmailTests : IAsyncDisposable

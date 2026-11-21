@@ -26,7 +26,7 @@ public class OptInSurfaceTests
         "AccountConsent", "AccountConsentModelBuilderExtensions", "AppKitRegistration", "AppKitRegistrationOptions",
         "IAccountConsentDbContext", "IConsentRequirements", "IConsentVersionSource", "IEmailVerifiedHandler",
         "IRegistrationEmails", "IRegistrationHandler", "ConsentRequirement", "SelfRegistrationServiceCollectionExtensions",
-        "PendingConsent", "AppKitEndpointFilterExtensions", "IRemovalReminderUser", "IUnverifiedAccountCleanup", "UnverifiedCleanupResult",
+        "PendingConsent", "SignUpMailLog", "AppKitEndpointFilterExtensions", "IRemovalReminderUser", "IUnverifiedAccountCleanup", "UnverifiedCleanupResult",
     ];
 
     private static string[] PublicNames() =>

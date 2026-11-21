@@ -11,6 +11,7 @@ public class ConsentTestDbContext(DbContextOptions<ConsentTestDbContext> options
     public DbSet<TestUser> Users => Set<TestUser>();
     public DbSet<AccountConsent> AccountConsents => Set<AccountConsent>();
     public DbSet<ConsentRequirement> ConsentRequirements => Set<ConsentRequirement>();
+    public DbSet<SignUpMailLog> SignUpMailLogs => Set<SignUpMailLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.AddAppKitAccountConsents<TestUser>();
 }

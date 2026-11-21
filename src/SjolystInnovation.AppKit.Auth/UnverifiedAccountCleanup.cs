@@ -32,8 +32,10 @@ public interface IUnverifiedAccountCleanup
     /// go with it and the email is free again. An account with a live verification code is kept until the code has
     /// expired, but never more than one day past its removal time. Then it sends the reminders of
     /// <see cref="AppKitRegistrationOptions{TUser}.RemindBefore"/> that are due, once each, when the user type
-    /// implements <see cref="IRemovalReminderUser"/>. A reminder carries a fresh code, and an account that is locked after
+    /// implements <see cref="IRemovalReminderUser"/>. A reminder carries a fresh code, counts toward
+    /// <see cref="AppKitRegistrationOptions{TUser}.MaxEmailsPerAddressPerDay"/> and waits for a later run when the address is over it. An account that is locked after
     /// too many wrong codes is reminded in a later run. One failing account is logged and does not stop the run.
+    /// The run also removes the sign-up email counts from before yesterday.
     /// </summary>
     Task<UnverifiedCleanupResult> RunOnceAsync(CancellationToken cancellationToken = default);
 }
@@ -105,6 +107,9 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
             }
         }
 
+        using (var scope = services.CreateScope())
+            await scope.ServiceProvider.GetRequiredService<SignUpMailLimiter<TContext>>().RemoveOldAsync(cancellationToken);
+
         if (removed + reminded + failed > 0)
             Log.Ran(logger, removed, reminded, failed);
         return new UnverifiedCleanupResult(removed, reminded, failed);
@@ -167,6 +172,10 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
         if (due == DateTime.MinValue || reminder.RemovalReminderSentAt >= due)
             return CleanupOutcome.Skipped;
         if (VerificationThrottle.CodeIsDue(user, now, settings.ResendCooldown) != CodeDue.Yes)
+            return CleanupOutcome.Skipped;
+
+        // Over the cap of the address no code is issued, and the reminder is tried again in a later run.
+        if (!await scope.ServiceProvider.GetRequiredService<SignUpMailLimiter<TContext>>().TryReserveAsync(user.Email!, SignUpMailKinds.Reminder, settings.MaxEmailsPerAddressPerDay, TimeSpan.Zero, cancellationToken))
             return CleanupOutcome.Skipped;
 
         var code = EmailVerificationCodes.Issue(user, time);

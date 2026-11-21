@@ -16,6 +16,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace SjolystInnovation.AppKit.Auth.Tests;
@@ -32,6 +33,7 @@ public class RegistrationTestDbContext(DbContextOptions<RegistrationTestDbContex
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<AccountConsent> AccountConsents => Set<AccountConsent>();
     public DbSet<ConsentRequirement> ConsentRequirements => Set<ConsentRequirement>();
+    public DbSet<SignUpMailLog> SignUpMailLogs => Set<SignUpMailLog>();
     public DbSet<ProfileRow> Profiles => Set<ProfileRow>();
 
     protected override void OnModelCreating(ModelBuilder builder)
@@ -140,6 +142,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
     private readonly FakeRegistrationEmails _emails = new();
     private readonly CountingHasher _hasher = new();
     private readonly RaceInterceptor _race = new();
+    private readonly FakeTimeProvider _time = new(DateTimeOffset.UtcNow);
     private readonly FakeLogCollector _logs = new();
     private IHost? _host;
     private HttpClient _client = default!;
@@ -167,6 +170,7 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
                 .ConfigureServices(s =>
                 {
                     s.AddLogging(b => b.AddProvider(new FakeLoggerProvider(_logs)));
+                    s.AddSingleton<TimeProvider>(_time);
                     s.AddDbContext<RegistrationTestDbContext>(o => o.UseSqlite(_connection).AddInterceptors(_race));
                     s.AddAppKitIdentity<IdentityTestUser, RegistrationTestDbContext>();
                     s.AddSingleton<IPasswordHasher<IdentityTestUser>>(_hasher);
@@ -722,6 +726,110 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
             await RegisterAsync(Body(email));
             Assert.Equal(1, _hasher.Hashes);
         }
+    }
+
+    // The cap and the cooldown
+
+    [Fact]
+    public async Task Notices_to_one_existing_address_stop_at_the_daily_cap_and_the_answers_stay_the_same()
+    {
+        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxEmailsPerAddressPerDay = 2; });
+        await SeedAsync("taken", verified: true);
+
+        var answers = new List<string>();
+        for (var i = 0; i < 4; i++)
+        {
+            var response = await RegisterAsync(Body("taken@example.invalid"));
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            answers.Add(await TextAsync(response));
+        }
+
+        Assert.Equal(2, _emails.AlreadyRegistered.Count);
+        Assert.Single(answers.Distinct());
+    }
+
+    [Fact]
+    public async Task The_cap_counts_the_verification_email_and_the_notice_together()
+    {
+        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxEmailsPerAddressPerDay = 2; });
+
+        for (var i = 0; i < 4; i++)
+            Assert.Equal(HttpStatusCode.OK, (await RegisterAsync()).StatusCode);
+
+        Assert.Single(_emails.Verifications);
+        Assert.Single(_emails.AlreadyRegistered);
+    }
+
+    [Fact]
+    public async Task A_new_account_over_the_cap_is_created_without_an_email_and_answers_the_same()
+    {
+        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxEmailsPerAddressPerDay = 1; });
+        var first = await RegisterAsync(Body("name+one@example.invalid"));
+        var second = await RegisterAsync(Body("name+two@example.invalid"));
+
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        Assert.Equal(await TextAsync(first), await TextAsync(second));
+        Assert.Equal(2, Db(db => db.Users.Count()));
+        Assert.Single(_emails.Verifications);
+    }
+
+    [Fact]
+    public async Task The_cap_starts_again_the_next_day()
+    {
+        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxEmailsPerAddressPerDay = 1; });
+        await SeedAsync("taken", verified: true);
+        await RegisterAsync(Body("taken@example.invalid"));
+        await RegisterAsync(Body("taken@example.invalid"));
+        Assert.Single(_emails.AlreadyRegistered);
+
+        _time.Advance(TimeSpan.FromDays(1));
+        await RegisterAsync(Body("taken@example.invalid"));
+
+        Assert.Equal(2, _emails.AlreadyRegistered.Count);
+    }
+
+    [Fact]
+    public async Task The_notice_cooldown_is_kept_in_the_database_and_ends_with_the_cooldown()
+    {
+        await StartAsync(o => o.ResendCooldown = TimeSpan.FromMinutes(5));
+        await SeedAsync("taken", verified: true);
+
+        await RegisterAsync(Body("taken@example.invalid"));
+        _time.Advance(TimeSpan.FromMinutes(4));
+        await RegisterAsync(Body("taken@example.invalid"));
+        Assert.Single(_emails.AlreadyRegistered);
+        Assert.Equal(1, Db(db => db.SignUpMailLogs.Count()));
+
+        _time.Advance(TimeSpan.FromMinutes(2));
+        await RegisterAsync(Body("taken@example.invalid"));
+        Assert.Equal(2, _emails.AlreadyRegistered.Count);
+    }
+
+    [Fact]
+    public async Task The_log_holds_a_hash_and_never_the_address()
+    {
+        await StartAsync();
+
+        await RegisterAsync(Body("Someone+Tag@Example.invalid"));
+
+        var row = Db(db => db.SignUpMailLogs.Single());
+        Assert.Equal(64, row.AddressHash.Length);
+        Assert.DoesNotContain("someone", row.AddressHash, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("verification", row.Kind);
+        Assert.Equal(1, row.Count);
+        Assert.Equal(_time.GetUtcNow().UtcDateTime.Date, row.Day);
+    }
+
+    [Fact]
+    public async Task Addresses_that_differ_only_in_case_or_a_plus_tag_share_one_count()
+    {
+        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxEmailsPerAddressPerDay = 2; });
+
+        foreach (var email in new[] { "name@example.invalid", "NAME+a@example.invalid", "name+b@Example.invalid", "name+c@example.invalid" })
+            await RegisterAsync(Body(email));
+
+        Assert.Equal(2, _emails.Verifications.Count);
+        Assert.Equal(1, Db(db => db.SignUpMailLogs.Count()));
     }
 
     // IP

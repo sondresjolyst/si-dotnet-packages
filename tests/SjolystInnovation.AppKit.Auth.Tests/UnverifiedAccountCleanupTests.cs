@@ -374,6 +374,57 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
         Assert.True(Exists("u1"));
     }
 
+    private void SeedMailCount(string email, string kind, DateTime day, int count)
+    {
+        using var scope = _host!.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<RegistrationTestDbContext>();
+        db.SignUpMailLogs.Add(new SignUpMailLog { AddressHash = SignUpMailAddress.Hash(email), Kind = kind, Day = day, Count = count, LastSentAt = day });
+        db.SaveChanges();
+    }
+
+    [Fact]
+    public async Task A_reminder_over_the_daily_cap_of_the_address_is_held_back_and_goes_out_the_next_day()
+    {
+        await StartAsync(o => o.MaxEmailsPerAddressPerDay = 1);
+        await SeedAsync("u1", TimeSpan.Zero);
+        _time.Advance(TimeSpan.FromDays(16));
+        SeedMailCount("u1@example.invalid", "verification", Now.Date, 1);
+
+        Assert.Equal(new UnverifiedCleanupResult(0, 0, 0), await RunAsync());
+        Assert.Empty(_emails.Reminders);
+
+        _time.Advance(TimeSpan.FromDays(1));
+        Assert.Equal(new UnverifiedCleanupResult(0, 1, 0), await RunAsync());
+        Assert.Single(_emails.Reminders);
+    }
+
+    [Fact]
+    public async Task A_reminder_counts_toward_the_daily_cap_of_the_address()
+    {
+        await StartAsync();
+        await SeedAsync("u1", TimeSpan.Zero);
+        _time.Advance(TimeSpan.FromDays(16));
+
+        await RunAsync();
+
+        var row = Db(db => db.SignUpMailLogs.Single());
+        Assert.Equal(("reminder", 1, Now.Date), (row.Kind, row.Count, row.Day));
+        Assert.Equal(SignUpMailAddress.Hash("u1@example.invalid"), row.AddressHash);
+    }
+
+    [Fact]
+    public async Task The_run_removes_mail_log_rows_older_than_yesterday()
+    {
+        await StartAsync();
+        SeedMailCount("a@example.invalid", "notice", Now.Date.AddDays(-5), 3);
+        SeedMailCount("b@example.invalid", "notice", Now.Date.AddDays(-1), 1);
+        SeedMailCount("c@example.invalid", "notice", Now.Date, 1);
+
+        await RunAsync();
+
+        Assert.Equal([Now.Date.AddDays(-1), Now.Date], Db(db => db.SignUpMailLogs.OrderBy(l => l.Day).Select(l => l.Day).ToList()));
+    }
+
     [Fact]
     public async Task After_missed_runs_one_reminder_goes_out_and_not_one_per_missed_offset()
     {

@@ -45,6 +45,27 @@ public class ConsentRequirement
     public DateTime EffectiveFrom { get; set; }
 }
 
+/// <summary>
+/// Counts the sign-up emails sent to one address on one day, by kind. The address is kept as a hash of its normalised
+/// form, with a <c>+tag</c> in the local part removed, never as the address itself. The sign-up reads it to cap the
+/// emails per address and to space out the notices to an existing account.
+/// </summary>
+public class SignUpMailLog
+{
+    /// <summary>The row id.</summary>
+    public int Id { get; set; }
+    /// <summary>The hash of the normalised address, as 64 lowercase hex characters.</summary>
+    public string AddressHash { get; set; } = default!;
+    /// <summary>The kind of email, <c>verification</c>, <c>notice</c> or <c>reminder</c>. At most 16 characters.</summary>
+    public string Kind { get; set; } = default!;
+    /// <summary>The UTC day of the emails, at midnight.</summary>
+    public DateTime Day { get; set; }
+    /// <summary>How many emails of the kind were reserved for the address on the day.</summary>
+    public int Count { get; set; }
+    /// <summary>When the last email of the kind was reserved, in UTC.</summary>
+    public DateTime LastSentAt { get; set; }
+}
+
 /// <summary>A document the user must accept again, with the version that is current.</summary>
 /// <param name="Document">The document, such as <c>terms</c>.</param>
 /// <param name="Version">The version to accept.</param>
@@ -58,6 +79,9 @@ public interface IAccountConsentDbContext
 
     /// <summary>The consent requirement rows.</summary>
     DbSet<ConsentRequirement> ConsentRequirements { get; }
+
+    /// <summary>The sign-up email count rows.</summary>
+    DbSet<SignUpMailLog> SignUpMailLogs { get; }
 }
 
 /// <summary>Adds the account consent mapping to an EF model.</summary>
@@ -67,7 +91,8 @@ public static class AccountConsentModelBuilderExtensions
     /// Maps <see cref="AccountConsent"/> to the <c>AccountConsents</c> table and <see cref="ConsentRequirement"/>
     /// to the <c>ConsentRequirements</c> table. A consent has a required foreign key from <c>UserId</c> to
     /// <typeparamref name="TUser"/> that cascades on delete. It is unique on user, document and version, and
-    /// indexed on user, document and acceptance time. A requirement is unique on document and version. It also makes
+    /// indexed on user, document and acceptance time. A requirement is unique on document and version. <see cref="SignUpMailLog"/> is mapped to the
+    /// <c>SignUpMailLogs</c> table, unique on address hash, kind and day. It also makes
     /// the index on the normalised email of <typeparamref name="TUser"/> unique, so the database refuses a second
     /// account for one email even when two sign-ups race. A database that already holds two accounts for one email
     /// must be cleaned up before the migration that adds it.
@@ -88,6 +113,16 @@ public static class AccountConsentModelBuilderExtensions
             e.HasIndex(c => new { c.UserId, c.Document, c.Version }).IsUnique();
             e.HasIndex(c => new { c.UserId, c.Document, c.AcceptedAt });
             e.HasOne<TUser>().WithMany().HasForeignKey(c => c.UserId).OnDelete(DeleteBehavior.Cascade).IsRequired();
+        });
+        modelBuilder.Entity<SignUpMailLog>(e =>
+        {
+            e.ToTable("SignUpMailLogs");
+            e.HasKey(l => l.Id);
+            e.Property(l => l.AddressHash).IsRequired().HasMaxLength(64);
+            e.Property(l => l.Kind).IsRequired().HasMaxLength(16);
+            e.Property(l => l.Count).IsConcurrencyToken();
+            e.HasIndex(l => new { l.AddressHash, l.Kind, l.Day }).IsUnique();
+            e.HasIndex(l => l.Day);
         });
         modelBuilder.Entity<TUser>().HasIndex("NormalizedEmail").IsUnique();
         modelBuilder.Entity<ConsentRequirement>(e =>

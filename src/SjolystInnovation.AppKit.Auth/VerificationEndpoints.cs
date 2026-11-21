@@ -39,21 +39,6 @@ internal static class VerificationThrottle
             return CodeDue.Locked;
         return now - (expires - EmailVerificationCodes.Lifetime) >= cooldown ? CodeDue.Yes : CodeDue.Cooldown;
     }
-
-    /// <summary>
-    /// Decides whether the owner of an existing account may be told that someone tried to sign up, and notes the time when
-    /// so. The time is kept in memory, so on several instances each may send one notice per cooldown.
-    /// </summary>
-    public static bool NoticeIsDue(IMemoryCache cache, string userId, DateTime now, TimeSpan cooldown)
-    {
-        if (cooldown <= TimeSpan.Zero)
-            return true;
-        var key = $"SjolystInnovation.AppKit.Auth:already-registered-notice:{userId}";
-        if (cache.TryGetValue(key, out DateTime last) && now - last < cooldown)
-            return false;
-        cache.Set(key, now, cooldown);
-        return true;
-    }
 }
 
 internal sealed class VerificationHandlers<TUser, TContext>(ILogger logger)
@@ -130,12 +115,16 @@ internal sealed class VerificationHandlers<TUser, TContext>(ILogger logger)
             return AuthResults.Error(AuthErrorCodes.AlreadyVerified, "The email address is already verified.", StatusCodes.Status409Conflict);
 
         var time = Get<TimeProvider>(http);
-        var due = VerificationThrottle.CodeIsDue(user, time.GetUtcNow().UtcDateTime, Get<IOptions<AppKitRegistrationOptions<TUser>>>(http).Value.ResendCooldown);
+        var options = Get<IOptions<AppKitRegistrationOptions<TUser>>>(http).Value;
+        var due = VerificationThrottle.CodeIsDue(user, time.GetUtcNow().UtcDateTime, options.ResendCooldown);
         if (due == CodeDue.Locked)
             return AuthResults.Error(AuthErrorCodes.TooManyAttempts, "Too many attempts. Wait until the code has expired, then request a new one.", StatusCodes.Status429TooManyRequests);
         if (due == CodeDue.Cooldown)
             return AuthResults.Error(AuthErrorCodes.TooManyRequests, "A code was sent a moment ago. Wait a little before asking for another.", StatusCodes.Status429TooManyRequests);
 
+        // Over the cap of the address nothing is issued or sent, and the answer is the same.
+        if (!await Get<SignUpMailLimiter<TContext>>(http).TryReserveAsync(user.Email!, SignUpMailKinds.Verification, options.MaxEmailsPerAddressPerDay, TimeSpan.Zero, http.RequestAborted))
+            return TypedResults.Ok(new MessageResponse("A new verification code is on its way to your email address."));
         var code = EmailVerificationCodes.Issue(user, time);
         var updated = await Get<UserManager<TUser>>(http).UpdateAsync(user);
         if (!updated.Succeeded)
