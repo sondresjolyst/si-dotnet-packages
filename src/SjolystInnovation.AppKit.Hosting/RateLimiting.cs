@@ -39,11 +39,17 @@ public sealed class AppKitRateLimitOptions
 public static partial class RateLimitingExtensions
 {
     /// <summary>
+    /// The <c>code</c> in the body of a 429 answer. It has the same value as <c>AuthErrors.TooManyRequests</c> in
+    /// the Auth package, so a client handles both alike. Hosting does not reference Auth, so the string is repeated here.
+    /// </summary>
+    public const string TooManyRequestsCode = "tooManyRequests";
+
+    /// <summary>
     /// Registers the ASP.NET Core rate limiter with the rules in <paramref name="section"/>. Each rule
     /// keeps a fixed window per client IP, read only from the connection, so behind a proxy it relies on
     /// <see cref="ForwardedHeadersExtensions.UseAppKitForwardedHeaders"/>. A request that matches several
     /// rules counts against each. A rejected request gets 429 with <c>Retry-After</c> and a problem
-    /// details body. The app fails to start on a rule it cannot read.
+    /// details body that also holds <c>message</c> and <c>code</c>, see <see cref="TooManyRequestsCode"/>. The app fails to start on a rule it cannot read.
     /// </summary>
     public static IServiceCollection AddAppKitRateLimiting(this IServiceCollection services, IConfigurationSection section)
     {
@@ -113,6 +119,8 @@ public static partial class RateLimitingExtensions
             Status = StatusCodes.Status429TooManyRequests,
             Title = "Too many requests",
         };
+        problem.Extensions["message"] = "Too many requests";
+        problem.Extensions["code"] = TooManyRequestsCode;
         var writer = http.RequestServices.GetService<IProblemDetailsService>();
         if (writer is null || !await writer.TryWriteAsync(new ProblemDetailsContext { HttpContext = http, ProblemDetails = problem }))
             await http.Response.WriteAsJsonAsync(problem, cancellationToken);
