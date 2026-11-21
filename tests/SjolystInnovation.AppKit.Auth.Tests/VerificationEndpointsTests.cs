@@ -128,6 +128,8 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
                     s.AddAppKitSelfRegistration<IdentityTestUser, RegistrationTestDbContext>(o =>
                     {
                         o.NewUser = r => new IdentityTestUser { Email = r.Email, UserName = r.UserName };
+                        // The hosted cleanup would otherwise read the shared connection while the test uses it.
+                        o.RunCleanupInBackground = false;
                         configure?.Invoke(o);
                     });
                     s.AddSingleton<IRegistrationEmails<IdentityTestUser>>(_emails);

@@ -56,6 +56,8 @@ public sealed class OneAccountPerEmailTests : IAsyncDisposable
                     s.AddAppKitSelfRegistration<IdentityTestUser, RegistrationTestDbContext>(o =>
                     {
                         o.NewUser = r => new IdentityTestUser { Email = r.Email, UserName = r.UserName };
+                        // The hosted cleanup would otherwise read the shared connection while the test uses it.
+                        o.RunCleanupInBackground = false;
                         o.AllowUserName = true;
                     });
                     s.AddSingleton<IRegistrationEmails<IdentityTestUser>>(new QuietEmails());

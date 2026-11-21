@@ -197,6 +197,8 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
                         s.AddAppKitSelfRegistration<IdentityTestUser, RegistrationTestDbContext>(o =>
                         {
                             o.NewUser = r => new IdentityTestUser { Email = r.Email, UserName = r.UserName };
+                            // The hosted cleanup would otherwise read the shared connection while the test uses it.
+                            o.RunCleanupInBackground = false;
                             o.ResendCooldown = TimeSpan.Zero;
                             configure?.Invoke(o);
                         });
