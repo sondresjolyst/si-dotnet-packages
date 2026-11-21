@@ -642,8 +642,11 @@ version. A row holds the user, document, version, locale, time, source, and the 
 `RecordTruncatedIp` is on. Rows are only added. `accept-terms` adds rows with the source `reaccept`.
 
 An `IConsentVersionSource` tells the package which version of a document is current. The sign-up and
-`accept-terms` accept exactly that version and answer `409 termsChanged` for any other. The source is
-asked without a locale. With no source, or no version from it, the package stores `unversioned` and
+`accept-terms` accept exactly that version and answer `409 termsChanged` for any other. They ask the
+source with the `locale` of the request and store it on the row, so a person who fetched the terms in a
+language and sends that locale and version back is accepted. The list of documents to accept again in
+the login and refresh answers asks with the locale of the user's latest acceptance of the document, or
+with none when the user has none. Marking a requirement asks with no locale. With no source, or no version from it, the package stores `unversioned` and
 ignores the version the client sent. The SiteSettings package gives the version of a legal page, so
 the key of the page can be the document name:
 
@@ -659,7 +662,7 @@ public sealed class LegalVersionSource(ApplicationDbContext db) : IConsentVersio
 builder.Services.AddScoped<IConsentVersionSource, LegalVersionSource>();
 ```
 
-Since the locale is null, the version is that of the first language in `Locales`. The
+A request with no locale gets the version of the first language in `Locales`. The
 [SiteSettings package](../SjolystInnovation.AppKit.SiteSettings/README.md#current-version) describes
 how a version is made.
 

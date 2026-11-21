@@ -121,10 +121,13 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
         // Runs once, on the first read, like a source that is slow while the app marks a requirement.
         public Func<Task>? OnFirstRead { get; set; }
 
+        // A source whose version differs per language. A locale it does not know gets the first language.
+        public bool PerLocale { get; set; }
+
         public async Task<string?> GetCurrentVersionAsync(string document, string? locale, CancellationToken cancellationToken)
         {
             Locales.Add(locale);
-            var current = Current;
+            var current = PerLocale ? (locale == "en" ? "en-1" : "nb-1") : Current;
             if (OnFirstRead is { } hook)
             {
                 OnFirstRead = null;
@@ -286,11 +289,14 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
     private Task<HttpResponseMessage> RegisterAsync(string email, string termsVersion) =>
         _client.PostAsJsonAsync("/api/auth/register", new { email, password = Password, ageConfirmed = true, termsAccepted = true, termsVersion });
 
-    private void Accept(string userId, string version, DateTime at, string document = "terms")
+    private Task<HttpResponseMessage> RegisterInAsync(string email, string termsVersion, string locale) =>
+        _client.PostAsJsonAsync("/api/auth/register", new { email, password = Password, ageConfirmed = true, termsAccepted = true, termsVersion, locale });
+
+    private void Accept(string userId, string version, DateTime at, string document = "terms", string? locale = null)
     {
         using var scope = _host!.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<RegistrationTestDbContext>();
-        db.AccountConsents.Add(new AccountConsent { UserId = userId, Document = document, Version = version, Source = "register", AcceptedAt = at });
+        db.AccountConsents.Add(new AccountConsent { UserId = userId, Document = document, Version = version, Source = "register", AcceptedAt = at, Locale = locale });
         db.SaveChanges();
     }
 
@@ -347,7 +353,7 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task Accepting_asks_the_version_source_without_a_locale_and_stores_the_locale_as_sent()
+    public async Task Accepting_asks_the_version_source_in_the_locale_as_sent_and_stores_it()
     {
         await StartAsync();
         await SeedAsync("u1");
@@ -355,8 +361,124 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
         await AcceptTermsAsync(new { termsVersion = "v2", locale = "nb" }, await TokenAsync("u1"));
 
         Assert.NotEmpty(_version.Locales);
-        Assert.All(_version.Locales, Assert.Null);
+        Assert.All(_version.Locales, l => Assert.Equal("nb", l));
         Assert.Equal("nb", Assert.Single(Rows("u1")).Locale);
+    }
+
+    [Fact]
+    public async Task Accepting_with_no_locale_asks_the_version_source_with_no_locale()
+    {
+        await StartAsync();
+        await SeedAsync("u1");
+
+        await AcceptTermsAsync(new { termsVersion = "v2" }, await TokenAsync("u1"));
+
+        Assert.NotEmpty(_version.Locales);
+        Assert.All(_version.Locales, Assert.Null);
+    }
+
+    [Theory]
+    [InlineData("nb", "nb-1")]
+    [InlineData("en", "en-1")]
+    public async Task A_sign_up_with_a_locale_and_the_version_of_that_language_is_accepted_and_stored_with_both(string locale, string version)
+    {
+        await StartAsync();
+        _version.PerLocale = true;
+
+        var response = await RegisterInAsync("new@example.invalid", version, locale);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var row = Db(db => db.AccountConsents.Single(c => c.Document == "terms"));
+        Assert.Equal((version, locale), (row.Version, row.Locale));
+        Assert.Contains(locale, _version.Locales);
+    }
+
+    [Theory]
+    [InlineData("en", "nb-1")]
+    [InlineData("nb", "en-1")]
+    public async Task A_sign_up_with_the_version_of_another_language_answers_409_termsChanged(string locale, string version)
+    {
+        await StartAsync();
+        _version.PerLocale = true;
+
+        var response = await RegisterInAsync("new@example.invalid", version, locale);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("termsChanged", await ErrorJson.CodeAsync(response));
+        Assert.Empty(Db(db => db.AccountConsents.ToList()));
+    }
+
+    [Theory]
+    [InlineData("nb", "nb-1")]
+    [InlineData("en", "en-1")]
+    public async Task Accepting_with_a_locale_and_the_version_of_that_language_is_accepted(string locale, string version)
+    {
+        await StartAsync();
+        _version.PerLocale = true;
+        await SeedAsync("u1");
+
+        var response = await AcceptTermsAsync(new { termsVersion = version, locale }, await TokenAsync("u1"));
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        var row = Assert.Single(Rows("u1"));
+        Assert.Equal((version, locale), (row.Version, row.Locale));
+    }
+
+    [Theory]
+    [InlineData("en", "nb-1")]
+    [InlineData("nb", "en-1")]
+    public async Task Accepting_with_the_version_of_another_language_answers_409_termsChanged_and_records_nothing(string locale, string version)
+    {
+        await StartAsync();
+        _version.PerLocale = true;
+        await SeedAsync("u1");
+
+        var response = await AcceptTermsAsync(new { termsVersion = version, locale }, await TokenAsync("u1"));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("termsChanged", await ErrorJson.CodeAsync(response));
+        Assert.Empty(Rows("u1"));
+    }
+
+    [Fact]
+    public async Task The_pending_list_names_the_version_in_the_language_of_the_latest_acceptance_of_the_document()
+    {
+        await StartAsync();
+        _version.PerLocale = true;
+        foreach (var id in new[] { "swedish", "english", "switched", "none", "other" })
+            await SeedAsync(id);
+        Accept("english", "en-1", _start, locale: "en");
+        Accept("swedish", "nb-1", _start, locale: "nb");
+        Accept("switched", "nb-1", _start, locale: "nb");
+        Accept("switched", "en-1", _start.AddMinutes(1), locale: "en");
+        // The age row has its own language and never decides the terms.
+        Accept("switched", "16", _start.AddMinutes(2), "age", "nb");
+        Accept("other", "x", _start, locale: "xx");
+        _time.Advance(TimeSpan.FromDays(1));
+        await RequireAsync(_start);
+
+        Assert.Equal(["terms=nb-1"], Pending(await LoginAsync("swedish")));
+        Assert.Equal(["terms=en-1"], Pending(await LoginAsync("english")));
+        Assert.Equal(["terms=en-1"], Pending(await LoginAsync("switched")));
+        Assert.Equal(["terms=nb-1"], Pending(await LoginAsync("none")));
+        Assert.Equal(["terms=nb-1"], Pending(await LoginAsync("other")));
+    }
+
+    [Fact]
+    public async Task The_pending_list_of_a_refresh_names_the_version_of_the_own_language()
+    {
+        await StartAsync();
+        _version.PerLocale = true;
+        await SeedAsync("english");
+        Accept("english", "en-1", _start, locale: "en");
+        _time.Advance(TimeSpan.FromDays(1));
+        await RequireAsync(_start);
+        var login = await LoginAsync("english");
+
+        var response = await _client.PostAsJsonAsync("/api/auth/refresh-token", new { token = login.GetProperty("token").GetString(), refreshToken = login.GetProperty("refreshToken").GetString() });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(["terms=en-1"], Pending(JsonElement.Parse(await response.Content.ReadAsStringAsync())));
     }
 
     [Fact]

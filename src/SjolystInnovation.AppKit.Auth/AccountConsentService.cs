@@ -33,11 +33,10 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
     internal const string RequirementsCacheKey = "SjolystInnovation.AppKit.Auth:consent-requirements";
     private static readonly TimeSpan RequirementsCacheDuration = TimeSpan.FromSeconds(10);
 
-    // The version of the document as people see it now, or null when the app has no source or the source gives none. The
-    // source is asked without a locale, because a requirement does not belong to one.
-    public async Task<string?> CurrentVersionAsync(string document, CancellationToken cancellationToken = default)
+    // The version of the document as a person sees it in the locale, or null when the app has no source or the source gives none.
+    public async Task<string?> CurrentVersionAsync(string document, string? locale, CancellationToken cancellationToken = default)
     {
-        var current = versions is null ? null : await versions.GetCurrentVersionAsync(document, null, cancellationToken);
+        var current = versions is null ? null : await versions.GetCurrentVersionAsync(document, locale, cancellationToken);
         return string.IsNullOrEmpty(current) ? null : current;
     }
 
@@ -101,19 +100,33 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
     public async Task<IReadOnlyList<string>> PendingDocumentsAsync(string userId, CancellationToken cancellationToken = default) =>
         [.. (await GetPendingAsync(userId, cancellationToken)).Select(p => p.Document)];
 
-    // Each document the user must accept again, with the version that is current for it, or the unversioned marker when the
-    // app serves none.
+    // Each document the user must accept again, with the version that is current for it in the locale of the user's latest
+    // acceptance of the document, or with no locale when there is none. The marker stands for a version the app does not serve.
     public async Task<IReadOnlyList<PendingConsent>> GetPendingAsync(string userId, CancellationToken cancellationToken = default)
     {
         var accepted = await AcceptancesAsync(userId, cancellationToken);
         var now = time.GetUtcNow().UtcDateTime;
         var pending = new List<PendingConsent>();
+        IReadOnlyDictionary<string, string?>? locales = null;
         foreach (var group in (await RequirementsAsync(cancellationToken)).GroupBy(r => r.Document).OrderBy(g => g.Key, StringComparer.Ordinal))
         {
-            if (MustAcceptAgain(accepted.TryGetValue(group.Key, out var own) ? own : [], group, now))
-                pending.Add(new PendingConsent(group.Key, await CurrentVersionAsync(group.Key, cancellationToken) ?? AccountConsent.Unversioned));
+            if (!MustAcceptAgain(accepted.TryGetValue(group.Key, out var own) ? own : [], group, now))
+                continue;
+            locales ??= await LatestLocalesAsync(userId, cancellationToken);
+            pending.Add(new PendingConsent(group.Key, await CurrentVersionAsync(group.Key, locales.GetValueOrDefault(group.Key), cancellationToken) ?? AccountConsent.Unversioned));
         }
         return pending;
+    }
+
+    // The locale of the latest acceptance of each document the user has accepted, null when that row has none.
+    private async Task<IReadOnlyDictionary<string, string?>> LatestLocalesAsync(string userId, CancellationToken cancellationToken)
+    {
+        var rows = await db.AccountConsents.AsNoTracking()
+            .Where(c => c.UserId == userId)
+            .Select(c => new { c.Document, c.Locale, c.AcceptedAt, c.Id })
+            .ToListAsync(cancellationToken);
+        return rows.GroupBy(r => r.Document)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(r => r.AcceptedAt).ThenByDescending(r => r.Id).First().Locale);
     }
 
     private async Task<IReadOnlyList<ConsentRequirement>> RequirementsAsync(CancellationToken cancellationToken)

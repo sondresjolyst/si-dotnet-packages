@@ -38,7 +38,7 @@ internal static class ConsentHandlers<TUser, TContext>
 
         // The source decides. With no version from it, the marker is recorded and the version sent is ignored.
         var consents = Get<AccountConsentService<TContext>>(http);
-        var current = await consents.CurrentVersionAsync(options.TermsDocument, cancellationToken);
+        var current = await consents.CurrentVersionAsync(options.TermsDocument, locale, cancellationToken);
         if (current is not null && !string.Equals(current, version, StringComparison.Ordinal))
             return AuthResults.Error(AuthErrorCodes.TermsChanged, "The terms have changed. Read the current terms and accept them again.", StatusCodes.Status409Conflict);
 

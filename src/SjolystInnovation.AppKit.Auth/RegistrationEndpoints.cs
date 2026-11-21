@@ -175,7 +175,7 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
 
         // The source decides. With no version from it, the client's version is not stored and the unversioned marker is stored
         // instead, so only a version the server knows is ever stored.
-        var current = await Get<AccountConsentService<TContext>>(http).CurrentVersionAsync(options.TermsDocument, cancellationToken);
+        var current = await Get<AccountConsentService<TContext>>(http).CurrentVersionAsync(options.TermsDocument, locale, cancellationToken);
         if (current is not null && !string.Equals(current, termsVersion, StringComparison.Ordinal))
             return AuthResults.Error(AuthErrorCodes.TermsChanged, "The terms have changed. Read the current terms and accept them again.", StatusCodes.Status409Conflict);
 

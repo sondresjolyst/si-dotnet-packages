@@ -890,15 +890,26 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task The_version_source_is_asked_without_a_locale()
+    public async Task The_version_source_is_asked_in_the_locale_of_the_request()
     {
         await StartAsync();
 
         await RegisterAsync(Body(NewEmail, ("locale", "nb")));
 
         Assert.NotEmpty(_locales);
-        Assert.All(_locales, Assert.Null);
+        Assert.All(_locales, l => Assert.Equal("nb", l));
         Assert.Equal("nb", Db(db => db.AccountConsents.First(c => c.Document == "terms").Locale));
+    }
+
+    [Fact]
+    public async Task The_version_source_is_asked_with_no_locale_when_the_request_has_none()
+    {
+        await StartAsync();
+
+        await RegisterAsync(Body(NewEmail, ("locale", null)));
+
+        Assert.NotEmpty(_locales);
+        Assert.All(_locales, Assert.Null);
     }
 
     // Existing emails
