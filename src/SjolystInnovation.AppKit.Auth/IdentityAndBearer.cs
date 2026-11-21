@@ -23,7 +23,11 @@ public sealed class AppKitJwtBearerOptions
     /// </summary>
     public IList<string> QueryTokenPaths { get; } = [];
 
-    /// <summary>How long the result of the user check is cached per user. Defaults to 1 minute.</summary>
+    /// <summary>
+    /// How long the result of the user check is cached per user. Defaults to 1 minute. In an app with the sign-up, the check also holds
+    /// the documents the user must accept again. After a mark that takes effect at once, a pending user may still pass on another
+    /// instance for up to this time plus 10 seconds of requirement cache, which is 70 seconds by default.
+    /// </summary>
     public TimeSpan UserCheckCacheDuration { get; set; } = TimeSpan.FromMinutes(1);
 }
 

@@ -65,7 +65,10 @@ public interface IConsentRequirements
     /// the mark, so a user may accept earlier. The requirement records the version that <see cref="IConsentVersionSource"/> serves at
     /// this moment, or <see cref="AccountConsent.Unversioned"/> when it serves none, and never compares it. A person accepts what the
     /// source serves, so publish the new text first and then call this. A person who accepted between the two is asked once more,
-    /// which is safe. Calling it again with the same document and effective time changes nothing.
+    /// which is safe. Calling it again with the same document and effective time changes nothing. The call clears the requirement
+    /// cache of this instance only. After a mark that takes effect at once, a pending user may still pass on another instance for up
+    /// to 10 seconds of requirement cache plus <see cref="AppKitJwtBearerOptions.UserCheckCacheDuration"/> of user check cache, which
+    /// is 70 seconds by default. Acceptance and mark times are compared, so instances must share a clock within the usual server tolerance.
     /// </summary>
     /// <param name="document">The document, such as <c>terms</c>.</param>
     /// <param name="effectiveFrom">From when the requirement binds, in UTC.</param>

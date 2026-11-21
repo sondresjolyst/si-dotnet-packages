@@ -20,13 +20,18 @@ internal interface IAccountConsentExporter
     Task<IReadOnlyList<ConsentExportRow>> ExportAsync(string userId, CancellationToken cancellationToken);
 }
 
-// Records acceptances and tells whether a user must accept a document again. Time comes from the TimeProvider.
-// The requirement rows are cached for a short time when a cache is given. Marking a requirement clears them.
+/// <summary>
+/// Records acceptances and tells whether a user must accept a document again. Time comes from the TimeProvider. Acceptance and mark
+/// times are compared, so instances must share a clock within the usual server tolerance. The requirement rows are cached for
+/// 10 seconds when a cache is given, and marking a requirement clears the cache of that instance only. After a mark that takes
+/// effect at once, a pending user may still pass on another instance for up to 10 seconds of requirement cache plus
+/// <see cref="AppKitJwtBearerOptions.UserCheckCacheDuration"/> of user check cache, which is 70 seconds by default.
+/// </summary>
 internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider time, IMemoryCache? cache = null, IConsentVersionSource? versions = null) : IPendingConsentReader, IAccountConsentExporter
     where TContext : DbContext, IAccountConsentDbContext
 {
     internal const string RequirementsCacheKey = "SjolystInnovation.AppKit.Auth:consent-requirements";
-    private static readonly TimeSpan RequirementsCacheDuration = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan RequirementsCacheDuration = TimeSpan.FromSeconds(10);
 
     // The version of the document as people see it now, or null when the app has no source or the source gives none. The
     // source is asked without a locale, because a requirement does not belong to one.
