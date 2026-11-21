@@ -539,7 +539,7 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task A_user_who_holds_the_current_version_gets_no_row_before_the_requirement_takes_effect_and_is_pending_on_the_day()
+    public async Task A_user_who_holds_the_current_version_accepts_again_before_the_requirement_takes_effect_and_is_clear_on_the_day()
     {
         await StartAsync();
         await SeedAsync("u1");
@@ -550,10 +550,10 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.NoContent, (await AcceptTermsAsync(new { termsVersion = "v2" }, token)).StatusCode);
 
-        Assert.Equal(["v2"], Rows("u1").Select(r => r.Version));
+        Assert.Equal(["v2", "v2"], Rows("u1").Select(r => r.Version));
         _time.Advance(TimeSpan.FromDays(7));
         ExpireUserCheck("u1");
-        Assert.Equal(["terms=v2"], Pending(await LoginAsync("u1")));
+        Assert.Empty(Pending(await LoginAsync("u1")));
     }
 
     [Fact]

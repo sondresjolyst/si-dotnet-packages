@@ -42,8 +42,9 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
     }
 
     /// <summary>
-    /// Adds a row for the acceptance and saves, unless the user is not pending for the document and already holds an acceptance
-    /// of this exact version. A pending user always gets a new row, so accepting again always works. Two parallel requests of one
+    /// Adds a row for the acceptance and saves, unless the user already holds an acceptance of this exact version that is at least
+    /// as new as the newest mark of the document, in effect or scheduled. So a pending user always gets a new row, accepting again
+    /// always works, and a person can accept ahead of a scheduled requirement. Two parallel requests of one
     /// user may both add a row. That is accepted, because the pending rule reads the latest acceptance and an extra row is harmless.
     /// The caller passes <c>acceptedAt</c> when it read the current version first, taking the time before the read, so a request that
     /// read an older version never gets a time after a mark that came with a newer one. Null means now.
@@ -59,9 +60,11 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
         ArgumentException.ThrowIfNullOrEmpty(source);
 
         var held = (await AcceptancesAsync(userId, cancellationToken)).TryGetValue(document, out var own) ? own : [];
-        var requirements = (await RequirementsAsync(cancellationToken)).Where(r => r.Document == document);
+        var marks = (await RequirementsAsync(cancellationToken)).Where(r => r.Document == document).Select(r => r.MarkedAt).ToList();
         var now = time.GetUtcNow().UtcDateTime;
-        if (!MustAcceptAgain(held, requirements, now) && held.Any(a => string.Equals(a.Version, version, StringComparison.Ordinal)))
+        // The newest mark counts whether or not its requirement is in effect yet, so a person can accept ahead of the day.
+        DateTime? newestMark = marks.Count == 0 ? null : marks.Max();
+        if (held.Any(a => string.Equals(a.Version, version, StringComparison.Ordinal) && (newestMark is null || a.At >= newestMark)))
             return false;
 
         db.AccountConsents.Add(new AccountConsent

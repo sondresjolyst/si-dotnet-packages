@@ -283,7 +283,7 @@ public sealed class AccountConsentTests : IDisposable
     }
 
     [Fact]
-    public async Task Recording_a_held_version_before_the_requirement_takes_effect_adds_no_row_and_the_user_is_pending_on_the_day()
+    public async Task Recording_a_held_version_before_the_requirement_takes_effect_adds_a_row_and_the_user_is_clear_on_the_day()
     {
         await using (var db = NewContext())
             Assert.True(await Service(db).RecordAsync("ada", "terms", "v1", "register"));
@@ -292,11 +292,11 @@ public sealed class AccountConsentTests : IDisposable
         _time.Advance(TimeSpan.FromHours(1));
 
         await using (var db = NewContext())
-            Assert.False(await Service(db).RecordAsync("ada", "terms", "v1", "reaccept"));
+            Assert.True(await Service(db).RecordAsync("ada", "terms", "v1", "reaccept"));
         _time.Advance(TimeSpan.FromDays(7));
 
         await using var read = NewContext();
-        Assert.Equal(["terms"], await Service(read).PendingDocumentsAsync("ada"));
+        Assert.Empty(await Service(read).PendingDocumentsAsync("ada"));
     }
 
     [Fact]
@@ -328,6 +328,26 @@ public sealed class AccountConsentTests : IDisposable
         await using (var db = NewContext(new RivalInsert(() => NewContext())))
             await Service(db).RecordAsync("ada", "terms", "v1", "reaccept");
 
+        await using var read = NewContext();
+        Assert.Empty(await Service(read).PendingDocumentsAsync("ada"));
+    }
+
+    [Fact]
+    public async Task A_holder_of_the_version_can_accept_again_before_a_scheduled_requirement_and_is_not_pending_on_the_day()
+    {
+        await using (var db = NewContext())
+            await Service(db).RecordAsync("ada", "terms", "v2", "register");
+        _time.Advance(TimeSpan.FromDays(1));
+        var marked = _time.GetUtcNow().UtcDateTime;
+        Require("terms", "v2", marked, marked.AddDays(30));
+        _time.Advance(TimeSpan.FromDays(2));
+
+        await using (var db = NewContext())
+            Assert.True(await Service(db).RecordAsync("ada", "terms", "v2", "reaccept"));
+        await using (var db = NewContext())
+            Assert.False(await Service(db).RecordAsync("ada", "terms", "v2", "reaccept"));
+
+        _time.Advance(TimeSpan.FromDays(40));
         await using var read = NewContext();
         Assert.Empty(await Service(read).PendingDocumentsAsync("ada"));
     }
