@@ -101,8 +101,7 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
         {
             if (NewestInEffect(group, now) is not { } required)
                 continue;
-            var current = versions is null ? null : await versions.GetCurrentVersionAsync(group.Key, null, cancellationToken);
-            if (MustAcceptAgain(accepted.TryGetValue(group.Key, out var own) ? own : [], current, group, now))
+            if (MustAcceptAgain(accepted.TryGetValue(group.Key, out var own) ? own : [], group, now))
                 pending.Add(new PendingConsent(group.Key, required.Version));
         }
         return pending;
@@ -148,14 +147,13 @@ internal sealed class AccountConsentService<TContext>(TContext db, TimeProvider 
     }
 
     // A requirement binds from EffectiveFrom. The newest one in effect decides. The user is pending unless they hold an
-    // acceptance of its version, or of the current source version, whenever it was made. An acceptance of any other
-    // version does not count.
-    internal static bool MustAcceptAgain(IReadOnlyList<(string Version, DateTime At)> acceptances, string? currentVersion, IEnumerable<ConsentRequirement> requirements, DateTime now)
+    // acceptance of exactly its version, whenever it was made. An acceptance of any other version does not count, and the
+    // version the source serves plays no part.
+    internal static bool MustAcceptAgain(IReadOnlyList<(string Version, DateTime At)> acceptances, IEnumerable<ConsentRequirement> requirements, DateTime now)
     {
         if (NewestInEffect(requirements, now) is not { } required)
             return false;
-        return !acceptances.Any(a => a.Version != AccountConsent.Unversioned
-            && (string.Equals(a.Version, required.Version, StringComparison.Ordinal) || string.Equals(a.Version, currentVersion, StringComparison.Ordinal)));
+        return !acceptances.Any(a => a.Version != AccountConsent.Unversioned && string.Equals(a.Version, required.Version, StringComparison.Ordinal));
     }
 
     private Task<bool> ExistsAsync(string userId, string document, string version, CancellationToken cancellationToken) =>

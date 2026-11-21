@@ -39,10 +39,10 @@ public sealed class AccountConsentTests : IDisposable
     private AccountConsentService<ConsentTestDbContext> Service(ConsentTestDbContext db) => new(db, _time);
 
     private static bool MustAccept(DateTime? acceptedAt, DateTime now, params ConsentRequirement[] requirements) =>
-        MustAccept(acceptedAt is { } at ? [("v2", at)] : [], null, now, requirements);
+        MustAccept(acceptedAt is { } at ? [("v2", at)] : [], now, requirements);
 
-    private static bool MustAccept(IReadOnlyList<(string Version, DateTime At)> acceptances, string? current, DateTime now, params ConsentRequirement[] requirements) =>
-        AccountConsentService<ConsentTestDbContext>.MustAcceptAgain(acceptances, current, requirements, now);
+    private static bool MustAccept(IReadOnlyList<(string Version, DateTime At)> acceptances, DateTime now, params ConsentRequirement[] requirements) =>
+        AccountConsentService<ConsentTestDbContext>.MustAcceptAgain(acceptances, requirements, now);
 
     private static ConsentRequirement Requirement(string version, DateTime markedAt, DateTime effectiveFrom) =>
         new() { Document = "terms", Version = version, MarkedAt = markedAt, EffectiveFrom = effectiveFrom };
@@ -182,7 +182,7 @@ public sealed class AccountConsentTests : IDisposable
     public void With_no_requirements_nobody_must_accept()
     {
         Assert.False(MustAccept(Start, Start));
-        Assert.False(MustAccept(null, Start));
+        Assert.False(MustAccept((DateTime?)null, Start));
     }
 
     [Fact]
@@ -194,7 +194,7 @@ public sealed class AccountConsentTests : IDisposable
     [Fact]
     public void A_requirement_in_effect_binds_a_user_who_holds_no_acceptance_of_its_version()
     {
-        Assert.True(MustAccept([("v1", Start.AddDays(1))], null, Start.AddDays(2), Requirement("v2", Start, Start)));
+        Assert.True(MustAccept([("v1", Start.AddDays(1))], Start.AddDays(2), Requirement("v2", Start, Start)));
     }
 
     [Fact]
@@ -209,7 +209,7 @@ public sealed class AccountConsentTests : IDisposable
     [Fact]
     public void A_user_who_never_accepted_must_accept_once_a_requirement_is_in_effect()
     {
-        Assert.True(MustAccept(null, Start, Requirement("v2", Start, Start)));
+        Assert.True(MustAccept((DateTime?)null, Start, Requirement("v2", Start, Start)));
     }
 
     [Fact]
@@ -234,17 +234,17 @@ public sealed class AccountConsentTests : IDisposable
     {
         var requirement = Requirement("v2", Start, Start);
 
-        Assert.True(MustAccept([("v1", Start.AddMinutes(5))], null, Start.AddMinutes(10), requirement));
-        Assert.True(MustAccept([("v1", Start.AddMinutes(5))], "v3", Start.AddMinutes(10), requirement));
+        Assert.True(MustAccept([("v1", Start.AddMinutes(5))], Start.AddMinutes(10), requirement));
+        Assert.True(MustAccept([("v1", Start.AddMinutes(5))], Start.AddMinutes(10), requirement));
     }
 
     [Fact]
-    public void An_acceptance_of_the_current_source_version_satisfies_the_requirement_whenever_it_was_made()
+    public void An_acceptance_of_the_version_before_the_required_one_does_not_meet_the_requirement_whenever_it_was_made()
     {
         var requirement = Requirement("v2", Start, Start);
 
-        Assert.False(MustAccept([("v3", Start)], "v3", Start.AddMinutes(10), requirement));
-        Assert.False(MustAccept([("v3", Start.AddSeconds(-1))], "v3", Start.AddMinutes(10), requirement));
+        Assert.True(MustAccept([("v1", Start)], Start.AddMinutes(10), requirement));
+        Assert.True(MustAccept([("v1", Start.AddSeconds(-1))], Start.AddMinutes(10), requirement));
     }
 
     [Fact]
@@ -252,8 +252,8 @@ public sealed class AccountConsentTests : IDisposable
     {
         var requirement = Requirement("v2", Start, Start);
 
-        Assert.False(MustAccept([("v2", Start.AddDays(-1))], null, Start.AddDays(2), requirement));
-        Assert.False(MustAccept([("v1", Start.AddDays(-2)), ("v2", Start.AddDays(1))], null, Start.AddDays(2), requirement));
+        Assert.False(MustAccept([("v2", Start.AddDays(-1))], Start.AddDays(2), requirement));
+        Assert.False(MustAccept([("v1", Start.AddDays(-2)), ("v2", Start.AddDays(1))], Start.AddDays(2), requirement));
     }
 
     [Fact]
@@ -261,9 +261,8 @@ public sealed class AccountConsentTests : IDisposable
     {
         var requirement = Requirement("v2", Start, Start);
 
-        Assert.True(MustAccept([(AccountConsent.Unversioned, Start.AddDays(1))], null, Start.AddDays(2), requirement));
-        Assert.True(MustAccept([(AccountConsent.Unversioned, Start.AddDays(1))], AccountConsent.Unversioned, Start.AddDays(2), requirement));
-        Assert.True(MustAccept([(AccountConsent.Unversioned, Start.AddDays(1))], null, Start.AddDays(2), Requirement(AccountConsent.Unversioned, Start, Start)));
+        Assert.True(MustAccept([(AccountConsent.Unversioned, Start.AddDays(1))], Start.AddDays(2), requirement));
+        Assert.True(MustAccept([(AccountConsent.Unversioned, Start.AddDays(1))], Start.AddDays(2), Requirement(AccountConsent.Unversioned, Start, Start)));
     }
 
     [Fact]
