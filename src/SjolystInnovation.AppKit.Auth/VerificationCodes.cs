@@ -83,6 +83,24 @@ internal static class PasswordResetCodes
         return code;
     }
 
+    /// <summary>
+    /// Whether a new code may be issued. It may when there is no live code, when the live code was issued
+    /// at least <paramref name="cooldown"/> ago, or when the live code outlasts the default lifetime, as
+    /// an invitation does, because its issue time cannot be read from its expiry. It may not once the
+    /// live code has used up its attempts, until that code expires.
+    /// </summary>
+    public static bool CanIssue<TUser>(TUser user, TimeSpan cooldown, TimeProvider? time = null) where TUser : IdentityUser, IPasswordResetUser
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        var now = (time ?? TimeProvider.System).GetUtcNow().UtcDateTime;
+        if (user.PasswordResetCodeHash is null || user.PasswordResetCodeExpiration is not { } expires || expires <= now)
+            return true;
+        if (user.PasswordResetAttempts >= VerificationCodes.MaxAttempts)
+            return false;
+        var issued = expires - Lifetime;
+        return issued > now || now - issued >= cooldown;
+    }
+
     /// <summary>Checks a code. A wrong or expired code counts as an attempt.</summary>
     public static CodeCheck Check<TUser>(TUser user, string code, TimeProvider? time = null) where TUser : IdentityUser, IPasswordResetUser
     {

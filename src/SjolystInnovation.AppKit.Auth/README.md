@@ -124,8 +124,9 @@ usually `Jwt`. If a setting cannot work, the app fails to start and the error na
 | `AccessTokenLifetime` | `01:00:00` | How long an access token lasts. |
 | `RefreshTokenLifetimeMonths` | 6 | How many calendar months a refresh token lasts. |
 | `MaxLiveRefreshTokens` | 5 | How many refresh tokens one user may hold at once, across devices. |
+| `ResetCodeCooldown` | `00:01:00` | How long after a reset code was issued before `request-password-reset` issues a new one. |
 
-If the key is too short, or a lifetime or the cap is not positive, the app fails to start.
+If the key is too short, a lifetime or the cap is not positive, or the cooldown is negative, the app fails to start.
 
 `AddAppKitAuth` also runs a hosted service that deletes expired refresh tokens when the app starts
 and once a day after. A revoked token is kept until it expires, so presenting it again is still
@@ -207,7 +208,7 @@ All endpoints are anonymous `POST` requests under the prefix, which defaults to 
 | `login` | `email`, `password` | Answers `200 { token, refreshToken }`. A wrong password counts toward the lockout. |
 | `refresh-token` | `token`, `refreshToken` | Answers `200 { token, refreshToken }`. A used token ends every session. |
 | `logout` | `refreshToken` | Answers `204`, whether or not the token was live. |
-| `request-password-reset` | `email` | Answers `200`, whether or not the address has an account. Emails a code to one that does. |
+| `request-password-reset` | `email` | Answers `200`, whether or not the address has an account. Emails a code to one that does, unless the last code is newer than `ResetCodeCooldown` or has used up its attempts. |
 | `reset-password` | `email`, `code`, `newPassword` | Answers `200`, and every session ends. Answers `429` after 5 wrong codes. |
 
 Refusals answer `{ message, code }` with `400`, `401`, or `429`. A missing or malformed field answers
@@ -469,7 +470,10 @@ and `ReadUserIdFromExpired(token)` reads the user ID from an access token that m
 Your user class implements `IPasswordResetUser` with `PasswordResetCodeHash`,
 `PasswordResetCodeExpiration`, and `PasswordResetAttempts`. The `request-password-reset` and
 `reset-password` endpoints and the invite use them. A reset code lasts 30 minutes, and a correct code
-also clears the lockout.
+also clears the lockout. `request-password-reset` issues a new code only when the last one is at least
+`ResetCodeCooldown` old. After 5 wrong codes it issues none until that code expires, so a code allows
+5 guesses in all. The answer is the same in every case. An invite code, which can last longer than 30
+minutes, does not delay a new code.
 
 ## Email verification codes
 

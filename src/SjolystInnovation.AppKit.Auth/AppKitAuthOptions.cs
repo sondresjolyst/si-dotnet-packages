@@ -20,4 +20,10 @@ public sealed class AppKitAuthOptions
 
     /// <summary>How many refresh tokens one user may hold at once, across devices and browsers. Defaults to 5.</summary>
     public int MaxLiveRefreshTokens { get; set; } = 5;
+
+    /// <summary>
+    /// How long after a reset code was issued before <c>request-password-reset</c> issues and emails a
+    /// new one. Defaults to 1 minute.
+    /// </summary>
+    public TimeSpan ResetCodeCooldown { get; set; } = TimeSpan.FromMinutes(1);
 }
