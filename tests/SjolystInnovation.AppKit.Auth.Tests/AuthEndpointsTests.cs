@@ -489,7 +489,7 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task After_too_many_wrong_codes_no_new_code_is_issued_until_the_code_expires()
+    public async Task After_too_many_wrong_codes_a_new_code_is_issued_only_after_the_lock_time()
     {
         await StartAsync();
         await UserAsync();
@@ -497,7 +497,7 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
         var stored = Db(db => db.Users.Single().PasswordResetCodeHash);
         for (var i = 0; i < VerificationCodes.MaxAttempts; i++)
             await PostAsync("reset-password", new { email = "u1@example.invalid", code = "WRONG1", newPassword = "NewPassword2" });
-        _time.Advance(TimeSpan.FromMinutes(29));
+        _time.Advance(PasswordResetCodes.LockDuration - TimeSpan.FromMinutes(1));
 
         var early = await MessageOfRequestAsync();
 

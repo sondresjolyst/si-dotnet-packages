@@ -472,7 +472,7 @@ Your user class implements `IPasswordResetUser` with `PasswordResetCodeHash`,
 `reset-password` endpoints and the invite use them. A reset code lasts 30 minutes, and a correct code
 also clears the lockout. `request-password-reset` issues a new code only when the last one is at least
 `ResetCodeCooldown` old. After 5 wrong codes it issues none until that code expires, so a code allows
-5 guesses in all. The answer is the same in every case. An invite code, which can last longer than 30
+5 guesses in all. A code that has used up its attempts expires after 15 minutes at the latest, so a new one can be asked for then. The answer is the same in every case. An invite code, which can last longer than 30
 minutes, does not delay a new code.
 
 ## Email verification codes
