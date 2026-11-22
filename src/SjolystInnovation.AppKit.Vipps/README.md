@@ -179,13 +179,17 @@ The client applies the limits that Vipps sets, which `VippsLimits` lists:
 `VippsLimits.Truncate` and `VippsLimits.SystemHeader` apply the same cuts, for values your app shows
 or stores.
 
-A failed call throws `HttpRequestException`. It logs the Vipps error code, error reference, trace ID,
-and body length. For an RFC 7807 problem, the answer of the Recurring and ePayment APIs, the error code
-is the problem id from its `type`, the trace ID is its `contextId`, and it also logs the `title` and the
-names of the fields in `extraDetails`. It never logs the body, a problem's `detail`, or the extra detail
-reasons, because they may echo a phone number or a name. An id is logged only when it is a GUID or a
-plain name with fewer than seven digits, and a title only when it is plain words without
-digits. Anything else logs as `-`. If you need to debug, set
+A failed call throws `VippsApiException`, an `HttpRequestException` with the status code, so a
+`catch (HttpRequestException)` and a check of `StatusCode` work as before. See
+[Read the Vipps error](#read-the-vipps-error) for what else it carries. The call also logs the Vipps error code,
+error reference, trace ID, and body length. For an RFC 7807 problem, the answer of the Recurring and
+ePayment APIs, the logged error code is the problem id from its `type`, the trace ID is its `traceId` or
+`contextId`, and it also logs the `title` and the names of the fields in `extraDetails`. It never logs
+the body, a problem's `detail`, or the extra detail reasons, because they may echo a phone number or a
+name. An id is logged only when it is a GUID or a plain name with fewer than seven digits. A trace ID
+may also be a W3C trace ID such as `00-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d31-01`. A title
+is logged only when it is plain words without digits. Anything else logs as `-`. If you need
+to debug, set
 `LogFailedResponseBodies` to log the body of a failure that carries no error IDs and is not an RFC 7807
 problem.
 
@@ -226,6 +230,58 @@ catch (Exception ex) when (VippsFailures.IsProviderFailure(ex, cancellationToken
 
 `VippsFailures.RecommendedTimeout` is 15 seconds. The client keeps the `HttpClient` default of 100
 seconds unless you set it.
+
+### Read the Vipps error
+
+A 404 can mean that Vipps does not know the payment, or that the request went to a wrong base URL or
+route. The status code alone cannot tell them apart, but the error body can. The ePayment API answers
+with an RFC 7807 problem and puts its error code in `extraDetails`:
+
+```json
+{
+  "type": "https://httpstatuses.io/404",
+  "title": "Reference not found",
+  "status": 404,
+  "detail": "The reference 'order-42' does not exist for MSN 123456.",
+  "extraDetails": [{ "name": "ErrorCode", "reason": "5090" }],
+  "traceId": "00-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d31-01"
+}
+```
+
+`VippsApiException` carries these parts of the body:
+
+| Property | Holds |
+| --- | --- |
+| `ErrorCode` | The `ErrorCode` entry of `extraDetails`, such as `5090`, or a top-level `errorCode`. |
+| `ProblemType` | The problem id at the end of `type`, such as `charge-due-too-soon` from the Recurring API. It is null when the id is only a status number, as in the `https://httpstatuses.io/404` type of the ePayment API. |
+| `Title` | The problem `title`, such as `Reference not found`. |
+| `TraceId` | The `traceId` or `contextId`, for Vipps support. |
+| `Fields` | The names of the fields in `extraDetails`, without their reasons and without the `ErrorCode` entry. |
+| `Operation` | The call that failed, such as `get-payment`. |
+
+Each value is null, or `Fields` is empty, when the body does not have it. A body that is not a Vipps
+error, such as an HTML page or the 404 of a proxy, gives an exception with only the status code. The
+same checks as for logging apply, so `detail`, `instance`, and the extra detail reasons other than the
+one of the `ErrorCode` entry are never kept, and the message never holds a token, a key, or request data.
+
+`VippsFailures.HasErrorCode` tells whether a call failed with a given code. A failed access token never
+matches, since the call it was for never reached Vipps. The Recurring API sends no error code, so read
+`ProblemType` for its problems.
+
+```csharp
+try
+{
+    var payment = await vipps.GetPaymentAsync(order.Reference, order.IsTest, cancellationToken);
+}
+catch (Exception ex) when (VippsFailures.HasErrorCode(ex, "5090"))
+{
+    // Vipps does not know this reference. A 404 without code 5090 is a setup problem.
+    order.Status = "Unknown";
+}
+```
+
+The codes are listed in the
+[ePayment API error guide](https://developer.vippsmobilepay.com/docs/APIs/epayment-api/api-guide/errors/).
 
 ## Webhooks
 

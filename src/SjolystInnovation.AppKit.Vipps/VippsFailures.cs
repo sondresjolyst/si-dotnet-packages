@@ -15,7 +15,7 @@ public enum VippsFailureKind
 
 /// <summary>
 /// Tells apart the failures of <see cref="IVippsClient"/> calls such as capture, cancel, refund, and get payment.
-/// A failed answer throws <see cref="HttpRequestException"/> with its status code. The client's own timeout throws
+/// A failed answer throws <see cref="VippsApiException"/>, an <see cref="HttpRequestException"/> with its status code. The client's own timeout throws
 /// a cancellation while the caller's token is not canceled.
 /// </summary>
 public static class VippsFailures
@@ -52,6 +52,20 @@ public static class VippsFailures
     /// <returns>Whether the caller canceled.</returns>
     public static bool IsCallerCancellation(Exception exception, CancellationToken cancellationToken) =>
         Classify(exception, cancellationToken) == VippsFailureKind.CallerCancelled;
+
+    /// <summary>
+    /// Whether Vipps answered the call with the given error code, such as <c>5090</c> for an ePayment reference it does
+    /// not know. A failed access token never matches, since that call was not the one the caller asked for.
+    /// </summary>
+    /// <param name="exception">The exception the call threw.</param>
+    /// <param name="errorCode">The Vipps error code.</param>
+    /// <returns>Whether the exception carries that error code.</returns>
+    public static bool HasErrorCode(Exception exception, string errorCode)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        ArgumentException.ThrowIfNullOrEmpty(errorCode);
+        return exception is VippsApiException { ErrorCode: { } code } && string.Equals(code, errorCode, StringComparison.Ordinal);
+    }
 
     /// <summary>Sorts the exception a call threw into what it says about the operation.</summary>
     /// <param name="exception">The exception the call threw.</param>
