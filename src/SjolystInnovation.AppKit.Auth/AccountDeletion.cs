@@ -107,7 +107,8 @@ internal sealed partial class AccountDeleter<TUser, TContext>(
         {
             await DeleteInTransactionAsync(user, adminRole, cancellationToken);
         }
-        catch (Exception e) when (IsSerializationFailure(e))
+        // A save that finds a row changed by someone else is a collision too, whatever the database reports.
+        catch (Exception e) when (IsSerializationFailure(e) || e is DbUpdateConcurrencyException)
         {
             throw new AccountChangeConflictException(e);
         }

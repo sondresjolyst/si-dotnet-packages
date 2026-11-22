@@ -32,6 +32,9 @@ public sealed class AccountTests : IAsyncDisposable
                 throw new InvalidOperationException("eraser failed");
             if (test.CollideErasing)
                 throw new Microsoft.EntityFrameworkCore.DbUpdateException("save failed", new FakeDbException("40001"));
+            if (test.ChangeUserErasing)
+                // Another change to the user row, so the first save of the deletion finds a stale concurrency stamp.
+                await db.Database.ExecuteSqlAsync($"UPDATE AspNetUsers SET ConcurrencyStamp = 'changed' WHERE Id = {user.Id}", cancellationToken);
         }
     }
 
@@ -58,6 +61,7 @@ public sealed class AccountTests : IAsyncDisposable
     internal List<(string Id, bool WasDeleted)> Handled { get; } = [];
     internal bool FailErasing { get; set; }
     internal bool CollideErasing { get; set; }
+    internal bool ChangeUserErasing { get; set; }
 
     private sealed class FakeDbException(string sqlState) : System.Data.Common.DbException("db failed")
     {
@@ -316,6 +320,23 @@ public sealed class AccountTests : IAsyncDisposable
         _staleStamp = true;
         await StartAsync();
         await UserAsync("u1");
+
+        await Assert.ThrowsAsync<AccountChangeConflictException>(() => DeleteDirectAsync("u1"));
+        var response = await SendAsync(HttpMethod.Delete, "/api/users/u1/account");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(AuthErrorCodes.AccountChangeConflict, await ErrorJson.CodeAsync(response));
+        Assert.False(Load("u1").IsDeleted);
+        Assert.Equal(1, Tokens("u1"));
+        Assert.Empty(Handled);
+    }
+
+    [Fact]
+    public async Task A_change_to_the_user_before_the_first_save_is_a_conflict_and_rolls_back()
+    {
+        await StartAsync();
+        await UserAsync("u1");
+        ChangeUserErasing = true;
 
         await Assert.ThrowsAsync<AccountChangeConflictException>(() => DeleteDirectAsync("u1"));
         var response = await SendAsync(HttpMethod.Delete, "/api/users/u1/account");
