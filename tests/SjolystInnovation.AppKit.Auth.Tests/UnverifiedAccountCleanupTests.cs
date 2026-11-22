@@ -58,6 +58,7 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
     private readonly FakeTimeProvider _time = new(Start);
     private readonly RecordingEmails _emails = new();
+    private readonly VerificationEndpointsTests.LostRace _lostRace = new();
     private readonly List<string> _erased = [];
     private Exception? _eraserThrows;
     private IHost? _host;
@@ -87,7 +88,7 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
                 {
                     s.AddLogging(b => b.AddFakeLogging());
                     s.AddSingleton<TimeProvider>(_time);
-                    s.AddDbContext<RegistrationTestDbContext>(o => o.UseSqlite(_connection));
+                    s.AddDbContext<RegistrationTestDbContext>(o => o.UseSqlite(_connection).AddInterceptors(_lostRace));
                     s.AddAppKitIdentity<IdentityTestUser, RegistrationTestDbContext>();
                     s.Configure<AppKitAuthOptions>(o => o.Key = MailKeys.SigningKey);
                     s.AddAppKitAccounts<IdentityTestUser, RegistrationTestDbContext>();
@@ -496,6 +497,55 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
         _time.Advance(TimeSpan.FromDays(1));
         Assert.Equal(new UnverifiedCleanupResult(0, 1, 0), await RunAsync());
         Assert.Single(_emails.Reminders);
+    }
+
+    [Fact]
+    public async Task A_reminder_refused_by_the_cap_never_writes_the_code_of_the_user()
+    {
+        await StartAsync(o => o.MaxOwnerEmailsPerAddressPerDay = 1);
+        await SeedAsync("u1", TimeSpan.Zero);
+        _time.Advance(TimeSpan.FromDays(16));
+        Update("u1", u =>
+        {
+            u.EmailVerificationCodeHash = VerificationCodes.Hash("OLD123");
+            u.EmailVerificationCodeExpiration = Now.AddMinutes(30);
+            u.EmailVerificationAttempts = 2;
+        });
+        SeedMailCount("u1@example.invalid", "resend", Now.Date, 1);
+        var before = Load("u1");
+        var cleanup = (UnverifiedAccountCleanup<IdentityTestUser, RegistrationTestDbContext>)Cleanup;
+        _lostRace.Active = true;
+
+        Assert.Equal(CleanupOutcome.Skipped, await cleanup.RemindAsync("u1", CancellationToken.None));
+
+        _lostRace.Active = false;
+        var after = Load("u1");
+        Assert.Equal(before.EmailVerificationCodeHash, after.EmailVerificationCodeHash);
+        Assert.Equal(before.EmailVerificationCodeExpiration, after.EmailVerificationCodeExpiration);
+        Assert.Equal(2, after.EmailVerificationAttempts);
+    }
+
+    [Fact]
+    public async Task A_reminder_that_loses_on_the_concurrency_stamp_is_lost_and_leaves_the_mail_counts_and_the_stored_code_as_they_were()
+    {
+        await StartAsync();
+        await SeedAsync("u1", TimeSpan.Zero);
+        _time.Advance(TimeSpan.FromDays(16));
+        Update("u1", u =>
+        {
+            u.EmailVerificationCodeHash = VerificationCodes.Hash("OLD123");
+            u.EmailVerificationCodeExpiration = Now.AddMinutes(30);
+        });
+        var before = Load("u1");
+        var cleanup = (UnverifiedAccountCleanup<IdentityTestUser, RegistrationTestDbContext>)Cleanup;
+        _lostRace.Active = true;
+
+        Assert.Equal(CleanupOutcome.Lost, await cleanup.RemindAsync("u1", CancellationToken.None));
+
+        _lostRace.Active = false;
+        Assert.Equal(0, Db(db => db.SignUpMailLogs.Sum(l => l.Count)));
+        Assert.Equal(before.EmailVerificationCodeHash, Load("u1").EmailVerificationCodeHash);
+        Assert.Empty(_emails.Reminders);
     }
 
     [Fact]

@@ -165,4 +165,59 @@ public sealed class SignUpMailLimiterConcurrencyTests : IDisposable
 
         Assert.Empty(second.ChangeTracker.Entries());
     }
+
+    private async Task<int> AllCountsAsync() =>
+        await CountOfAsync(SignUpMailKinds.Resend) + await CountOfAsync(SignUpMailKinds.OwnerBudget) + await CountOfAsync(SignUpMailKinds.Total);
+
+    [Fact]
+    public async Task Reserving_with_a_save_runs_the_save_once_inside_the_transaction_and_commits_both()
+    {
+        await using var db = NewContext();
+        var saves = 0;
+
+        var result = await NewLimiter(db).ReserveWithAsync("name@example.invalid", null, SignUpMailKinds.Resend, 5, 5, TimeSpan.Zero,
+            () =>
+            {
+                saves++;
+                Assert.NotNull(db.Database.CurrentTransaction);
+                return Task.FromResult(true);
+            }, CancellationToken.None);
+
+        Assert.Equal(MailReservation.Reserved, result);
+        Assert.Equal(1, saves);
+        Assert.Equal(3, await AllCountsAsync());
+    }
+
+    [Fact]
+    public async Task Reserving_with_a_save_does_not_call_the_save_when_a_count_refuses()
+    {
+        Assert.True(await ReserveAsync("name@example.invalid", SignUpMailKinds.Resend, 5, 1));
+        var before = await AllCountsAsync();
+        await using var db = NewContext();
+        var saves = 0;
+
+        var result = await NewLimiter(db).ReserveWithAsync("name@example.invalid", null, SignUpMailKinds.Resend, 5, 1, TimeSpan.Zero,
+            () =>
+            {
+                saves++;
+                return Task.FromResult(true);
+            }, CancellationToken.None);
+
+        Assert.Equal(MailReservation.Refused, result);
+        Assert.Equal(0, saves);
+        Assert.Equal(before, await AllCountsAsync());
+    }
+
+    [Fact]
+    public async Task Reserving_with_a_save_that_returns_false_is_lost_and_leaves_the_counts_unchanged()
+    {
+        await using var db = NewContext();
+
+        var result = await NewLimiter(db).ReserveWithAsync("name@example.invalid", null, SignUpMailKinds.Resend, 5, 5, TimeSpan.Zero,
+            () => Task.FromResult(false), CancellationToken.None);
+
+        Assert.Equal(MailReservation.Lost, result);
+        Assert.Equal(0, await AllCountsAsync());
+        Assert.Null(db.Database.CurrentTransaction);
+    }
 }

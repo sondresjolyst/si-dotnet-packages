@@ -196,7 +196,7 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
     }
 
     // Sends the reminder that is due, if there is one. The latest due offset counts, so a run after a long stop sends one
-    // reminder and not one per missed offset. The fresh code is saved first, then the email is reserved and sent, and the reminder
+    // reminder and not one per missed offset. The email is reserved and the fresh code is saved in the same transaction, then the email is sent, and the reminder
     // is only marked as sent after the email went out, so a failed send is tried again in the next run.
     internal async Task<CleanupOutcome> RemindAsync(string userId, CancellationToken cancellationToken)
     {
@@ -217,31 +217,27 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
         if (VerificationThrottle.CodeIsDue(user, now, settings.ResendCooldown) != CodeDue.Yes)
             return CleanupOutcome.Skipped;
 
-        // The fresh code is saved first. An account that another host changed at the same moment is left to a later run and nothing is spent.
-        var held = EmailVerificationCodes.Capture(user);
-        var code = EmailVerificationCodes.Issue(user, time);
-        var saved = await users.UpdateAsync(user);
-        if (!saved.Succeeded)
-        {
-            if (saved.Errors.Any(e => e.Code == nameof(IdentityErrorDescriber.ConcurrencyFailure)))
-                return CleanupOutcome.Lost;
-            throw new InvalidOperationException("Saving the reminder code failed: " + string.Join(" ", saved.Errors.Select(e => e.Code)));
-        }
-
-        // Then the email is reserved. Over the cap of the address no email goes out, the code and the attempts of the last email are put back,
-        // and the reminder is tried again in a later run.
-        if (!await scope.ServiceProvider.GetRequiredService<SignUpMailLimiter<TContext>>().TryReserveAsync(user.Email!, user.NormalizedEmail, SignUpMailKinds.Reminder, settings.MaxEmailsPerAddressPerDay, settings.MaxOwnerEmailsPerAddressPerDay, TimeSpan.Zero, cancellationToken))
-        {
-            EmailVerificationCodes.Restore(user, held);
-            var restored = await users.UpdateAsync(user);
-            if (restored.Succeeded)
-                return CleanupOutcome.Skipped;
-            if (restored.Errors.Any(e => e.Code == nameof(IdentityErrorDescriber.ConcurrencyFailure)))
-                return CleanupOutcome.Lost;
-            throw new InvalidOperationException("Restoring the verification code failed: " + string.Join(" ", restored.Errors.Select(e => e.Code)));
-        }
+        // The fresh code is saved in the transaction of the mail counts, after the counts have passed. An account that another host
+        // changed at the same moment is left to a later run and nothing is spent. Over the cap of the address no email goes out,
+        // no code is stored, and the reminder is tried again in a later run.
+        string? code = null;
+        var reservation = await scope.ServiceProvider.GetRequiredService<SignUpMailLimiter<TContext>>().ReserveWithAsync(user.Email!, user.NormalizedEmail, SignUpMailKinds.Reminder, settings.MaxEmailsPerAddressPerDay, settings.MaxOwnerEmailsPerAddressPerDay, TimeSpan.Zero,
+            async () =>
+            {
+                code = EmailVerificationCodes.Issue(user, time);
+                var saved = await users.UpdateAsync(user);
+                if (saved.Succeeded)
+                    return true;
+                if (saved.Errors.Any(e => e.Code == nameof(IdentityErrorDescriber.ConcurrencyFailure)))
+                    return false;
+                throw new InvalidOperationException("Saving the reminder code failed: " + string.Join(" ", saved.Errors.Select(e => e.Code)));
+            }, cancellationToken);
+        if (reservation == MailReservation.Lost)
+            return CleanupOutcome.Lost;
+        if (reservation == MailReservation.Refused)
+            return CleanupOutcome.Skipped;
         var locale = await scope.ServiceProvider.GetRequiredService<AccountConsentService<TContext>>().LatestLocaleAsync(userId, cancellationToken);
-        await scope.ServiceProvider.GetRequiredService<IRegistrationEmails<TUser>>().SendRemovalReminderAsync(user, code, removalAt, locale, cancellationToken);
+        await scope.ServiceProvider.GetRequiredService<IRegistrationEmails<TUser>>().SendRemovalReminderAsync(user, code!, removalAt, locale, cancellationToken);
 
         reminder.RemovalReminderSentAt = now;
         var marked = await users.UpdateAsync(user);

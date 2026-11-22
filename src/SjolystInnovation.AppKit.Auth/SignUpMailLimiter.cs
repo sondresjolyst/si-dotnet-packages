@@ -32,6 +32,19 @@ internal static class SignUpMailKinds
     public static string[] BudgetOf(string kind) => Array.IndexOf(Owner, kind) >= 0 ? Owner : Anonymous;
 }
 
+// The result of a reservation that also saves something for the caller.
+internal enum MailReservation
+{
+    // Every count passed and the save of the caller was committed with the counts.
+    Reserved,
+
+    // A cap or the cooldown holds. Nothing was counted and the save was not called.
+    Refused,
+
+    // The save of the caller reported that it lost, so nothing was counted or saved.
+    Lost,
+}
+
 /// <summary>
 /// The hashes that the sign-up counts are kept under. They are HMAC-SHA256 with a key derived from
 /// <see cref="AppKitAuthOptions.Key"/> and a fixed purpose label, so a copy of the table cannot be reversed by hashing guessed
@@ -96,7 +109,11 @@ internal static class SignUpMailAddress
 // Decides whether a sign-up email may go to an address now, and counts it when it may. The counts live in the database,
 // so the caps and the cooldown hold across instances and restarts. The rows are keyed by keyed hashes (see SignUpMailAddress),
 // so changing the signing key resets the counts. The caller must not hold a transaction around the call and must have no
-// pending changes on the context, and sends the email only after this returns true, which is after the counts are saved.
+// pending changes on the context, and sends the email only after the counts are saved. TryReserveAsync returns true for that.
+// ReserveWithAsync also runs a save of the caller inside the transaction of the counts, after every count has passed, and
+// commits both or neither. A code that is issued for the email is saved there, so it is never stored for an email that did
+// not go out. The caller issues the code inside that save, because the step that makes the rows saves every pending change
+// on the context, and it does so outside the transaction.
 //
 // Three rules hold, each with its own running count row per day. The anonymous count per mailbox, the owner count per
 // account, and the total per mailbox over every kind. A row per kind also keeps the time of the last email for the cooldown.
@@ -121,18 +138,24 @@ internal sealed class SignUpMailLimiter<TContext>(TContext db, TimeProvider time
     // at most the two caps together per day. A cooldown holds between emails of the same kind. The key is the normalised
     // address the account stores, or the request's address normalised the way Identity does it when there is no account,
     // so every spelling that finds the account shares its counters.
-    public Task<bool> TryReserveAsync(string email, string? storedNormalizedEmail, string kind, int anonymousCap, int ownerCap, TimeSpan cooldown, CancellationToken cancellationToken)
+    public async Task<bool> TryReserveAsync(string email, string? storedNormalizedEmail, string kind, int anonymousCap, int ownerCap, TimeSpan cooldown, CancellationToken cancellationToken) =>
+        await ReserveWithAsync(email, storedNormalizedEmail, kind, anonymousCap, ownerCap, cooldown, () => Task.FromResult(true), cancellationToken) == MailReservation.Reserved;
+
+    // Counts like TryReserveAsync and also runs the save of the caller in the same transaction, after every count has passed.
+    // The save returns false when it lost a race. Then nothing is counted and nothing is saved. The save is not called when a
+    // count refuses.
+    public Task<MailReservation> ReserveWithAsync(string email, string? storedNormalizedEmail, string kind, int anonymousCap, int ownerCap, TimeSpan cooldown, Func<Task<bool>> save, CancellationToken cancellationToken)
     {
         var exact = storedNormalizedEmail ?? (normalizer?.NormalizeEmail(email.Trim()) ?? email.Trim().ToUpperInvariant());
         var mailbox = SignUpMailAddress.MailboxHash(_key, exact);
         var isOwner = SignUpMailKinds.IsOwner(kind);
         var hash = isOwner ? SignUpMailAddress.Hash(_key, exact) : mailbox;
-        return TryRaiseAsync(mailbox,
+        return RaiseAsync(mailbox,
         [
             new Counter(mailbox, SignUpMailKinds.Total, anonymousCap + ownerCap, TimeSpan.Zero),
             new Counter(hash, isOwner ? SignUpMailKinds.OwnerBudget : SignUpMailKinds.AnonymousBudget, isOwner ? ownerCap : anonymousCap, TimeSpan.Zero),
             new Counter(hash, kind, int.MaxValue, cooldown),
-        ], cancellationToken);
+        ], save, cancellationToken);
     }
 
     // Counts one sign-up from the network, given as the shortened address of the caller, and returns true only when
@@ -143,8 +166,11 @@ internal sealed class SignUpMailLimiter<TContext>(TContext db, TimeProvider time
         return TryRaiseAsync(networkHash, [new Counter(networkHash, SignUpMailKinds.Network, cap, TimeSpan.Zero)], cancellationToken);
     }
 
-    // Raises every counter by one, in the order given, or none of them.
-    private async Task<bool> TryRaiseAsync(string mailbox, Counter[] counters, CancellationToken cancellationToken)
+    private async Task<bool> TryRaiseAsync(string mailbox, Counter[] counters, CancellationToken cancellationToken) =>
+        await RaiseAsync(mailbox, counters, () => Task.FromResult(true), cancellationToken) == MailReservation.Reserved;
+
+    // Raises every counter by one, in the order given, or none of them. The save runs after the last counter and before the commit.
+    private async Task<MailReservation> RaiseAsync(string mailbox, Counter[] counters, Func<Task<bool>> save, CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow().UtcDateTime;
         var today = now.Date;
@@ -163,11 +189,16 @@ internal sealed class SignUpMailLimiter<TContext>(TContext db, TimeProvider time
             if (changed == 0)
             {
                 await tx.RollbackAsync(cancellationToken);
-                return false;
+                return MailReservation.Refused;
             }
         }
+        if (!await save())
+        {
+            await tx.RollbackAsync(cancellationToken);
+            return MailReservation.Lost;
+        }
         await tx.CommitAsync(cancellationToken);
-        return true;
+        return MailReservation.Reserved;
     }
 
     // Makes the rows of today that the counters need, with a count of zero. A new row starts with the time of the last email of

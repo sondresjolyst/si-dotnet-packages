@@ -192,39 +192,6 @@ public class CodesTests
         Assert.Equal(0, user.EmailVerificationAttempts);
     }
 
-    // Every writable property of the user gets a value that Issue would change. A field that Issue touches
-    // but the snapshot does not hold then differs after the restore.
-    [Fact]
-    public void EmailVerification_RestoreBringsBackEveryFieldThatIssueChanges()
-    {
-        var user = new IdentityTestUser();
-        var past = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var properties = typeof(IdentityTestUser).GetProperties().Where(p => p.CanRead && p.CanWrite && p.GetIndexParameters().Length == 0).ToList();
-        foreach (var property in properties)
-        {
-            object? value = property.PropertyType switch
-            {
-                var t when t == typeof(string) => "before-" + property.Name,
-                var t when t == typeof(int) => 3,
-                var t when t == typeof(bool) => true,
-                var t when t == typeof(DateTime) || t == typeof(DateTime?) => past,
-                var t when t == typeof(DateTimeOffset) || t == typeof(DateTimeOffset?) => new DateTimeOffset(past),
-                _ => null,
-            };
-            if (value is not null)
-                property.SetValue(user, value);
-        }
-        var before = properties.ToDictionary(p => p.Name, p => p.GetValue(user));
-
-        var snapshot = EmailVerificationCodes.Capture(user);
-        EmailVerificationCodes.Issue(user, _time);
-        var changed = properties.Where(p => !Equals(before[p.Name], p.GetValue(user))).ToList();
-        EmailVerificationCodes.Restore(user, snapshot);
-
-        Assert.NotEmpty(changed);
-        Assert.All(properties, p => Assert.Equal(before[p.Name], p.GetValue(user)));
-    }
-
     [Fact]
     public void Helpers_UseTheSystemClockByDefault()
     {
