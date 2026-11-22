@@ -8,6 +8,8 @@ confirmations, and forms. Your app keeps its own templates and passes the finish
 dotnet add package SjolystInnovation.AppKit.Pdf
 ```
 
+The package targets .NET 11 (`net11.0`), so your app must target .NET 11 or later.
+
 ## Get started
 
 `AddAppKitPdf` registers `IPdfRenderer` as a singleton.

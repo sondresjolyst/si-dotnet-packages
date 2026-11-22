@@ -10,6 +10,8 @@ browser sends, and it serves files back with a correctly encoded `Content-Dispos
 dotnet add package SjolystInnovation.AppKit.Storage
 ```
 
+The package targets .NET 11 (`net11.0`), so your app must target .NET 11 or later.
+
 ## Get started
 
 Register a store per kind of upload and resolve it by name as a keyed service. Keep the values of the

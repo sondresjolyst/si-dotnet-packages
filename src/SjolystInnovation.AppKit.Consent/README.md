@@ -24,6 +24,8 @@ Every refused field answers a validation problem with a stable code, so your fro
 dotnet add package SjolystInnovation.AppKit.Consent
 ```
 
+The package targets .NET 11 (`net11.0`), so your app must target .NET 11 or later.
+
 ## Get started
 
 This example signs requests in with AppKit.Auth's JWT bearer scheme, so the history endpoint answers

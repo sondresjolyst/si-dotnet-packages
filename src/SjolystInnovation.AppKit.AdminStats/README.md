@@ -10,6 +10,8 @@ give, or that is too slow to count on every request.
 dotnet add package SjolystInnovation.AppKit.AdminStats
 ```
 
+The package targets .NET 11 (`net11.0`), so your app must target .NET 11 or later.
+
 ## Get started
 
 Your snapshot entity implements `IAppKitDailyStat`, holds your own `int` or `long` counters, and keeps

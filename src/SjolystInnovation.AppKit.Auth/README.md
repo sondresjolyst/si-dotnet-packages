@@ -10,6 +10,8 @@ the package's endpoints, and can send the package's emails or keep its own.
 dotnet add package SjolystInnovation.AppKit.Auth
 ```
 
+The package targets .NET 11 (`net11.0`), so your app must target .NET 11 or later.
+
 The package depends on `SjolystInnovation.AppKit.Email`, which sends the code emails through Brevo.
 
 ## Get started
