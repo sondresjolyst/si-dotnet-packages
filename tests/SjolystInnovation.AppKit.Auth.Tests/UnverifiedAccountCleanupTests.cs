@@ -549,6 +549,24 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task A_reminder_whose_time_save_loses_on_the_concurrency_stamp_saves_the_time_again_and_counts_as_sent()
+    {
+        await StartAsync();
+        await SeedAsync("u1", TimeSpan.Zero);
+        _time.Advance(TimeSpan.FromDays(16));
+        // The first save of the user is the code, and the second is the time. Only the second loses.
+        _lostRace.PassThenFailOnce(1);
+
+        Assert.Equal(new UnverifiedCleanupResult(0, 1, 0), await RunAsync());
+
+        _lostRace.Active = false;
+        Assert.Single(_emails.Reminders);
+        Assert.Equal(Now, Load("u1").RemovalReminderSentAt);
+        Assert.Equal(new UnverifiedCleanupResult(0, 0, 0), await RunAsync());
+        Assert.Single(_emails.Reminders);
+    }
+
+    [Fact]
     public async Task An_eraser_that_throws_a_concurrency_exception_leaves_the_account_counts_it_as_skipped_and_logs_a_warning()
     {
         _eraserThrows = new DbUpdateConcurrencyException("The eraser lost a race.");

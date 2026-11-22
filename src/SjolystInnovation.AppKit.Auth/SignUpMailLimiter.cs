@@ -111,8 +111,8 @@ internal static class SignUpMailAddress
 // so changing the signing key resets the counts. The caller must not hold a transaction around the call and must have no
 // pending changes on the context, and sends the email only after the counts are saved. TryReserveAsync returns true for that.
 // ReserveWithAsync also runs a save of the caller inside the transaction of the counts, after every count has passed, and
-// commits both or neither. A code that is issued for the email is saved there, so it is never stored for an email that did
-// not go out. The caller issues the code inside that save, because the step that makes the rows saves every pending change
+// commits both or neither. A code that is issued for the email is saved there, so it is never stored when a count refuses the
+// email or when the save loses on the concurrency stamp. The caller issues the code inside that save, because the step that makes the rows saves every pending change
 // on the context, and it does so outside the transaction.
 //
 // Three rules hold, each with its own running count row per day. The anonymous count per mailbox, the owner count per

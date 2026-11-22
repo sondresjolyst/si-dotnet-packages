@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
@@ -55,10 +56,51 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
     {
         public volatile bool Active;
 
-        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default) =>
-            Active && eventData.Context!.ChangeTracker.Entries<IdentityTestUser>().Any(e => e.State == EntityState.Modified)
-                ? throw new DbUpdateConcurrencyException("Lost the race.")
-                : base.SavingChangesAsync(eventData, result, cancellationToken);
+        // How many saves of a user pass before the first one fails, and how many fail after that.
+        private int _pass;
+        private int _failures = int.MaxValue;
+
+        public void PassThenFailOnce(int pass)
+        {
+            _pass = pass;
+            _failures = 1;
+            Active = true;
+        }
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (!Active || !eventData.Context!.ChangeTracker.Entries<IdentityTestUser>().Any(e => e.State == EntityState.Modified))
+                return base.SavingChangesAsync(eventData, result, cancellationToken);
+            if (_pass > 0)
+            {
+                _pass--;
+                return base.SavingChangesAsync(eventData, result, cancellationToken);
+            }
+            if (_failures <= 0)
+                return base.SavingChangesAsync(eventData, result, cancellationToken);
+            _failures--;
+            throw new DbUpdateConcurrencyException("Lost the race.");
+        }
+    }
+
+    // Holds the first read of the consent rows until two requests have reached it, so both load the user before either saves it.
+    private sealed class ReadGate : DbCommandInterceptor
+    {
+        private readonly TaskCompletionSource _both = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _arrived;
+
+        public volatile bool Armed;
+
+        public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
+        {
+            if (Armed && command.CommandText.Contains("AccountConsents", StringComparison.Ordinal))
+            {
+                if (Interlocked.Increment(ref _arrived) == 2)
+                    _both.TrySetResult();
+                await _both.Task.WaitAsync(TimeSpan.FromSeconds(20), cancellationToken);
+            }
+            return await base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
     }
 
     private sealed class VerifiedLog
@@ -83,6 +125,7 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
     private readonly FakeEmails _emails = new();
     private readonly VerifiedLog _verified = new();
     private readonly LostRace _lostRace = new();
+    private readonly ReadGate _readGate = new();
     private string? _file;
     private IHost? _host;
     private HttpClient _client = default!;
@@ -123,7 +166,7 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
                             o.UseSqlite(_connection);
                         else
                             o.UseSqlite($"Data Source={_file};Pooling=False");
-                        o.AddInterceptors(_lostRace);
+                        o.AddInterceptors(_lostRace, _readGate);
                     });
                     s.AddAppKitIdentity<IdentityTestUser, RegistrationTestDbContext>();
                     s.AddAppKitAuth<RegistrationTestDbContext>(context.Configuration.GetSection("Jwt"));
@@ -718,6 +761,25 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
         Assert.Equal(before.EmailVerificationCodeHash, Stored("u1").EmailVerificationCodeHash);
         Assert.Single(_emails.Verifications);
         Assert.Equal(HttpStatusCode.OK, (await VerifyAsync(sent, token)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Two_resends_that_both_loaded_the_user_give_one_200_and_one_409_tryAgain_one_email_and_one_resend_count()
+    {
+        await StartAsync(o => o.ResendCooldown = TimeSpan.Zero, fileDb: true);
+        await SeedAsync("u1");
+        var token = await AccessTokenAsync("u1");
+        _readGate.Armed = true;
+
+        var responses = await Task.WhenAll(Task.Run(() => ResendAsync(token)), Task.Run(() => ResendAsync(token)));
+
+        _readGate.Armed = false;
+        Assert.Equal([HttpStatusCode.OK, HttpStatusCode.Conflict], responses.Select(r => r.StatusCode).Order());
+        var lost = responses.Single(r => r.StatusCode == HttpStatusCode.Conflict);
+        Assert.Equal("tryAgain", await ErrorJson.CodeAsync(lost));
+        var sent = Assert.Single(_emails.Verifications).Code;
+        Assert.Equal(1, Db(db => db.SignUpMailLogs.Where(l => l.Kind == SignUpMailKinds.Resend).Sum(l => l.Count)));
+        Assert.Equal(VerificationCodes.Hash(sent), Stored("u1").EmailVerificationCodeHash);
     }
 
     [Fact]

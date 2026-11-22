@@ -219,7 +219,9 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
 
         // The fresh code is saved in the transaction of the mail counts, after the counts have passed. An account that another host
         // changed at the same moment is left to a later run and nothing is spent. Over the cap of the address no email goes out,
-        // no code is stored, and the reminder is tried again in a later run.
+        // no code is stored, and the reminder is tried again in a later run. The locale is read first, so only the send stands
+        // between the commit and the email.
+        var locale = await scope.ServiceProvider.GetRequiredService<AccountConsentService<TContext>>().LatestLocaleAsync(userId, cancellationToken);
         string? code = null;
         var reservation = await scope.ServiceProvider.GetRequiredService<SignUpMailLimiter<TContext>>().ReserveWithAsync(user.Email!, user.NormalizedEmail, SignUpMailKinds.Reminder, settings.MaxEmailsPerAddressPerDay, settings.MaxOwnerEmailsPerAddressPerDay, TimeSpan.Zero,
             async () =>
@@ -236,15 +238,31 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
             return CleanupOutcome.Lost;
         if (reservation == MailReservation.Refused)
             return CleanupOutcome.Skipped;
-        var locale = await scope.ServiceProvider.GetRequiredService<AccountConsentService<TContext>>().LatestLocaleAsync(userId, cancellationToken);
         await scope.ServiceProvider.GetRequiredService<IRegistrationEmails<TUser>>().SendRemovalReminderAsync(user, code!, removalAt, locale, cancellationToken);
 
         reminder.RemovalReminderSentAt = now;
         var marked = await users.UpdateAsync(user);
         if (!marked.Succeeded)
-            throw new InvalidOperationException("Saving the reminder time failed: " + string.Join(" ", marked.Errors.Select(e => e.Code)));
+        {
+            if (!marked.Errors.Any(e => e.Code == nameof(IdentityErrorDescriber.ConcurrencyFailure)))
+                throw new InvalidOperationException("Saving the reminder time failed: " + string.Join(" ", marked.Errors.Select(e => e.Code)));
+            await MarkRemindedAgainAsync(userId, now);
+        }
         Log.Reminded(logger, userId);
         return CleanupOutcome.Reminded;
+    }
+
+    // The email is out, so the time is saved on a fresh load of the account, once. It fails the reminder only when that save fails too.
+    private async Task MarkRemindedAgainAsync(string userId, DateTime now)
+    {
+        using var scope = services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<TUser>>();
+        if (await users.FindByIdAsync(userId) is not { } fresh || fresh is not IRemovalReminderUser freshReminder)
+            throw new InvalidOperationException("Saving the reminder time failed: the account is gone.");
+        freshReminder.RemovalReminderSentAt = now;
+        var saved = await users.UpdateAsync(fresh);
+        if (!saved.Succeeded)
+            throw new InvalidOperationException("Saving the reminder time failed: " + string.Join(" ", saved.Errors.Select(e => e.Code)));
     }
 
     private static Task<bool> CameThroughSignUpAsync(TContext db, string userId, CancellationToken cancellationToken) =>

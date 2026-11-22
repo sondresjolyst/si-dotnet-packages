@@ -122,10 +122,12 @@ internal sealed class VerificationHandlers<TUser, TContext>(ILogger logger)
         if (due == CodeDue.Cooldown)
             return AuthResults.Error(AuthErrorCodes.TooManyRequests, "A code was sent a moment ago. Wait a little before asking for another.", StatusCodes.Status429TooManyRequests);
 
-        // The new code is saved in the transaction of the mail counts, after the counts have passed, so a code that no email carries
-        // is never stored. A request that loses the race on the concurrency stamp spends nothing and answers 409. The caller is the
-        // owner, so over the cap of the owner for the address the answer says so and nothing is sent.
+        // The new code is saved in the transaction of the mail counts, after the counts have passed. It is never stored when a count
+        // refuses the email or when the save loses on the concurrency stamp. A request that loses spends nothing and answers 409. The
+        // caller is the owner, so over the cap of the owner for the address the answer says so and nothing is sent. The locale is
+        // read first, so only the send stands between the commit and the email.
         var users = Get<UserManager<TUser>>(http);
+        var locale = await Get<AccountConsentService<TContext>>(http).LatestLocaleAsync(user.Id, http.RequestAborted);
         string? code = null;
         var reservation = await Get<SignUpMailLimiter<TContext>>(http).ReserveWithAsync(user.Email!, user.NormalizedEmail, SignUpMailKinds.Resend, options.MaxEmailsPerAddressPerDay, options.MaxOwnerEmailsPerAddressPerDay, TimeSpan.Zero,
             async () =>
@@ -142,8 +144,8 @@ internal sealed class VerificationHandlers<TUser, TContext>(ILogger logger)
             return AuthResults.TryAgain();
         if (reservation == MailReservation.Refused)
             return AuthResults.Error(AuthErrorCodes.TooManyRequests, "Too many codes were sent to this address today. Try again tomorrow.", StatusCodes.Status429TooManyRequests);
-        var locale = await Get<AccountConsentService<TContext>>(http).LatestLocaleAsync(user.Id, http.RequestAborted);
-        await Get<IRegistrationEmails<TUser>>(http).SendVerificationAsync(user, code!, locale, http.RequestAborted);
+        // The counts are spent and the code is saved by now, so the email goes out even if the caller has gone.
+        await Get<IRegistrationEmails<TUser>>(http).SendVerificationAsync(user, code!, locale, CancellationToken.None);
         AuthEndpointsExtensions.Log.VerificationResent(logger, user.Id);
         return TypedResults.Ok(new MessageResponse("A new verification code is on its way to your email address."));
     }

@@ -220,4 +220,56 @@ public sealed class SignUpMailLimiterConcurrencyTests : IDisposable
         Assert.Equal(0, await AllCountsAsync());
         Assert.Null(db.Database.CurrentTransaction);
     }
+
+    [Fact]
+    public async Task Reserving_with_a_save_that_throws_leaves_every_count_unchanged_and_the_exception_reaches_the_caller()
+    {
+        await using var db = NewContext();
+
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => NewLimiter(db).ReserveWithAsync("name@example.invalid", null, SignUpMailKinds.Resend, 5, 5, TimeSpan.Zero,
+            () => throw new InvalidOperationException("The save failed."), CancellationToken.None));
+
+        Assert.Equal("The save failed.", thrown.Message);
+        Assert.Equal(0, await AllCountsAsync());
+        Assert.Null(db.Database.CurrentTransaction);
+    }
+
+    private static async Task<bool> AddRowAsync(RegistrationTestDbContext db, bool result)
+    {
+        db.SignUpMailLogs.Add(new SignUpMailLog { AddressHash = "saved-row", MailboxHash = "saved-row", Kind = "saved-row", Day = DateTime.UtcNow.Date, Count = 7, LastSentAt = DateTime.UtcNow });
+        await db.SaveChangesAsync();
+        return result;
+    }
+
+    private async Task<int> SavedRowsAsync()
+    {
+        await using var db = NewContext();
+        return await db.SignUpMailLogs.CountAsync(l => l.Kind == "saved-row");
+    }
+
+    [Fact]
+    public async Task Reserving_with_a_save_that_writes_a_row_and_returns_true_stores_the_row_and_the_counts_together()
+    {
+        await using var db = NewContext();
+
+        var result = await NewLimiter(db).ReserveWithAsync("name@example.invalid", null, SignUpMailKinds.Resend, 5, 5, TimeSpan.Zero,
+            () => AddRowAsync(db, true), CancellationToken.None);
+
+        Assert.Equal(MailReservation.Reserved, result);
+        Assert.Equal(1, await SavedRowsAsync());
+        Assert.Equal(3, await AllCountsAsync());
+    }
+
+    [Fact]
+    public async Task Reserving_with_a_save_that_writes_a_row_and_returns_false_stores_neither_the_row_nor_the_counts()
+    {
+        await using var db = NewContext();
+
+        var result = await NewLimiter(db).ReserveWithAsync("name@example.invalid", null, SignUpMailKinds.Resend, 5, 5, TimeSpan.Zero,
+            () => AddRowAsync(db, false), CancellationToken.None);
+
+        Assert.Equal(MailReservation.Lost, result);
+        Assert.Equal(0, await SavedRowsAsync());
+        Assert.Equal(0, await AllCountsAsync());
+    }
 }
