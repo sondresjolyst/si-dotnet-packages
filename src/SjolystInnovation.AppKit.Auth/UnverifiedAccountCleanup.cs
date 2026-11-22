@@ -217,6 +217,7 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
             return CleanupOutcome.Skipped;
 
         // The fresh code is saved first. An account that another host changed at the same moment is left to a later run and nothing is spent.
+        var held = EmailVerificationCodes.Capture(user);
         var code = EmailVerificationCodes.Issue(user, time);
         var saved = await users.UpdateAsync(user);
         if (!saved.Succeeded)
@@ -226,9 +227,18 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
             throw new InvalidOperationException("Saving the reminder code failed: " + string.Join(" ", saved.Errors.Select(e => e.Code)));
         }
 
-        // Then the email is reserved. Over the cap of the address no email goes out, and the reminder is tried again in a later run.
+        // Then the email is reserved. Over the cap of the address no email goes out, the code and the attempts of the last email are put back,
+        // and the reminder is tried again in a later run.
         if (!await scope.ServiceProvider.GetRequiredService<SignUpMailLimiter<TContext>>().TryReserveAsync(user.Email!, user.NormalizedEmail, SignUpMailKinds.Reminder, settings.MaxEmailsPerAddressPerDay, settings.MaxOwnerEmailsPerAddressPerDay, TimeSpan.Zero, cancellationToken))
-            return CleanupOutcome.Skipped;
+        {
+            EmailVerificationCodes.Restore(user, held);
+            var restored = await users.UpdateAsync(user);
+            if (restored.Succeeded)
+                return CleanupOutcome.Skipped;
+            if (restored.Errors.Any(e => e.Code == nameof(IdentityErrorDescriber.ConcurrencyFailure)))
+                return CleanupOutcome.Lost;
+            throw new InvalidOperationException("Restoring the verification code failed: " + string.Join(" ", restored.Errors.Select(e => e.Code)));
+        }
         var locale = await scope.ServiceProvider.GetRequiredService<AccountConsentService<TContext>>().LatestLocaleAsync(userId, cancellationToken);
         await scope.ServiceProvider.GetRequiredService<IRegistrationEmails<TUser>>().SendRemovalReminderAsync(user, code, removalAt, locale, cancellationToken);
 

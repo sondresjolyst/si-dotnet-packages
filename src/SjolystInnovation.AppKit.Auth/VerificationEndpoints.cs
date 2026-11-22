@@ -123,8 +123,10 @@ internal sealed class VerificationHandlers<TUser, TContext>(ILogger logger)
             return AuthResults.Error(AuthErrorCodes.TooManyRequests, "A code was sent a moment ago. Wait a little before asking for another.", StatusCodes.Status429TooManyRequests);
 
         // The new code is saved first. A request that loses the race on the concurrency stamp spends nothing and answers 409.
+        var users = Get<UserManager<TUser>>(http);
+        var held = EmailVerificationCodes.Capture(user);
         var code = EmailVerificationCodes.Issue(user, time);
-        var updated = await Get<UserManager<TUser>>(http).UpdateAsync(user);
+        var updated = await users.UpdateAsync(user);
         if (!updated.Succeeded)
         {
             if (updated.Errors.Any(e => e.Code == nameof(IdentityErrorDescriber.ConcurrencyFailure)))
@@ -132,9 +134,20 @@ internal sealed class VerificationHandlers<TUser, TContext>(ILogger logger)
             throw new InvalidOperationException("Saving the new verification code failed: " + string.Join(" ", updated.Errors.Select(e => e.Description)));
         }
 
-        // Then the email is reserved. The caller is the owner, so over the owner's cap for the address the answer says so. Nothing is sent.
+        // Then the email is reserved. The caller is the owner, so over the owner's cap for the address the answer says so.
+        // Nothing is sent, and the code and the attempts of the last email are put back.
         if (!await Get<SignUpMailLimiter<TContext>>(http).TryReserveAsync(user.Email!, user.NormalizedEmail, SignUpMailKinds.Resend, options.MaxEmailsPerAddressPerDay, options.MaxOwnerEmailsPerAddressPerDay, TimeSpan.Zero, http.RequestAborted))
+        {
+            EmailVerificationCodes.Restore(user, held);
+            var restored = await users.UpdateAsync(user);
+            if (!restored.Succeeded)
+            {
+                if (restored.Errors.Any(e => e.Code == nameof(IdentityErrorDescriber.ConcurrencyFailure)))
+                    return AuthResults.TryAgain();
+                throw new InvalidOperationException("Restoring the verification code failed: " + string.Join(" ", restored.Errors.Select(e => e.Description)));
+            }
             return AuthResults.Error(AuthErrorCodes.TooManyRequests, "Too many codes were sent to this address today. Try again tomorrow.", StatusCodes.Status429TooManyRequests);
+        }
         var locale = await Get<AccountConsentService<TContext>>(http).LatestLocaleAsync(user.Id, http.RequestAborted);
         await Get<IRegistrationEmails<TUser>>(http).SendVerificationAsync(user, code, locale, http.RequestAborted);
         AuthEndpointsExtensions.Log.VerificationResent(logger, user.Id);

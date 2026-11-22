@@ -152,6 +152,9 @@ public interface IEmailVerificationUser
     int EmailVerificationAttempts { get; set; }
 }
 
+/// <summary>The fields of a user that <see cref="EmailVerificationCodes.Issue{TUser}"/> changes.</summary>
+internal readonly record struct EmailVerificationSnapshot(string? Hash, DateTime? Expiration, int Attempts);
+
 /// <summary>
 /// Verifies email addresses with a code sent by email. The helpers change only the user object. The
 /// caller saves it.
@@ -170,6 +173,22 @@ public static class EmailVerificationCodes
         user.EmailVerificationCodeExpiration = (time ?? TimeProvider.System).GetUtcNow().UtcDateTime.Add(Lifetime);
         user.EmailVerificationAttempts = 0;
         return code;
+    }
+
+    /// <summary>Reads every field that <see cref="Issue{TUser}"/> changes, so <see cref="Restore{TUser}"/> can put them back.</summary>
+    internal static EmailVerificationSnapshot Capture<TUser>(TUser user) where TUser : IdentityUser, IEmailVerificationUser
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        return new EmailVerificationSnapshot(user.EmailVerificationCodeHash, user.EmailVerificationCodeExpiration, user.EmailVerificationAttempts);
+    }
+
+    /// <summary>Puts back the fields that <see cref="Capture{TUser}"/> read, for an issued code whose email did not go out.</summary>
+    internal static void Restore<TUser>(TUser user, EmailVerificationSnapshot snapshot) where TUser : IdentityUser, IEmailVerificationUser
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        user.EmailVerificationCodeHash = snapshot.Hash;
+        user.EmailVerificationCodeExpiration = snapshot.Expiration;
+        user.EmailVerificationAttempts = snapshot.Attempts;
     }
 
     /// <summary>Checks a code. A wrong or expired code counts as an attempt.</summary>

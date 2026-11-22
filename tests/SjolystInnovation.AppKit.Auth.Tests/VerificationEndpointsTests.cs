@@ -623,6 +623,58 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task A_refused_resend_leaves_the_code_of_the_last_email_valid()
+    {
+        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxOwnerEmailsPerAddressPerDay = 1; });
+        await SeedAsync("u1");
+        var token = await AccessTokenAsync("u1");
+        Assert.Equal(HttpStatusCode.OK, (await ResendAsync(token)).StatusCode);
+        var sent = Assert.Single(_emails.Verifications).Code;
+
+        var refused = await ResendAsync(token);
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, refused.StatusCode);
+        Assert.Equal("tooManyRequests", await ErrorJson.CodeAsync(refused));
+        Assert.Equal(HttpStatusCode.OK, (await VerifyAsync(sent, token)).StatusCode);
+        Assert.True(Stored("u1").EmailConfirmed);
+    }
+
+    [Fact]
+    public async Task A_refused_resend_gives_no_fresh_attempts()
+    {
+        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxOwnerEmailsPerAddressPerDay = 1; });
+        await SeedAsync("u1");
+        var token = await AccessTokenAsync("u1");
+        await ResendAsync(token);
+        await VerifyAsync("WRONG1", token);
+        await VerifyAsync("WRONG2", token);
+        var before = Stored("u1");
+        Assert.Equal(2, before.EmailVerificationAttempts);
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await ResendAsync(token)).StatusCode);
+
+        var after = Stored("u1");
+        Assert.Equal(2, after.EmailVerificationAttempts);
+        Assert.Equal(before.EmailVerificationCodeHash, after.EmailVerificationCodeHash);
+        Assert.Equal(before.EmailVerificationCodeExpiration, after.EmailVerificationCodeExpiration);
+    }
+
+    [Fact]
+    public async Task A_refused_resend_sends_no_email_and_raises_no_count()
+    {
+        await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxOwnerEmailsPerAddressPerDay = 1; });
+        await SeedAsync("u1");
+        var token = await AccessTokenAsync("u1");
+        await ResendAsync(token);
+        var counts = Db(db => db.SignUpMailLogs.OrderBy(l => l.Kind).Select(l => new { l.Kind, l.Count }).ToList());
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await ResendAsync(token)).StatusCode);
+
+        Assert.Single(_emails.Verifications);
+        Assert.Equal(counts, Db(db => db.SignUpMailLogs.OrderBy(l => l.Kind).Select(l => new { l.Kind, l.Count }).ToList()));
+    }
+
+    [Fact]
     public async Task Sign_up_attempts_by_others_do_not_use_up_the_resend_of_the_owner()
     {
         await StartAsync(o => { o.ResendCooldown = TimeSpan.Zero; o.MaxEmailsPerAddressPerDay = 2; });

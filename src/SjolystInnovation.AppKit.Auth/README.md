@@ -719,7 +719,7 @@ Counts live in the database per UTC day, so they hold across instances and resta
   `MaxOwnerEmailsPerAddressPerDay` for the account, so people who are not signed in cannot use it up.
 - No mailbox gets more than the two caps together, whatever the accounts.
 - Over a cap, `register` sends nothing and answers the same. `resend-verification` answers
-  `429 tooManyRequests`.
+  `429 tooManyRequests` and the code of the last email stays valid.
 
 Two addresses share a mailbox when they match after the mailbox key folds them. The key is a best
 effort. It ignores case, drops a `+tag`, drops a trailing dot on the domain, writes an
@@ -759,7 +759,7 @@ stays until the code expires, and at most one day past its removal time.
 
 Before that, it sends the reminders of `RemindBefore` through `IRegistrationEmails<User>`, once each. A
 run after a long stop sends the latest due one only. A reminder carries a fresh code and counts toward
-the owner cap. Over the cap it waits for a later run. The run also deletes the email counts from before
+the owner cap. Over the cap it waits for a later run, and the code of the last email stays valid. The run also deletes the email counts from before
 yesterday. One failing account is logged and does not stop the run.
 
 A hosted service runs it at startup and once a day. To use your own scheduler, set

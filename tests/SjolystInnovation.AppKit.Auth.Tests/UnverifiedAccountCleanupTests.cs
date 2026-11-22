@@ -467,6 +467,37 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task A_reminder_refused_by_the_cap_leaves_the_stored_code_and_attempts_as_they_were_and_the_next_run_tries_again()
+    {
+        await StartAsync(o => o.MaxOwnerEmailsPerAddressPerDay = 1);
+        await SeedAsync("u1", TimeSpan.Zero);
+        _time.Advance(TimeSpan.FromDays(16));
+        Update("u1", u =>
+        {
+            u.EmailVerificationCodeHash = VerificationCodes.Hash("OLD123");
+            u.EmailVerificationCodeExpiration = Now.AddMinutes(30);
+            u.EmailVerificationAttempts = 2;
+        });
+        SeedMailCount("u1@example.invalid", "resend", Now.Date, 1);
+        var before = Load("u1");
+        var cleanup = (UnverifiedAccountCleanup<IdentityTestUser, RegistrationTestDbContext>)Cleanup;
+
+        Assert.Equal(CleanupOutcome.Skipped, await cleanup.RemindAsync("u1", CancellationToken.None));
+
+        var after = Load("u1");
+        Assert.Equal(before.EmailVerificationCodeHash, after.EmailVerificationCodeHash);
+        Assert.Equal(before.EmailVerificationCodeExpiration, after.EmailVerificationCodeExpiration);
+        Assert.Equal(2, after.EmailVerificationAttempts);
+        Assert.Null(after.RemovalReminderSentAt);
+        Assert.Empty(_emails.Reminders);
+        Assert.Equal(new UnverifiedCleanupResult(0, 0, 0), await RunAsync());
+
+        _time.Advance(TimeSpan.FromDays(1));
+        Assert.Equal(new UnverifiedCleanupResult(0, 1, 0), await RunAsync());
+        Assert.Single(_emails.Reminders);
+    }
+
+    [Fact]
     public async Task Sign_up_emails_to_the_address_do_not_hold_back_the_reminder()
     {
         await StartAsync(o => o.MaxOwnerEmailsPerAddressPerDay = 1);
