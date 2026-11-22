@@ -23,7 +23,8 @@ internal sealed record UpdateProfileRequest(string? FirstName, string? LastName)
 internal sealed record ChangePasswordRequest(string? CurrentPassword, string? NewPassword);
 
 internal sealed record AccountExport(AccountProfile Account, IList<string> Roles, DateTime ExportedAt,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] object? Data);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] object? Data,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<ConsentExportRow>? Consents = null);
 
 /// <summary>Maps the account endpoints.</summary>
 public static partial class AccountEndpointsExtensions
@@ -134,7 +135,9 @@ internal static class AccountHandlers<TUser>
         var roles = await Get<UserManager<TUser>>(http).GetRolesAsync(user!);
         var extra = http.RequestServices.GetService<IAccountDataExporter<TUser>>();
         var data = extra is null ? null : await extra.ExportAsync(user!, http.RequestAborted);
-        return TypedResults.Ok(new AccountExport(Profile(user!), roles, Get<TimeProvider>(http).GetUtcNow().UtcDateTime, data));
+        // Only an app that opted in to sign-up has consent rows to export.
+        var consents = http.RequestServices.GetService<IAccountConsentExporter>() is { } exporter ? await exporter.ExportAsync(user!.Id, http.RequestAborted) : null;
+        return TypedResults.Ok(new AccountExport(Profile(user!), roles, Get<TimeProvider>(http).GetUtcNow().UtcDateTime, data, consents));
     }
 
     public static async Task<IResult> DeleteAsync(string id, HttpContext http)

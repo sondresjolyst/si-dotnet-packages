@@ -12,7 +12,10 @@ public interface IJwtTokenService
 {
     /// <summary>
     /// Builds an HS256 token with the claims <c>sub</c>, <c>unique_name</c>, <c>email</c>, and one
-    /// <c>role</c> claim per role. The token is valid from 5 seconds ago, to allow for clock skew.
+    /// <c>role</c> claim per role. The token is valid from 5 seconds ago, to allow for clock skew. An app that
+    /// called <see cref="SelfRegistrationServiceCollectionExtensions.AddAppKitSelfRegistration{TUser, TContext}"/>
+    /// also gets the claim <c>sst</c>, a short hash of the user's security stamp, which the bearer check compares
+    /// with the current stamp. Other apps get no such claim.
     /// </summary>
     string Build(IdentityUser user, IEnumerable<string> roles);
 
@@ -23,7 +26,17 @@ public interface IJwtTokenService
     string? ReadUserIdFromExpired(string token);
 }
 
-internal sealed class JwtTokenService(IOptions<AppKitAuthOptions> options, TimeProvider time) : IJwtTokenService
+/// <summary>The claim that ties an access token to the user's security stamp, for apps that opted in to sign-up.</summary>
+internal static class StampClaim
+{
+    public const string Type = "sst";
+
+    /// <summary>Returns the first 12 bytes of the SHA-256 of the stamp as 16 base64url characters, so the stamp itself never leaves the server.</summary>
+    public static string Hash(string stamp) =>
+        Base64UrlEncoder.Encode(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(stamp)).AsSpan(0, 12).ToArray());
+}
+
+internal sealed class JwtTokenService(IOptions<AppKitAuthOptions> options, TimeProvider time, SelfRegistrationRegistered? selfRegistration = null) : IJwtTokenService
 {
     private readonly AppKitAuthOptions _options = options.Value;
 
@@ -36,6 +49,8 @@ internal sealed class JwtTokenService(IOptions<AppKitAuthOptions> options, TimeP
             new(JwtRegisteredClaimNames.Email, user.Email ?? string.Empty),
         };
         claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
+        if (selfRegistration is not null && user.SecurityStamp is { } stamp)
+            claims.Add(new Claim(StampClaim.Type, StampClaim.Hash(stamp)));
 
         var now = time.GetUtcNow().UtcDateTime;
         var handler = new JwtSecurityTokenHandler { SetDefaultTimesOnTokenCreation = false };

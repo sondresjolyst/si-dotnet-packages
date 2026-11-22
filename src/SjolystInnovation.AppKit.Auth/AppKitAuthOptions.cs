@@ -6,6 +6,11 @@ namespace SjolystInnovation.AppKit.Auth;
 /// </summary>
 public sealed class AppKitAuthOptions
 {
+    // The fewest bytes of the signing key, as UTF-8. AddAppKitAuth and the sign-up both check it.
+    internal const int MinimumKeyBytes = 32;
+
+    internal static bool IsLongEnough(string? key) => System.Text.Encoding.UTF8.GetByteCount(key ?? string.Empty) >= MinimumKeyBytes;
+
     /// <summary>The HS256 signing key. Must be at least 32 bytes as UTF-8.</summary>
     public string Key { get; set; } = string.Empty;
 

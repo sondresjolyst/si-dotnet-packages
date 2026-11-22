@@ -106,7 +106,8 @@ public class AuthErrorsTests
             "passwordRequiresUpper", "passwordRequiresNonAlphanumeric", "passwordRequiresUniqueChars", "weakPassword",
             "wrongPassword", "invalidCredentials", "lockedOut", "invalidToken", "userNotFound", "invalidRefreshToken",
             "invalidResetCode", "tooManyResetAttempts", "profileUpdateFailed", "lastAdmin", "accountChangeConflict",
-            "unknownRole", "ownAdminRole", "roleAssignFailed", "roleRemoveFailed", "emailTaken", "tryAgain",
+            "unknownRole", "ownAdminRole", "roleAssignFailed", "roleRemoveFailed", "emailTaken",
+            "ageNotConfirmed", "termsNotAccepted", "termsAcceptanceRequired", "userNameTaken", "invalidUserName", "termsChanged", "invalidCode", "alreadyVerified", "tooManyAttempts", "tooManyRequests", "tryAgain", "emailNotVerified", "signUpRefused",
         ];
         var actual = typeof(AuthErrorCodes).GetFields().Select(f => (string)f.GetRawConstantValue()!).ToArray();
         Assert.Equal(expected, actual);

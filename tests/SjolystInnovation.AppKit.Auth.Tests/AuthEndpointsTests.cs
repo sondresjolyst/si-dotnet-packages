@@ -32,21 +32,10 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
         public Task SendInviteAsync(IdentityTestUser user, string code, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
-    // Makes the next saves of a user fail like a lost race on the concurrency stamp.
-    private sealed class LostRace : SaveChangesInterceptor
-    {
-        public volatile bool Active;
-
-        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default) =>
-            Active && eventData.Context!.ChangeTracker.Entries<IdentityTestUser>().Any(e => e.State == EntityState.Modified)
-                ? throw new DbUpdateConcurrencyException("Lost the race.")
-                : base.SavingChangesAsync(eventData, result, cancellationToken);
-    }
-
     private const string Password = "Password1";
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
     private readonly FakeEmails _emails = new();
-    private readonly LostRace _lostRace = new();
+    private readonly VerificationEndpointsTests.LostRace _lostRace = new();
     private readonly FakeTimeProvider _time = new(DateTimeOffset.UtcNow);
     private string? _file;
     private IHost? _host;

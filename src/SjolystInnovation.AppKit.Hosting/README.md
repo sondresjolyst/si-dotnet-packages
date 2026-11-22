@@ -126,8 +126,9 @@ Call `UseAppKitForwardedHeaders` first, so later middleware sees the client's ad
 Each rule keeps a fixed window per client IP, taken from the connection after
 `UseAppKitForwardedHeaders`. The limiter reads no header for it. A request that matches several rules
 counts against each. A rejected request gets `429`, a `Retry-After` header in seconds, and a problem
-details body with a title but no detail, so the client shows its own message. If a rule cannot be
-read, the app fails to start.
+details body with a title but no detail, so the client shows its own message. The body also holds
+`message` and `code`, and `code` is always `tooManyRequests`. It is the same code as the Auth package
+uses, so a client can handle both alike. If a rule cannot be read, the app fails to start.
 
 Call `UseAppKitRateLimiting` after `UseCors`, so browser preflight requests are not counted. Counts
 live in memory, per instance.

@@ -1,4 +1,3 @@
-using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,7 +21,7 @@ public static class AuthServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(jwtSection);
         services.AddOptions<AppKitAuthOptions>()
             .Bind(jwtSection)
-            .Validate(o => Encoding.UTF8.GetByteCount(o.Key) >= 32, $"{jwtSection.Path}:Key must be at least 32 bytes.")
+            .Validate(o => AppKitAuthOptions.IsLongEnough(o.Key), $"{jwtSection.Path}:Key must be at least {AppKitAuthOptions.MinimumKeyBytes} bytes.")
             .Validate(o => o.AccessTokenLifetime > TimeSpan.Zero, "The access token lifetime must be positive.")
             .Validate(o => o.RefreshTokenLifetimeMonths > 0, "The refresh token lifetime must be positive.")
             .Validate(o => o.ResetCodeCooldown >= TimeSpan.Zero, "The reset code cooldown must not be negative.")
