@@ -402,9 +402,10 @@ internal sealed partial class VippsClient : IVippsClient
             $"Vipps {operation} failed with status {(int)status}{(errorCode is null ? "" : $", error code {errorCode}")}{(title is null ? "" : $" ({title.TrimEnd('.')})")}.");
 
     // Reads the parts of an error body that carry no personal data. An RFC 7807 problem, which the Recurring
-    // and ePayment APIs answer with, names its problem in the type URL and gives a title. Its detail,
-    // instance, and extra detail reasons can echo the request, so only the names of the fields it blames
-    // are kept. Every value is checked, and one that could carry request data, such as a run of digits, is
+    // and ePayment APIs answer with, names its problem in the type URL and gives a title. The ePayment API also
+    // puts its error code, such as 5090, in extraDetails, and that code is logged in place of the type. A problem's
+    // detail, instance, and other extra detail reasons can echo the request, so only the names of the fields it
+    // blames are kept. Every value is checked, and one that could carry request data, such as a run of digits, is
     // left out.
     internal static (string? ErrorCode, string? ErrorRef, string? TraceId, string? Title, string? Fields, string? VippsCode, string? Problem) ErrorIds(string body)
     {
@@ -431,12 +432,13 @@ internal sealed partial class VippsClient : IVippsClient
                     .Select(d => ProblemName(Text(d, "reason")))
                     .FirstOrDefault()
                 : null;
-            return (PlainId(Text(root, "errorCode")) ?? ProblemType(Text(root, "type")),
+            var code = vippsCode ?? PlainId(Text(root, "errorCode"));
+            return (code ?? ProblemType(Text(root, "type")),
                 PlainId(Text(root, "errorRef")),
                 TraceId(Text(root, "traceId")) ?? PlainId(Text(root, "contextId")),
                 ProblemTitle(Text(root, "title")),
                 fields.Count == 0 ? null : string.Join(',', fields),
-                vippsCode ?? PlainId(Text(root, "errorCode")),
+                code,
                 ProblemType(Text(root, "type")) is { } problem && !problem.All(char.IsAsciiDigit) ? problem : null);
         }
         catch (JsonException)

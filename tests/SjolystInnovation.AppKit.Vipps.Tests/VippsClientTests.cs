@@ -581,6 +581,9 @@ public class VippsClientTests
     [InlineData("""{"type":"about:blank#4791234567"}""", null)]
     [InlineData("""{"type":"https://example.com/problems#Ola Nordmann"}""", null)]
     [InlineData("""{"errorCode":"E1","type":"https://example.com/problems#other"}""", "E1")]
+    [InlineData("""{"type":"https://httpstatuses.io/404","extraDetails":[{"name":"ErrorCode","reason":"5090"}]}""", "5090")]
+    [InlineData("""{"type":"https://httpstatuses.io/404","extraDetails":[{"name":"ErrorCode","reason":"4791234567"}]}""", "404")]
+    [InlineData("""{"type":"https://httpstatuses.io/400","extraDetails":[{"name":"reference","reason":"6080"}]}""", "400")]
     public void ErrorIds_TakesTheErrorCodeFromAProblemType_WhenItIsAPlainName(string body, string? code) =>
         Assert.Equal(code, VippsClient.ErrorIds(body).ErrorCode);
 
@@ -775,7 +778,7 @@ public class VippsClientTests
         Assert.Equal("Vipps get-payment failed with status 404, error code 5090 (Reference not found).", e.Message);
         AssertMessageHoldsNoRequestData(e);
         var line = Assert.Single(log.Lines, l => l.StartsWith("Error", StringComparison.Ordinal));
-        Assert.Contains("get-payment failed: 404 ErrorCode=404 ErrorRef=- TraceId=00-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d31-01 Title=Reference not found Fields=ErrorCode BodyLength=", line, StringComparison.Ordinal);
+        Assert.Contains("get-payment failed: 404 ErrorCode=5090 ErrorRef=- TraceId=00-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d31-01 Title=Reference not found Fields=ErrorCode BodyLength=", line, StringComparison.Ordinal);
         Assert.DoesNotContain("order-42", line, StringComparison.Ordinal);
     }
 
