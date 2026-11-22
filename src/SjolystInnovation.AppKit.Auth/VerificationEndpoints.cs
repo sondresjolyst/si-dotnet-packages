@@ -95,15 +95,23 @@ internal sealed class VerificationHandlers<TUser, TContext>(ILogger logger)
                 await tx.RollbackAsync(cancellationToken);
                 return AuthResults.TryAgain();
             }
+            // A database abort stores nothing. Like a lost save above, the caller tries again.
             try
             {
                 await Get<IRefreshTokenService>(http).RevokeAllForUserAsync(user.Id, cancellationToken);
+            }
+            catch (Exception e) when (DatabaseAborts.IsAbort(e))
+            {
+                await tx.RollbackAsync(cancellationToken);
+                return AuthResults.TryAgain();
+            }
+            try
+            {
                 await tx.CommitAsync(cancellationToken);
             }
             catch (Exception e) when (DatabaseAborts.IsAbort(e))
             {
-                // The database aborted the transaction, so nothing was stored. Like a lost save above, the caller tries again.
-                await tx.RollbackAsync(cancellationToken);
+                // A commit the database aborted has already ended the transaction, so there is nothing to roll back.
                 return AuthResults.TryAgain();
             }
         }
