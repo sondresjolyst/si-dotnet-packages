@@ -765,10 +765,10 @@ public class VippsClientTests
         Assert.Equal(HttpStatusCode.NotFound, e.StatusCode);
         Assert.Equal("get-payment", e.Operation);
         Assert.Equal("5090", e.ErrorCode);
-        Assert.Equal("404", e.ProblemType);
+        Assert.Null(e.ProblemType);
         Assert.Equal("Reference not found", e.Title);
         Assert.Equal("00-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d31-01", e.TraceId);
-        Assert.Equal(["ErrorCode"], e.Fields);
+        Assert.Empty(e.Fields);
         Assert.True(VippsFailures.HasErrorCode(e, "5090"));
         Assert.False(VippsFailures.HasErrorCode(e, "5091"));
         Assert.Equal(VippsFailureKind.Refused, VippsFailures.Classify(e, CancellationToken.None));
@@ -815,7 +815,7 @@ public class VippsClientTests
         Assert.Equal(HttpStatusCode.BadRequest, e.StatusCode);
         Assert.Equal("capture-payment", e.Operation);
         Assert.Null(e.ErrorCode);
-        Assert.Equal("400", e.ProblemType);
+        Assert.Null(e.ProblemType);
         Assert.Equal("Bad Request", e.Title);
         Assert.Equal("00-6614b5c7ea5c404b17e45c3a398c4754-5ca6de688e27022d-01", e.TraceId);
         Assert.Equal(["reference"], e.Fields);
@@ -894,7 +894,8 @@ public class VippsClientTests
 
     [Theory]
     [InlineData("""{"type":"https://developer.vippsmobilepay.com/docs/APIs/recurring-api/recurring-api-problems#invalid-agreement-id"}""", "invalid-agreement-id")]
-    [InlineData("""{"type":"https://httpstatuses.io/404"}""", "404")]
+    [InlineData("""{"type":"https://httpstatuses.io/404"}""", null)]
+    [InlineData("""{"type":"https://example.com/problems/conflict-409"}""", "conflict-409")]
     [InlineData("""{"type":"about:blank#4791234567"}""", null)]
     [InlineData("""{"type":5}""", null)]
     [InlineData("""{"errorCode":"E1"}""", null)]
@@ -914,6 +915,18 @@ public class VippsClientTests
     [InlineData("100-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d31-01", null)]
     public void ErrorIds_KeepsATraceIdInTheW3CTraceparentFormat(string id, string? kept) =>
         Assert.Equal(kept, VippsClient.ErrorIds(JsonSerializer.Serialize(new { traceId = id })).TraceId);
+
+    [Fact]
+    public async Task ADomainError_KeepsTheErrorCodeEntryOutOfTheFields()
+    {
+        var (client, _) = FailingWith(HttpStatusCode.BadRequest,
+            """{"title":"Invalid amount","extraDetails":[{"name":"errorCode","reason":"4040"},{"name":"amount","reason":"x"}]}""");
+
+        var e = await Assert.ThrowsAsync<VippsApiException>(() => client.CapturePaymentAsync("order-42", 100, "k"));
+
+        Assert.Equal("4040", e.ErrorCode);
+        Assert.Equal(["amount"], e.Fields);
+    }
 
     [Fact]
     public async Task AFailureMessage_LeavesOutTheFullStopOfATitle()

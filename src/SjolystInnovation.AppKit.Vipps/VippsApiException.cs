@@ -6,7 +6,7 @@ namespace SjolystInnovation.AppKit.Vipps;
 /// Thrown when a Vipps API answers with an error status. It is an <see cref="HttpRequestException"/> with the status
 /// code, so <see cref="VippsFailures"/> and any <c>catch (HttpRequestException)</c> sort it as before. It also carries
 /// the parts of the error body that hold no request data, such as the ePayment error code. A body that is not a
-/// Vipps error, such as the 404 page of a proxy, leaves them null.
+/// Vipps error, such as the 404 page of a proxy, leaves them null and <see cref="Fields"/> empty.
 /// </summary>
 public sealed class VippsApiException : HttpRequestException
 {
@@ -40,7 +40,8 @@ public sealed class VippsApiException : HttpRequestException
 
     /// <summary>
     /// The problem id at the end of the RFC 7807 <c>type</c> URL, such as <c>charge-due-too-soon</c> from the
-    /// Recurring API. Null when the body has none.
+    /// Recurring API. Null when the body has none, or when the id is only a status number, as in the
+    /// <c>https://httpstatuses.io/404</c> type of the ePayment API.
     /// </summary>
     public string? ProblemType { get; init; }
 
@@ -50,6 +51,6 @@ public sealed class VippsApiException : HttpRequestException
     /// <summary>The <c>traceId</c> or <c>contextId</c> that Vipps support can look up.</summary>
     public string? TraceId { get; init; }
 
-    /// <summary>The names of the fields that <c>extraDetails</c> blames, without their reasons.</summary>
+    /// <summary>The names of the fields that <c>extraDetails</c> blames, without their reasons and without the <c>ErrorCode</c> entry.</summary>
     public IReadOnlyList<string> Fields { get; init; } = [];
 }

@@ -186,9 +186,9 @@ error reference, trace ID, and body length. For an RFC 7807 problem, the answer 
 ePayment APIs, the logged error code is the problem id from its `type`, the trace ID is its `traceId` or
 `contextId`, and it also logs the `title` and the names of the fields in `extraDetails`. It never logs
 the body, a problem's `detail`, or the extra detail reasons, because they may echo a phone number or a
-name. An id is logged only when it is a GUID, a W3C trace ID such as
-`00-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d31-01`, or a plain name with fewer than seven
-digits, and a title only when it is plain words without digits. Anything else logs as `-`. If you need
+name. An id is logged only when it is a GUID or a plain name with fewer than seven digits. A trace ID
+may also be a W3C trace ID such as `00-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d31-01`. A title
+is logged only when it is plain words without digits. Anything else logs as `-`. If you need
 to debug, set
 `LogFailedResponseBodies` to log the body of a failure that carries no error IDs and is not an RFC 7807
 problem.
@@ -253,19 +253,20 @@ with an RFC 7807 problem and puts its error code in `extraDetails`:
 | Property | Holds |
 | --- | --- |
 | `ErrorCode` | The `ErrorCode` entry of `extraDetails`, such as `5090`, or a top-level `errorCode`. |
-| `ProblemType` | The problem id at the end of `type`, such as `charge-due-too-soon` from the Recurring API. |
+| `ProblemType` | The problem id at the end of `type`, such as `charge-due-too-soon` from the Recurring API. It is null when the id is only a status number, as in the `https://httpstatuses.io/404` type of the ePayment API. |
 | `Title` | The problem `title`, such as `Reference not found`. |
 | `TraceId` | The `traceId` or `contextId`, for Vipps support. |
-| `Fields` | The names of the fields in `extraDetails`, without their reasons. |
+| `Fields` | The names of the fields in `extraDetails`, without their reasons and without the `ErrorCode` entry. |
 | `Operation` | The call that failed, such as `get-payment`. |
 
 Each value is null, or `Fields` is empty, when the body does not have it. A body that is not a Vipps
 error, such as an HTML page or the 404 of a proxy, gives an exception with only the status code. The
-same checks as for logging apply, so `detail`, `instance`, and the extra detail reasons are never
-kept, and the message never holds a token, a key, or request data.
+same checks as for logging apply, so `detail`, `instance`, and the extra detail reasons other than the
+one of the `ErrorCode` entry are never kept, and the message never holds a token, a key, or request data.
 
 `VippsFailures.HasErrorCode` tells whether a call failed with a given code. A failed access token never
-matches, since the call it was for never reached Vipps.
+matches, since the call it was for never reached Vipps. The Recurring API sends no error code, so read
+`ProblemType` for its problems.
 
 ```csharp
 try

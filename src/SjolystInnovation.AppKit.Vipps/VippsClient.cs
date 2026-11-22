@@ -391,7 +391,7 @@ internal sealed partial class VippsClient : IVippsClient
             ProblemType = ids.Problem,
             Title = ids.Title,
             TraceId = ids.TraceId,
-            Fields = ids.Fields?.Split(',') ?? [],
+            Fields = ids.Fields?.Split(',').Where(f => !string.Equals(f, "ErrorCode", StringComparison.OrdinalIgnoreCase)).ToArray() ?? [],
         };
     }
 
@@ -437,7 +437,7 @@ internal sealed partial class VippsClient : IVippsClient
                 ProblemTitle(Text(root, "title")),
                 fields.Count == 0 ? null : string.Join(',', fields),
                 vippsCode ?? PlainId(Text(root, "errorCode")),
-                ProblemType(Text(root, "type")));
+                ProblemType(Text(root, "type")) is { } problem && !problem.All(char.IsAsciiDigit) ? problem : null);
         }
         catch (JsonException)
         {
