@@ -406,6 +406,112 @@ public sealed class RefreshTokenServiceTests : IDisposable
         Assert.NotNull(Tokens("ada").Single().Revoked);
     }
 
+    private sealed class FakeDbException(string sqlState) : System.Data.Common.DbException("db failed")
+    {
+        public override string SqlState => sqlState;
+    }
+
+    /// <summary>
+    /// Fails the first saves the way Npgsql 11 reports a database abort, a concurrency exception around the
+    /// database's own error, before anything is written.
+    /// </summary>
+    private sealed class AbortedSaves(string sqlState, int times = 1) : SaveChangesInterceptor
+    {
+        private int _left = times;
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (_left-- > 0)
+                throw new DbUpdateConcurrencyException("aborted", new FakeDbException(sqlState));
+            return ValueTask.FromResult(result);
+        }
+    }
+
+    [Theory]
+    [InlineData("40001")]
+    [InlineData("40P01")]
+    public async Task Rotate_ADatabaseAbortIsNotAReplay(string sqlState)
+    {
+        Seed("ada", "old", Start.AddDays(-1));
+        Seed("ada", "laptop", Start.AddHours(-1));
+        await using var db = _db.NewContext(new AbortedSaves(sqlState));
+
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => Service(db).RotateAsync("ada", "old"));
+
+        Assert.Equal(2, Tokens("ada").Count);
+        Assert.All(Tokens("ada"), t => Assert.Null(t.Revoked));
+        Assert.Empty(_logger.Collector.GetSnapshot());
+        Assert.Null(db.Database.CurrentTransaction);
+    }
+
+    [Theory]
+    [InlineData("40001")]
+    [InlineData("40P01")]
+    public async Task Rotate_RevokingAfterAReplayTriesAgainAfterADatabaseAbort(string sqlState)
+    {
+        Seed("ada", "old", Start.AddDays(-1), revoked: Start.AddHours(-1));
+        Seed("ada", "laptop", Start.AddHours(-1));
+        await using var db = _db.NewContext(new AbortedSaves(sqlState));
+
+        Assert.Equal(RotationStatus.Replayed, (await Service(db).RotateAsync("ada", "old")).Status);
+
+        Assert.All(Tokens("ada"), t => Assert.NotNull(t.Revoked));
+    }
+
+    [Theory]
+    [InlineData("40001")]
+    [InlineData("40P01")]
+    public async Task Revoke_ADatabaseAbortIsNotALostRace(string sqlState)
+    {
+        Seed("ada", "phone", Start.AddDays(-1));
+        await using var db = _db.NewContext(new AbortedSaves(sqlState));
+
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => Service(db).RevokeAsync("phone"));
+
+        Assert.Null(Assert.Single(Tokens("ada")).Revoked);
+    }
+
+    [Theory]
+    [InlineData("40001")]
+    [InlineData("40P01")]
+    public async Task RevokeAll_TriesAgainAfterADatabaseAbortOutsideATransaction(string sqlState)
+    {
+        Seed("ada", "phone", Start.AddDays(-1));
+        Seed("ada", "laptop", Start.AddDays(-1));
+
+        Assert.Equal(2, await RevokeAll("ada", new AbortedSaves(sqlState)));
+
+        Assert.Empty(Tokens("ada"));
+    }
+
+    [Theory]
+    [InlineData("40001")]
+    [InlineData("40P01")]
+    public async Task RevokeAll_LetsADatabaseAbortThroughInsideTheCallersTransaction(string sqlState)
+    {
+        Seed("ada", "phone", Start.AddDays(-1));
+        await using var db = _db.NewContext(new AbortedSaves(sqlState));
+        await using var tx = await db.Database.BeginTransactionAsync();
+
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => Service(db).RevokeAllForUserAsync("ada"));
+
+        await tx.RollbackAsync();
+        Assert.Single(Tokens("ada"));
+    }
+
+    [Theory]
+    [InlineData("40001")]
+    [InlineData("40P01")]
+    public async Task RevokeAll_GivesUpOnRepeatedDatabaseAborts(string sqlState)
+    {
+        Seed("ada", "phone", Start.AddDays(-1));
+
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => RevokeAll("ada", new AbortedSaves(sqlState, times: 3)));
+
+        Assert.Single(Tokens("ada"));
+    }
+
     [Fact]
     public async Task Rotate_ReplayWithNothingLeftToRevokeLogsNothing()
     {

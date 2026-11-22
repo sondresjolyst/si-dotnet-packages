@@ -119,10 +119,11 @@ internal sealed class RefreshTokenService<TContext>(
                 await tx.CommitAsync(cancellationToken);
                 return new RotationResult(RotationStatus.Rotated, next);
             }
-            catch (DbUpdateConcurrencyException)
+            catch (DbUpdateConcurrencyException e) when (!DatabaseAborts.IsAbort(e))
             {
                 // Revoked is a concurrency token, so this save fails if another request used the same
-                // token after this one read it. The token was used twice, which is a replay.
+                // token after this one read it. The token was used twice, which is a replay. A database
+                // abort is not a replay, so it goes to the caller and nothing is revoked.
             }
         }
 
@@ -143,7 +144,7 @@ internal sealed class RefreshTokenService<TContext>(
             await db.SaveChangesAsync(cancellationToken);
             return true;
         }
-        catch (DbUpdateConcurrencyException)
+        catch (DbUpdateConcurrencyException e) when (!DatabaseAborts.IsAbort(e))
         {
             // A refresh used the token in the meantime, so it is no longer live.
             db.Entry(token).State = EntityState.Detached;
@@ -162,7 +163,7 @@ internal sealed class RefreshTokenService<TContext>(
                 await db.SaveChangesAsync(cancellationToken);
                 return live.Count;
             }
-            catch (DbUpdateConcurrencyException) when (attempt < 3)
+            catch (DbUpdateConcurrencyException e) when (attempt < 3 && CanTryAgain(e))
             {
                 // A refresh used one of them in the meantime. Start over with what is live now.
                 foreach (var entry in db.ChangeTracker.Entries<RefreshToken>().ToList())
@@ -170,6 +171,11 @@ internal sealed class RefreshTokenService<TContext>(
             }
         }
     }
+
+    // Another request changing a token is worth another try. So is a database abort, but only when this call owns the
+    // transaction. Inside the caller's transaction the database has aborted all of it, so the caller has to handle it.
+    private bool CanTryAgain(DbUpdateConcurrencyException e) =>
+        !DatabaseAborts.IsAbort(e) || db.Database.CurrentTransaction is null;
 
     /// <summary>Revokes every live token of the user. Retries while other requests change them.</summary>
     private async Task RevokeAfterReplayAsync(string userId, CancellationToken cancellationToken)
@@ -189,7 +195,7 @@ internal sealed class RefreshTokenService<TContext>(
                 await db.SaveChangesAsync(cancellationToken);
                 return;
             }
-            catch (DbUpdateConcurrencyException) when (attempt < 3)
+            catch (DbUpdateConcurrencyException e) when (attempt < 3 && CanTryAgain(e))
             {
             }
         }
