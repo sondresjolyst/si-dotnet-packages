@@ -13,7 +13,7 @@ namespace SjolystInnovation.AppKit.Auth;
 /// A field error is a validation problem. Its <c>codes</c> extension is keyed by field like <c>errors</c>,
 /// with one code for each message at the same place, for example
 /// <c>{"errors": {"Email": ["Required."]}, "codes": {"Email": ["required"]}, "limits": {}}</c>. The
-/// <c>limits</c> extension holds the number that goes with <see cref="TooLong"/> or
+/// <c>limits</c> extension holds the number that goes with <see cref="TooLong"/>, <see cref="TooShort"/> or
 /// <see cref="PasswordTooShort"/> for that field.
 /// </para>
 /// <para>
@@ -159,6 +159,12 @@ public static class AuthErrorCodes
     /// <c>Document</c>. Posting the same name again gives the same answer.
     /// </summary>
     public const string UnknownDocument = "unknownDocument";
+
+    /// <summary>
+    /// The text is shorter than its minimum. The <c>limits</c> extension holds the minimum for the field. On <c>register</c> it is
+    /// keyed by <c>UserName</c>, for a user name under <c>MinUserNameLength</c>.
+    /// </summary>
+    public const string TooShort = "tooShort";
 }
 
 /// <summary>

@@ -81,6 +81,9 @@ public class SelfRegistrationTests
         Assert.Equal("terms", o.TermsDocument);
         Assert.False(o.RequireNames);
         Assert.False(o.AllowUserName);
+        Assert.False(o.RequireUserName);
+        Assert.Equal(1, o.MinUserNameLength);
+        Assert.Equal(50, o.MaxUserNameLength);
         Assert.False(o.RecordTruncatedIp);
         Assert.Equal(TimeSpan.FromMinutes(1), o.ResendCooldown);
         Assert.Equal(TimeSpan.FromDays(30), o.UnverifiedLifetime);
@@ -199,6 +202,25 @@ public class SelfRegistrationTests
     [Fact]
     public void A_null_list_of_further_documents_fails() =>
         Assert.Contains("further document", Failure(o => o.AdditionalDocuments = null!));
+
+    [Theory]
+    [InlineData(0, 50)]
+    [InlineData(-1, 50)]
+    [InlineData(4, 3)]
+    [InlineData(1, 0)]
+    public void User_name_lengths_with_a_minimum_under_1_or_above_the_maximum_fail(int min, int max) =>
+        Assert.Contains("user name length", Failure(o => { o.MinUserNameLength = min; o.MaxUserNameLength = max; }));
+
+    [Theory]
+    [InlineData(1, 1)]
+    [InlineData(3, 64)]
+    [InlineData(64, 64)]
+    public void User_name_lengths_from_1_with_the_minimum_at_most_the_maximum_are_allowed(int min, int max)
+    {
+        using var provider = Build(o => { o.RequireUserName = true; o.MinUserNameLength = min; o.MaxUserNameLength = max; });
+
+        Assert.Equal((min, max), (Options(provider).MinUserNameLength, Options(provider).MaxUserNameLength));
+    }
 
     [Fact]
     public void No_reminders_is_allowed()

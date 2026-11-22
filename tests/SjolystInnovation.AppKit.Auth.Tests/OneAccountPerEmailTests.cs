@@ -120,6 +120,56 @@ public sealed class OneAccountPerEmailTests : IAsyncDisposable
         await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
     }
 
+    // The Identity model of RegistrationTestDbContext holds a user name of at most 256 characters.
+    private static IHost UserNameHost(bool allow, bool require, int max) =>
+        new HostBuilder()
+            .ConfigureServices(s =>
+            {
+                s.AddDbContext<RegistrationTestDbContext>(o => o.UseSqlite("DataSource=:memory:"));
+                s.Configure<AppKitAuthOptions>(o => o.Key = MailKeys.SigningKey);
+                s.AddAppKitSelfRegistration<IdentityTestUser, RegistrationTestDbContext>(o =>
+                {
+                    o.NewUser = r => new IdentityTestUser { Email = r.Email };
+                    o.RunCleanupInBackground = false;
+                    o.AllowUserName = allow;
+                    o.RequireUserName = require;
+                    o.MaxUserNameLength = max;
+                });
+            })
+            .Build();
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task Starting_with_a_user_name_maximum_over_the_column_fails_and_names_both_numbers(bool allow, bool require)
+    {
+        using var host = UserNameHost(allow, require, 257);
+
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => host.StartAsync());
+
+        Assert.Contains("MaxUserNameLength", failure.Message, StringComparison.Ordinal);
+        Assert.Contains("257", failure.Message, StringComparison.Ordinal);
+        Assert.Contains("256", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Starting_with_a_user_name_maximum_that_fills_the_column_works()
+    {
+        using var host = UserNameHost(allow: false, require: true, max: 256);
+
+        await host.StartAsync();
+        await host.StopAsync();
+    }
+
+    [Fact]
+    public async Task The_user_name_maximum_is_not_checked_against_the_column_when_the_sign_up_takes_no_user_name()
+    {
+        using var host = UserNameHost(allow: false, require: false, max: 257);
+
+        await host.StartAsync();
+        await host.StopAsync();
+    }
+
     [Fact]
     public async Task Starting_without_a_unique_email_index_fails_and_names_the_model_builder_call()
     {

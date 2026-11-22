@@ -18,7 +18,9 @@ public static class SelfRegistrationServiceCollectionExtensions
     /// Opts the app in to the public sign-up and binds <see cref="AppKitRegistrationOptions{TUser}"/>. The app
     /// fails to start when <c>NewUser</c> is missing, when the unverified lifetime or the minimum age is not
     /// positive, when the resend cooldown is negative, when a reminder offset is not positive and shorter than
-    /// the lifetime, or when the terms document name is blank. It registers an <see cref="IRegistrationEmails{TUser}"/>
+    /// the lifetime, when the terms document name is blank, or when <c>MinUserNameLength</c> is under 1 or above
+    /// <c>MaxUserNameLength</c>. When the sign-up takes a user name it also fails to start when <c>MaxUserNameLength</c> is longer than
+    /// the user name column of <typeparamref name="TUser"/> in the EF model. It registers an <see cref="IRegistrationEmails{TUser}"/>
     /// that sends the verification email, the notice to an existing account and the removal reminder through
     /// <see cref="IEmailSender"/> in the layout of the other auth emails, unless the app registered its own first. The verification
     /// email and the reminder greet with no name. The default needs an <see cref="IEmailBrand"/> and an <see cref="IEmailSender"/>,
@@ -39,6 +41,8 @@ public static class SelfRegistrationServiceCollectionExtensions
             .Validate(o => o.MaxEmailsPerAddressPerDay > 0 && o.MaxOwnerEmailsPerAddressPerDay > 0, "The most emails per address per day must be positive.")
             .Validate(o => o.MaxSignUpsPerNetworkPerDay > 0, "The most sign-ups per network per day must be positive.")
             .Validate(o => o.MinimumAge > 0, "The minimum age must be positive.")
+            .Validate(o => o.MinUserNameLength >= 1 && o.MinUserNameLength <= o.MaxUserNameLength,
+                "The user name length needs a minimum of at least 1 that is not above the maximum. Check MinUserNameLength and MaxUserNameLength.")
             .Validate(o => AppKitRegistrationOptions<TUser>.IsDocumentName(o.TermsDocument),
                 "The terms document name must be 1 to 32 ASCII letters, digits, hyphens or underscores.")
             .Validate(o => o.AdditionalDocuments is not null
@@ -74,7 +78,9 @@ public static class SelfRegistrationServiceCollectionExtensions
 // Fails the start of the app when the model has no unique index on the normalised email. The sign-up relies on it to
 // keep two sign-ups for one email from both creating an account. The check reads the EF model only and cannot see the
 // database, so the app must also apply the migration that creates the index.
-internal sealed class SelfRegistrationModelCheck<TUser, TContext>(IServiceScopeFactory scopes) : IHostedService
+// It also fails the start when the sign-up takes a user name and MaxUserNameLength is longer than the user name column holds, so
+// a name the sign-up accepts always fits.
+internal sealed class SelfRegistrationModelCheck<TUser, TContext>(IServiceScopeFactory scopes, IOptions<AppKitRegistrationOptions<TUser>> options) : IHostedService
     where TUser : class
     where TContext : DbContext
 {
@@ -82,11 +88,16 @@ internal sealed class SelfRegistrationModelCheck<TUser, TContext>(IServiceScopeF
     {
         using var scope = scopes.CreateScope();
         var model = scope.ServiceProvider.GetRequiredService<TContext>().Model;
-        var unique = model.FindEntityType(typeof(TUser))?.GetIndexes()
+        var entity = model.FindEntityType(typeof(TUser));
+        var unique = entity?.GetIndexes()
             .Any(i => i.IsUnique && i.Properties.Count == 1 && i.Properties[0].Name == "NormalizedEmail") ?? false;
         if (!unique)
             throw new InvalidOperationException(
                 $"The sign-up needs a unique index on NormalizedEmail of {typeof(TUser).Name} in the model of {typeof(TContext).Name}. Call AddAppKitAccountConsents<{typeof(TUser).Name}>() on the ModelBuilder in OnModelCreating, and apply the migration that creates the index. This check reads the model only and cannot see the database.");
+        var o = options.Value;
+        if (o.TakesUserName && entity?.FindProperty("UserName")?.GetMaxLength() is { } column && o.MaxUserNameLength > column)
+            throw new InvalidOperationException(
+                $"MaxUserNameLength is {o.MaxUserNameLength}, but the UserName column of {typeof(TUser).Name} in the model of {typeof(TContext).Name} holds at most {column} characters. Lower MaxUserNameLength or widen the column.");
         return Task.CompletedTask;
     }
 

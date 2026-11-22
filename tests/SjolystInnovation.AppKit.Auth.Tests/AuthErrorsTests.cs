@@ -108,6 +108,7 @@ public class AuthErrorsTests
             "invalidResetCode", "tooManyResetAttempts", "profileUpdateFailed", "lastAdmin", "accountChangeConflict",
             "unknownRole", "ownAdminRole", "roleAssignFailed", "roleRemoveFailed", "emailTaken",
             "ageNotConfirmed", "termsNotAccepted", "termsAcceptanceRequired", "userNameTaken", "invalidUserName", "termsChanged", "invalidCode", "alreadyVerified", "tooManyAttempts", "tooManyRequests", "tryAgain", "emailNotVerified", "signUpRefused", "unknownDocument",
+            "tooShort",
         ];
         var actual = typeof(AuthErrorCodes).GetFields().Select(f => (string)f.GetRawConstantValue()!).ToArray();
         Assert.Equal(expected, actual);
