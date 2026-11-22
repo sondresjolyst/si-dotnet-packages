@@ -25,7 +25,7 @@ build and tests on every pull request.
 
 ## Good to know
 
-- The packages target .NET 10. Warnings are errors, at the `latest-recommended` analysis level.
+- The packages target .NET 11. Warnings are errors, at the `latest-recommended` analysis level.
 - Apart from other packages in this repository, a package depends only on Microsoft packages, such as
   `Microsoft.Extensions.*`, Entity Framework Core, `System.IdentityModel.Tokens.Jwt`, and SkiaSharp.
   For example, Auth depends on Email. The one exception is Pdf, which drives Chromium through

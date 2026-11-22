@@ -129,12 +129,12 @@ with scripts off and no network. `WithdrawalForm.FileName` returns `angrerettskj
 ## Run Chromium in a container
 
 Install Chrome in the image, point `PUPPETEER_EXECUTABLE_PATH` at it, and run the app as a non-root
-user so the sandbox works. On the `mcr.microsoft.com/dotnet/aspnet:10.0` image, which is Ubuntu, the
+user so the sandbox works. On the `mcr.microsoft.com/dotnet/aspnet:11.0` image, which is Ubuntu, the
 `chromium` apt package is a snap stub that does not run in a container. Install Google Chrome from
 Google's apt repository instead:
 
 ```dockerfile
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
+FROM mcr.microsoft.com/dotnet/aspnet:11.0 AS base
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends wget gnupg ca-certificates fonts-liberation \
     && wget -qO- https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
