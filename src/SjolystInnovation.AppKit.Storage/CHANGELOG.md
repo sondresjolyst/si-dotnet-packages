@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Storage-v1.0.1...SjolystInnovation.AppKit.Storage-v2.0.0) (2026-11-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **dotnet:** the packages now target net11.0.
+
+### Dependencies
+
+* **dotnet:** move to .NET 11 ([#161](https://github.com/sondresjolyst/si-dotnet-packages/issues/161)) ([78c5549](https://github.com/sondresjolyst/si-dotnet-packages/commit/78c554911d31119fe1d2d4450c8dead74496ec24))
+
 ## [1.0.1](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Storage-v1.0.0...SjolystInnovation.AppKit.Storage-v1.0.1) (2026-10-25)
 
 

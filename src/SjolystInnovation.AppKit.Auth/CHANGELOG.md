@@ -1,5 +1,43 @@
 # Changelog
 
+## [2.0.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v1.1.2...SjolystInnovation.AppKit.Auth-v2.0.0) (2026-11-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **dotnet:** the packages now target net11.0.
+
+### Features
+
+* **auth:** add an opt-in public sign-up ([#150](https://github.com/sondresjolyst/si-dotnet-packages/issues/150)) ([1472990](https://github.com/sondresjolyst/si-dotnet-packages/commit/1472990b649313dc0e46af0cdb3afdd4021e5890))
+
+
+### Bug Fixes
+
+* **auth:** answer a conflict when a reset code check cannot be saved ([#149](https://github.com/sondresjolyst/si-dotnet-packages/issues/149)) ([c182ab0](https://github.com/sondresjolyst/si-dotnet-packages/commit/c182ab0feb8bd9d0646b8fe3fe3874daca8ce5a2))
+* **auth:** end every session when a password reset cannot be completed ([#163](https://github.com/sondresjolyst/si-dotnet-packages/issues/163)) ([614c267](https://github.com/sondresjolyst/si-dotnet-packages/commit/614c267ca18503424ce4cf2b05adbe9a3f9bbe71))
+
+
+### Dependencies
+
+* **dotnet:** move to .NET 11 ([#161](https://github.com/sondresjolyst/si-dotnet-packages/issues/161)) ([78c5549](https://github.com/sondresjolyst/si-dotnet-packages/commit/78c554911d31119fe1d2d4450c8dead74496ec24))
+* **nuget:** update Microsoft.AspNetCore.Authentication.JwtBearer from 10.0.14 to 10.0.15 ([425dd3b](https://github.com/sondresjolyst/si-dotnet-packages/commit/425dd3bc7d441ea1f855fc8bcaaf5ff5050d76b2))
+* **nuget:** update Microsoft.AspNetCore.Identity.EntityFrameworkCore from 10.0.14 to 10.0.15 ([425dd3b](https://github.com/sondresjolyst/si-dotnet-packages/commit/425dd3bc7d441ea1f855fc8bcaaf5ff5050d76b2))
+* **nuget:** update Microsoft.AspNetCore.TestHost from 10.0.14 to 10.0.15 ([425dd3b](https://github.com/sondresjolyst/si-dotnet-packages/commit/425dd3bc7d441ea1f855fc8bcaaf5ff5050d76b2))
+* **nuget:** update Microsoft.EntityFrameworkCore from 10.0.14 to 10.0.15 ([425dd3b](https://github.com/sondresjolyst/si-dotnet-packages/commit/425dd3bc7d441ea1f855fc8bcaaf5ff5050d76b2))
+* **nuget:** update Microsoft.EntityFrameworkCore.InMemory from 10.0.14 to 10.0.15 ([425dd3b](https://github.com/sondresjolyst/si-dotnet-packages/commit/425dd3bc7d441ea1f855fc8bcaaf5ff5050d76b2))
+* **nuget:** update Microsoft.EntityFrameworkCore.Relational from 10.0.14 to 10.0.15 ([425dd3b](https://github.com/sondresjolyst/si-dotnet-packages/commit/425dd3bc7d441ea1f855fc8bcaaf5ff5050d76b2))
+* **nuget:** update Microsoft.EntityFrameworkCore.Sqlite from 10.0.14 to 10.0.15 ([425dd3b](https://github.com/sondresjolyst/si-dotnet-packages/commit/425dd3bc7d441ea1f855fc8bcaaf5ff5050d76b2))
+* **nuget:** update Microsoft.Extensions.Configuration from 10.0.14 to 10.0.15 ([425dd3b](https://github.com/sondresjolyst/si-dotnet-packages/commit/425dd3bc7d441ea1f855fc8bcaaf5ff5050d76b2))
+* **nuget:** update Microsoft.Extensions.DependencyInjection from 10.0.14 to 10.0.15 ([425dd3b](https://github.com/sondresjolyst/si-dotnet-packages/commit/425dd3bc7d441ea1f855fc8bcaaf5ff5050d76b2))
+* **nuget:** update Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore from 10.0.14 to 10.0.15 ([425dd3b](https://github.com/sondresjolyst/si-dotnet-packages/commit/425dd3bc7d441ea1f855fc8bcaaf5ff5050d76b2))
+* **nuget:** update Microsoft.Extensions.Hosting from 10.0.14 to 10.0.15 ([425dd3b](https://github.com/sondresjolyst/si-dotnet-packages/commit/425dd3bc7d441ea1f855fc8bcaaf5ff5050d76b2))
+* **nuget:** update Microsoft.NET.Test.Sdk from 18.11.0 to 18.12.0 ([425dd3b](https://github.com/sondresjolyst/si-dotnet-packages/commit/425dd3bc7d441ea1f855fc8bcaaf5ff5050d76b2))
+* **nuget:** update PuppeteerSharp from 25.15.0 to 25.17.1 ([425dd3b](https://github.com/sondresjolyst/si-dotnet-packages/commit/425dd3bc7d441ea1f855fc8bcaaf5ff5050d76b2))
+* **nuget:** update SkiaSharp from 4.155.0 to 4.156.1 ([425dd3b](https://github.com/sondresjolyst/si-dotnet-packages/commit/425dd3bc7d441ea1f855fc8bcaaf5ff5050d76b2))
+* **nuget:** update SkiaSharp.NativeAssets.Linux.NoDependencies from 4.155.0 to 4.156.1 ([425dd3b](https://github.com/sondresjolyst/si-dotnet-packages/commit/425dd3bc7d441ea1f855fc8bcaaf5ff5050d76b2))
+* **nuget:** update xunit.v3 from 4.0.2 to 4.0.3 ([425dd3b](https://github.com/sondresjolyst/si-dotnet-packages/commit/425dd3bc7d441ea1f855fc8bcaaf5ff5050d76b2))
+
 ## [1.1.2](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v1.1.1...SjolystInnovation.AppKit.Auth-v1.1.2) (2026-11-08)
 
 
