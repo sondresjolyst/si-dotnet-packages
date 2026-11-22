@@ -19,8 +19,9 @@ public static class SelfRegistrationServiceCollectionExtensions
     /// fails to start when <c>NewUser</c> is missing, when the unverified lifetime or the minimum age is not
     /// positive, when the resend cooldown is negative, when a reminder offset is not positive and shorter than
     /// the lifetime, when the terms document name is blank, or when <c>MinUserNameLength</c> is under 1 or above
-    /// <c>MaxUserNameLength</c>. When the sign-up takes a user name it also fails to start when <c>MaxUserNameLength</c> is longer than
-    /// the user name column of <typeparamref name="TUser"/> in the EF model. It registers an <see cref="IRegistrationEmails{TUser}"/>
+    /// <c>MaxUserNameLength</c>. When the sign-up takes a user name it also fails to start when a <c>MaxUserNameLength</c> the app set is
+    /// longer than the <c>UserName</c> or <c>NormalizedUserName</c> column of <typeparamref name="TUser"/> in the EF model, or when
+    /// <c>MinUserNameLength</c> is longer than the maximum that applies. It reads the length <c>HasMaxLength</c> sets, not a <c>HasColumnType</c> override. It registers an <see cref="IRegistrationEmails{TUser}"/>
     /// that sends the verification email, the notice to an existing account and the removal reminder through
     /// <see cref="IEmailSender"/> in the layout of the other auth emails, unless the app registered its own first. The verification
     /// email and the reminder greet with no name. The default needs an <see cref="IEmailBrand"/> and an <see cref="IEmailSender"/>,
@@ -78,8 +79,9 @@ public static class SelfRegistrationServiceCollectionExtensions
 // Fails the start of the app when the model has no unique index on the normalised email. The sign-up relies on it to
 // keep two sign-ups for one email from both creating an account. The check reads the EF model only and cannot see the
 // database, so the app must also apply the migration that creates the index.
-// It also fails the start when the sign-up takes a user name and MaxUserNameLength is longer than the user name column holds, so
-// a name the sign-up accepts always fits.
+// It also fails the start when the sign-up takes a user name and a MaxUserNameLength the app set is longer than the UserName or
+// NormalizedUserName column holds, or MinUserNameLength is longer than the maximum that applies, so a name the sign-up accepts
+// always fits. It reads the length HasMaxLength sets, not a HasColumnType override.
 internal sealed class SelfRegistrationModelCheck<TUser, TContext>(IServiceScopeFactory scopes, IOptions<AppKitRegistrationOptions<TUser>> options) : IHostedService
     where TUser : class
     where TContext : DbContext
@@ -88,18 +90,42 @@ internal sealed class SelfRegistrationModelCheck<TUser, TContext>(IServiceScopeF
     {
         using var scope = scopes.CreateScope();
         var model = scope.ServiceProvider.GetRequiredService<TContext>().Model;
-        var entity = model.FindEntityType(typeof(TUser));
-        var unique = entity?.GetIndexes()
+        var unique = model.FindEntityType(typeof(TUser))?.GetIndexes()
             .Any(i => i.IsUnique && i.Properties.Count == 1 && i.Properties[0].Name == "NormalizedEmail") ?? false;
         if (!unique)
             throw new InvalidOperationException(
                 $"The sign-up needs a unique index on NormalizedEmail of {typeof(TUser).Name} in the model of {typeof(TContext).Name}. Call AddAppKitAccountConsents<{typeof(TUser).Name}>() on the ModelBuilder in OnModelCreating, and apply the migration that creates the index. This check reads the model only and cannot see the database.");
         var o = options.Value;
-        if (o.TakesUserName && entity?.FindProperty("UserName")?.GetMaxLength() is { } column && o.MaxUserNameLength > column)
-            throw new InvalidOperationException(
-                $"MaxUserNameLength is {o.MaxUserNameLength}, but the UserName column of {typeof(TUser).Name} in the model of {typeof(TContext).Name} holds at most {column} characters. Lower MaxUserNameLength or widen the column.");
+        if (o.TakesUserName && UserNameColumns.Narrowest(model, typeof(TUser)) is { } column)
+        {
+            if (o.MaxUserNameLengthIsSet && o.MaxUserNameLength > column.Length)
+                throw new InvalidOperationException(
+                    $"MaxUserNameLength is {o.MaxUserNameLength}, but the {column.Name} column of {typeof(TUser).Name} in the model of {typeof(TContext).Name} holds at most {column.Length} characters. Lower MaxUserNameLength or widen the column.");
+            if (o.MinUserNameLength > o.EffectiveMaxUserNameLength(column.Length))
+                throw new InvalidOperationException(
+                    $"MinUserNameLength is {o.MinUserNameLength}, but the {column.Name} column of {typeof(TUser).Name} in the model of {typeof(TContext).Name} holds at most {column.Length} characters. Lower MinUserNameLength or widen the column.");
+        }
         return Task.CompletedTask;
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+internal static class UserNameColumns
+{
+    private static readonly string[] Names = ["UserName", "NormalizedUserName"];
+
+    // The narrower of the UserName and NormalizedUserName columns of the user in the model, by the length HasMaxLength sets, or
+    // null when neither has one. A HasColumnType override is not read.
+    public static (string Name, int Length)? Narrowest(Microsoft.EntityFrameworkCore.Metadata.IModel model, Type user)
+    {
+        var entity = model.FindEntityType(user);
+        (string Name, int Length)? narrowest = null;
+        foreach (var name in Names)
+        {
+            if (entity?.FindProperty(name)?.GetMaxLength() is { } length && (narrowest is null || length < narrowest.Value.Length))
+                narrowest = (name, length);
+        }
+        return narrowest;
+    }
 }

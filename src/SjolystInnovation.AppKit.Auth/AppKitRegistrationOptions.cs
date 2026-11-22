@@ -69,10 +69,28 @@ public sealed class AppKitRegistrationOptions<TUser>
 
     /// <summary>
     /// The most characters of a user name, counted after trimming. A longer one is a <c>tooLong</c> field error with the maximum
-    /// in <c>limits</c>. It applies when <see cref="AllowUserName"/> or <see cref="RequireUserName"/> is on, and the app then fails
-    /// to start when it is longer than the user name column in the model allows, 256 in the Identity default. Defaults to 50.
+    /// in <c>limits</c>. It applies when <see cref="AllowUserName"/> or <see cref="RequireUserName"/> is on. Defaults to 50, or to
+    /// the narrower of the <c>UserName</c> and <c>NormalizedUserName</c> columns in the EF model when that is under 50. A value the
+    /// app sets is kept as it is, and the app fails to start when it is longer than either column, 256 in the Identity default.
+    /// The check reads the length that <c>HasMaxLength</c> sets in the model, not a <c>HasColumnType</c> override, so an app that
+    /// narrows a column through its column type must also set <c>HasMaxLength</c> to the same length.
     /// </summary>
-    public int MaxUserNameLength { get; set; } = 50;
+    public int MaxUserNameLength
+    {
+        get => _maxUserNameLength ?? DefaultMaxUserNameLength;
+        set => _maxUserNameLength = value;
+    }
+
+    private int? _maxUserNameLength;
+
+    internal const int DefaultMaxUserNameLength = 50;
+
+    // The maximum the sign-up applies, given the narrowest user name column of the model. A maximum the app set is never lowered,
+    // and the start fails instead when it does not fit.
+    internal int EffectiveMaxUserNameLength(int? column) =>
+        _maxUserNameLength is null && column is { } width ? Math.Min(DefaultMaxUserNameLength, width) : MaxUserNameLength;
+
+    internal bool MaxUserNameLengthIsSet => _maxUserNameLength is not null;
 
     // A user name is read from the request when the app allows or requires one.
     internal bool TakesUserName => AllowUserName || RequireUserName;

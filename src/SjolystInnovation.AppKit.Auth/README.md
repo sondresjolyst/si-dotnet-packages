@@ -603,7 +603,7 @@ the same `login` answer as before.
 | `AllowUserName` | `false` | Whether the person may choose a user name. Without one the account gets a generated one. |
 | `RequireUserName` | `false` | Whether every sign-up must send a user name. A missing or blank one is `required` on `UserName`. It also turns on what `AllowUserName` does, so that need not be set. |
 | `MinUserNameLength` | 1 | The fewest characters of a user name, after trimming. Shorter is `tooShort`. At least 1 and at most `MaxUserNameLength`. |
-| `MaxUserNameLength` | 50 | The most characters of a user name, after trimming. Longer is `tooLong`. When the sign-up takes a user name, the app fails to start if this is longer than the user name column in the model, 256 with the Identity default. |
+| `MaxUserNameLength` | 50, or the narrower of the `UserName` and `NormalizedUserName` columns when that is under 50 | The most characters of a user name, after trimming. Longer is `tooLong`. When the sign-up takes a user name, the app fails to start if a value it sets is longer than either column, 256 with the Identity default. The check reads `HasMaxLength`, not a `HasColumnType` override, so keep `HasMaxLength` in step with the column type. |
 | `RecordTruncatedIp` | `false` | Whether each consent row keeps the caller's address cut to its first three parts for IPv4 and 48 bits for IPv6. |
 | `ResendCooldown` | 1 minute | The wait before a new verification code, and between notices to one existing mailbox. |
 | `MaxEmailsPerAddressPerDay` | 5 | The most emails per mailbox and UTC day that anyone who types the address can cause. |
@@ -660,9 +660,17 @@ builder.Services.AddAppKitSelfRegistration<User, ApplicationDbContext>(o =>
 });
 ```
 
-These rules cover the sign-up only. `invite` and the first admin seed take no user name from the
-request and use the one `NewUser` sets, or else the email. `PUT {id}/profile` does not change the
-user name.
+Without a `MaxUserNameLength` from the app, the maximum is 50, or the narrower of the `UserName` and
+`NormalizedUserName` columns in the EF model when that is under 50. A value the app sets is kept, and the
+app fails to start when it is longer than either column, or when `MinUserNameLength` is longer than the
+maximum that applies. The check reads the length that `HasMaxLength` sets. It does not read a
+`HasColumnType` override such as `varchar(32)`, so an app that narrows a column that way also sets
+`HasMaxLength` to the same length.
+
+These rules cover the sign-up only. `invite` takes no user name from the request and uses the one that
+`AppKitUserAdminOptions.NewUser` sets, or else the email. The first admin seed uses the one that the
+`newUser` argument of `SeedAppKitFirstAdminAsync` sets, or else the email. `PUT {id}/profile` does not
+change the user name.
 
 ### Terms and age
 
