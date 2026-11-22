@@ -149,6 +149,37 @@ public class SelfRegistrationTests
         Assert.Contains("document", Failure(o => o.TermsDocument = " "));
 
     [Fact]
+    public void There_are_no_further_documents_by_default()
+    {
+        using var provider = Build(null);
+
+        Assert.Empty(Options(provider).AdditionalDocuments);
+    }
+
+    [Fact]
+    public void Further_documents_with_distinct_names_are_allowed()
+    {
+        using var provider = Build(o => o.AdditionalDocuments = ["privacy", "cookies"]);
+
+        Assert.Equal(["privacy", "cookies"], Options(provider).AdditionalDocuments);
+    }
+
+    [Theory]
+    [InlineData(" ")]
+    [InlineData("")]
+    [InlineData("terms")]
+    [InlineData("age")]
+    [InlineData("privacy,privacy")]
+    [InlineData("privacy ")]
+    [InlineData("a-name-that-is-longer-than-32-chars")]
+    public void A_further_document_that_is_blank_taken_repeated_or_too_long_fails(string names) =>
+        Assert.Contains("further document", Failure(o => o.AdditionalDocuments = names.Split(',')));
+
+    [Fact]
+    public void A_null_list_of_further_documents_fails() =>
+        Assert.Contains("further document", Failure(o => o.AdditionalDocuments = null!));
+
+    [Fact]
     public void No_reminders_is_allowed()
     {
         using var provider = Build(o => o.RemindBefore = []);

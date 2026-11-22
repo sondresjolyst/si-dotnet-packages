@@ -12,9 +12,11 @@ using SjolystInnovation.AppKit.Email;
 
 namespace SjolystInnovation.AppKit.Auth;
 
+// Documents holds the version the person saw of each further document, by document name. The terms stay in their own fields.
 internal sealed record RegisterRequest(
     string? Email, string? Password, string? UserName, string? FirstName, string? LastName,
-    bool AgeConfirmed, bool TermsAccepted, string? TermsVersion, string? Locale);
+    bool AgeConfirmed, bool TermsAccepted, string? TermsVersion, string? Locale,
+    IReadOnlyDictionary<string, string?>? Documents = null);
 
 /// <summary>What a sign-up did, for the log. A new and an existing email log the same event with a different outcome.</summary>
 internal enum RegistrationOutcome
@@ -31,7 +33,10 @@ public static partial class AuthEndpointsExtensions
     /// <summary>
     /// Maps <c>POST register</c> under <paramref name="prefix"/>, the anonymous sign-up. The body holds
     /// <c>email</c>, <c>password</c>, optional <c>userName</c>, <c>firstName</c>, <c>lastName</c> and <c>locale</c>,
-    /// and <c>ageConfirmed</c>, <c>termsAccepted</c> and <c>termsVersion</c>. Every check that needs no account runs
+    /// and <c>ageConfirmed</c>, <c>termsAccepted</c> and <c>termsVersion</c>, and <c>documents</c>, the version the person saw of each
+    /// document in <see cref="AppKitRegistrationOptions{TUser}.AdditionalDocuments"/> by document name. A listed document that is left
+    /// out is a field error <c>termsNotAccepted</c> keyed <c>Documents.</c> and the name, and a version that is not current answers 409
+    /// <c>termsChanged</c> with the document in the body. Each document gets its own consent row. Every check that needs no account runs
     /// first, in a fixed order, so no refusal depends on whether the email has an account. A field error is a
     /// validation problem, and a terms version that is not the one that <see cref="IConsentVersionSource"/> serves answers 409 with the code
     /// <c>termsChanged</c>. A new email creates an unverified user, its consent rows and a verification code in one
@@ -49,7 +54,9 @@ public static partial class AuthEndpointsExtensions
     /// session of the user, and answers 200. A check whose result cannot be saved answers 409 <c>tryAgain</c>. A wrong or expired code answers 400 <c>invalidCode</c>, a verified
     /// account 409 <c>alreadyVerified</c>, and five wrong codes 429 <c>tooManyAttempts</c>. A resend answers 200,
     /// or 429 <c>tooManyRequests</c> inside the cooldown, or 429 <c>tooManyAttempts</c> until the locked code has
-    /// expired. It also maps <c>POST accept-terms</c> with the body <c>termsVersion</c> and optional <c>locale</c>, for a signed-in
+    /// expired. It also maps <c>POST accept-terms</c> with the body <c>termsVersion</c>, optional <c>locale</c> and optional <c>document</c>,
+    /// which names the terms or a further document to accept instead of the terms. A conflict about a named document holds the document,
+    /// and a name the app does not list answers 409 <c>termsChanged</c>. It is for a signed-in
     /// user whether the email is verified or not. A blank version is a field error. The version must be the one that
     /// <see cref="IConsentVersionSource"/> serves, and another version answers 409 <c>termsChanged</c>. With no source, or no version
     /// from it, any version is accepted and <see cref="AccountConsent.Unversioned"/> is recorded. It records the acceptance with
@@ -146,7 +153,7 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
             options.RequireNames ? request.LastName?.Trim() ?? string.Empty : string.Empty,
             locale);
 
-        // Everything that needs no account, in one fixed order: fields, password, age, terms, terms version.
+        // Everything that needs no account, in one fixed order: fields, password, age, terms, terms version, further documents.
         var errors = new AuthFieldErrors();
         CheckFields(errors, options, request, email, termsVersion, locale, registration);
         var probe = options.NewUser!(registration);
@@ -162,6 +169,7 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
             errors.Add("AgeConfirmed", AuthErrorCodes.AgeNotConfirmed, $"You must confirm that you are at least {options.MinimumAge} years old.");
         if (!request.TermsAccepted)
             errors.Add("TermsAccepted", AuthErrorCodes.TermsNotAccepted, "You must accept the terms.");
+        var sent = CheckDocuments(errors, options, request.Documents);
         if (errors.Any)
             return errors.ToResult();
 
@@ -175,9 +183,19 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
 
         // The source decides. With no version from it, the client's version is not stored and the unversioned marker is stored
         // instead, so only a version the server knows is ever stored.
-        var current = await Get<AccountConsentService<TContext>>(http).CurrentVersionAsync(options.TermsDocument, locale, cancellationToken);
+        var consents = Get<AccountConsentService<TContext>>(http);
+        var current = await consents.CurrentVersionAsync(options.TermsDocument, locale, cancellationToken);
         if (current is not null && !string.Equals(current, termsVersion, StringComparison.Ordinal))
             return AuthResults.Error(AuthErrorCodes.TermsChanged, "The terms have changed. Read the current terms and accept them again.", StatusCodes.Status409Conflict);
+        // Each further document is checked the same way, in the order the app lists them, and the first stale one is named.
+        var documents = new List<(string Document, string Version)>(sent.Count);
+        foreach (var (document, version) in sent)
+        {
+            var currentOfDocument = await consents.CurrentVersionAsync(document, locale, cancellationToken);
+            if (currentOfDocument is not null && !string.Equals(currentOfDocument, version, StringComparison.Ordinal))
+                return AuthResults.DocumentChanged(document);
+            documents.Add((document, currentOfDocument ?? AccountConsent.Unversioned));
+        }
 
         // Every request that got this far counts for its network, before the lookup by email, so the count is the same whether or
         // not the email has an account. Over the cap the answer is 429, which the email does not influence, and nothing happens.
@@ -197,7 +215,7 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
             string? code;
             try
             {
-                var created = await CreateAsync(http, options, users, db, probe, password, registration, current ?? AccountConsent.Unversioned, acceptedAt);
+                var created = await CreateAsync(http, options, users, db, probe, password, registration, current ?? AccountConsent.Unversioned, documents, acceptedAt);
                 if (created.Problem is { } problem)
                     return problem;
                 code = created.Code;
@@ -250,6 +268,26 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
             errors.Add("Locale", AuthErrorCodes.TooLong, $"At most {MaxLocale} characters.", MaxLocale);
     }
 
+    // The version sent for each further document the app lists, in the order of the list. A document the request leaves out is not
+    // accepted, and a blank or long version is a field error, each keyed by the document. Names the app does not list are ignored.
+    private static List<(string Document, string Version)> CheckDocuments(AuthFieldErrors errors, AppKitRegistrationOptions<TUser> options, IReadOnlyDictionary<string, string?>? sent)
+    {
+        var documents = new List<(string Document, string Version)>(options.AdditionalDocuments.Count);
+        foreach (var document in options.AdditionalDocuments)
+        {
+            var field = $"Documents.{document}";
+            if (sent is null || !sent.TryGetValue(document, out var raw))
+            {
+                errors.Add(field, AuthErrorCodes.TermsNotAccepted, $"You must accept {document}.");
+                continue;
+            }
+            var version = raw?.Trim() ?? string.Empty;
+            errors.Name(field, version, MaxTermsVersion);
+            documents.Add((document, version));
+        }
+        return documents;
+    }
+
     // Identity's own user name checks, run for every request before any lookup by email, so the answer never depends on
     // whether the email has an account. Only a name the person chose is checked, never the email that stands in for one.
     private static async Task CheckUserNameAsync(AuthFieldErrors errors, UserManager<TUser> users, TUser probe)
@@ -280,7 +318,8 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
     // One transaction for the user, its role, the app's rows, the consents and the code. The result holds the code
     // when the account was made, or no code when the email already has one. A problem is a refusal to return as it is.
     private static async Task<(string? Code, IResult? Problem)> CreateAsync(HttpContext http, AppKitRegistrationOptions<TUser> options,
-        UserManager<TUser> users, TContext db, TUser user, string password, AppKitRegistration registration, string termsVersion, DateTime acceptedAt)
+        UserManager<TUser> users, TContext db, TUser user, string password, AppKitRegistration registration, string termsVersion,
+        IReadOnlyList<(string Document, string Version)> documents, DateTime acceptedAt)
     {
         var cancellationToken = http.RequestAborted;
         var time = Get<TimeProvider>(http);
@@ -307,6 +346,8 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
         var ip = options.RecordTruncatedIp ? IpShortening.Shorten(http.Connection.RemoteIpAddress) : null;
         db.AccountConsents.Add(NewConsent(user.Id, options.TermsDocument, termsVersion, registration.Locale, acceptedAt, ip));
         db.AccountConsents.Add(NewConsent(user.Id, "age", options.MinimumAge.ToString(CultureInfo.InvariantCulture), registration.Locale, acceptedAt, ip));
+        foreach (var (document, version) in documents)
+            db.AccountConsents.Add(NewConsent(user.Id, document, version, registration.Locale, acceptedAt, ip));
 
         var code = EmailVerificationCodes.Issue(user, time);
         var updated = await users.UpdateAsync(user);

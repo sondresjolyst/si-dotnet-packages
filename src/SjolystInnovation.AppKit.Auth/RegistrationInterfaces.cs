@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Http;
 
 namespace SjolystInnovation.AppKit.Auth;
 
-/// <summary>Tells the sign-up which version of a document is current, for example the terms.</summary>
+/// <summary>Tells the sign-up which version of a document is current, for example the terms or a further document such as <c>privacy</c>.</summary>
 public interface IConsentVersionSource
 {
     /// <summary>

@@ -39,6 +39,10 @@ public static class SelfRegistrationServiceCollectionExtensions
             .Validate(o => o.MaxSignUpsPerNetworkPerDay > 0, "The most sign-ups per network per day must be positive.")
             .Validate(o => o.MinimumAge > 0, "The minimum age must be positive.")
             .Validate(o => !string.IsNullOrWhiteSpace(o.TermsDocument), "The terms document name must not be blank.")
+            .Validate(o => o.AdditionalDocuments is not null
+                    && o.AdditionalDocuments.All(d => !string.IsNullOrWhiteSpace(d) && d.Length <= 32 && d.Trim() == d && d != o.TermsDocument && d != "age")
+                    && o.AdditionalDocuments.Distinct(StringComparer.Ordinal).Count() == o.AdditionalDocuments.Count,
+                "Every further document needs a name of at most 32 characters with no outer spaces that is not repeated and is neither the terms nor age.")
             .Validate(o => o.RemindBefore is not null && o.RemindBefore.All(r => r > TimeSpan.Zero && r < o.UnverifiedLifetime),
                 "Every reminder offset must be positive and shorter than the unverified account lifetime.")
             .ValidateOnStart();

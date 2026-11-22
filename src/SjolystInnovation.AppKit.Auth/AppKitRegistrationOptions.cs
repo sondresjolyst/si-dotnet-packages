@@ -26,6 +26,19 @@ public sealed class AppKitRegistrationOptions<TUser>
     /// <summary>The document name of the terms in the consent rows. Defaults to <c>terms</c>.</summary>
     public string TermsDocument { get; set; } = "terms";
 
+    /// <summary>
+    /// The further documents a person accepts at sign-up next to the terms, such as <c>privacy</c>. Each one is sent in the
+    /// <c>documents</c> field of the sign-up with the version the person saw, is checked against its own current version, and gets
+    /// its own consent row. Each one can also be accepted again through <c>accept-terms</c> with its name in <c>document</c>.
+    /// A name is at most 32 characters, is not blank, has no leading or trailing space, is not repeated, and is neither
+    /// <see cref="TermsDocument"/> nor <c>age</c>. Defaults to none.
+    /// </summary>
+    public IReadOnlyList<string> AdditionalDocuments { get; set; } = [];
+
+    // The documents that accept-terms takes by name: the terms, then the further documents.
+    internal bool IsAcceptedDocument(string document) =>
+        string.Equals(document, TermsDocument, StringComparison.Ordinal) || AdditionalDocuments.Contains(document, StringComparer.Ordinal);
+
     /// <summary>Whether the sign-up requires a first and a last name. Defaults to false.</summary>
     public bool RequireNames { get; set; }
 
