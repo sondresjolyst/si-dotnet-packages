@@ -256,6 +256,10 @@ internal sealed class AuthHandlers<TUser, TContext>(AppKitAuthEndpointOptions<TU
         // An app that opted in to sign-up also takes the reset code as proof of the mailbox, so the reset confirms the email.
         var confirmed = optedIn && ConfirmEmail(user!);
         var completed = await users.UpdateAsync(user!);
+        // A failed save leaves the user tracked with changes the database refused. Forget it, so ending the sessions
+        // below saves only the tokens and does not run into the same refusal.
+        if (!completed.Succeeded)
+            Get<TContext>(http).Entry(user!).State = EntityState.Detached;
         // A new password ends every session, so a session that someone took over cannot continue.
         var sessions = await refreshTokens.RevokeAllForUserAsync(user!.Id, http.RequestAborted);
         AuthEndpointsExtensions.Log.PasswordReset(logger, user.Id, sessions);
