@@ -108,7 +108,8 @@ internal sealed partial class AccountDeleter<TUser, TContext>(
         {
             await DeleteInTransactionAsync(user, adminRole, cancellationToken);
         }
-        catch (Exception e)
+        // The last admin check runs before anything changes, so the caller's tracked entities stay as they were.
+        catch (Exception e) when (e is not LastAdminException)
         {
             // The transaction rolled back, so the tracked entities no longer match the database. Forgetting them
             // keeps a retry or a later save in the same scope from working on stale or half deleted rows.

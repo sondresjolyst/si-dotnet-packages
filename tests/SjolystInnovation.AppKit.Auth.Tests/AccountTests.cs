@@ -433,6 +433,26 @@ public sealed class AccountTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task The_last_admin_refusal_leaves_the_callers_other_changes_pending()
+    {
+        await StartAsync();
+        await UserAsync("last", admin: true);
+        await UserAsync("other");
+        using var scope = _host!.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<IdentityTestDbContext>();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityTestUser>>();
+        // A change of the caller's own that has nothing to do with the deletion.
+        (await db.Users.SingleAsync(u => u.Id == "other")).FirstName = "Ola";
+
+        await Assert.ThrowsAsync<LastAdminException>(async () =>
+            await scope.ServiceProvider.GetRequiredService<IAccountDeleter<IdentityTestUser>>().DeleteAsync((await users.FindByIdAsync("last"))!));
+        await db.SaveChangesAsync();
+
+        Assert.Equal("Ola", Load("other").FirstName);
+        Assert.False(Load("last").IsDeleted);
+    }
+
+    [Fact]
     public async Task One_of_two_admins_can_be_deleted()
     {
         await StartAsync();
