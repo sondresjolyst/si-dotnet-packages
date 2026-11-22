@@ -84,24 +84,32 @@ public sealed class AppKitAuthEmailOptions
 
     /// <summary>
     /// The absolute http or https address of the app's page that takes an email verification code. The verification
-    /// email and the removal reminders link to it with <c>email</c> and <c>code</c> added to the query string. Leave it
-    /// empty for an app with no such page, such as a mobile app. The emails then show the code and tell the person to
-    /// enter it in the app, with no link. An https app link that opens the app works here too.
+    /// email and the removal reminders link to it with <c>email</c> and <c>code</c> added to the query string. An https
+    /// app link that opens the app works here too. Leave it empty only with <see cref="VerifyInApp"/>.
     /// </summary>
     public string VerifyEmailUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether the person types the verification code into the app instead of opening a page, for an app with no web
+    /// page such as a mobile app. The verification email and the removal reminders then show the code and tell the
+    /// person to enter it in the app, with no button and no link. <see cref="VerifyEmailUrl"/> must then be empty.
+    /// Defaults to false, so an empty <see cref="VerifyEmailUrl"/> still fails the start.
+    /// </summary>
+    public bool VerifyInApp { get; set; }
 
     internal static bool IsPageUrl(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp);
 
-    // Empty means the app has no verify page. Anything else must be a page address, so a typo never drops the link quietly.
-    internal static bool IsOptionalPageUrl(string? url) => string.IsNullOrEmpty(url) || IsPageUrl(url);
+    // Code-only is an explicit choice, so a web app whose page setting went missing still fails. A page set next to it
+    // fails too, because the emails would leave it out.
+    internal bool HasValidVerifyPage => VerifyInApp ? string.IsNullOrEmpty(VerifyEmailUrl) : IsPageUrl(VerifyEmailUrl);
 
-    internal const string VerifyEmailUrlRule = "AppKitAuthEmailOptions.VerifyEmailUrl must be empty or an absolute http or https address.";
+    internal const string VerifyRule =
+        "AppKitAuthEmailOptions.VerifyEmailUrl must be an absolute http or https address. With AppKitAuthEmailOptions.VerifyInApp set to true it must be empty instead.";
 
-    // The verify page, or null when the app has none. A value that is set but is not a page address throws, so nothing is sent without it.
-    internal string? VerifyPage() => string.IsNullOrEmpty(VerifyEmailUrl) ? null
-        : IsPageUrl(VerifyEmailUrl) ? VerifyEmailUrl
-        : throw new InvalidOperationException(VerifyEmailUrlRule);
+    // The verify page, or null when the code is entered in the app. Options that break the rule throw, so nothing is sent.
+    internal string? VerifyPage() => !HasValidVerifyPage ? throw new InvalidOperationException(VerifyRule)
+        : VerifyInApp ? null : VerifyEmailUrl;
 }
 
 /// <summary>Sends the email verification code with the same layout as the other auth emails.</summary>
@@ -137,16 +145,16 @@ public static class AuthEmailServiceCollectionExtensions
 
     /// <summary>
     /// Registers an <see cref="IVerificationEmails{TUser}"/> for apps that verify email addresses. It uses
-    /// the options from <see cref="AddAppKitAuthEmails{TUser}"/>, which you must also register. When
-    /// <see cref="AppKitAuthEmailOptions.VerifyEmailUrl"/> is set, it must be an absolute http or https address.
-    /// When it is empty, the email shows the code with no link.
+    /// the options from <see cref="AddAppKitAuthEmails{TUser}"/>, which you must also register. It
+    /// requires <see cref="AppKitAuthEmailOptions.VerifyEmailUrl"/>, or <see cref="AppKitAuthEmailOptions.VerifyInApp"/>
+    /// with no page, in which case the email shows the code with no link.
     /// </summary>
     public static IServiceCollection AddAppKitVerificationEmails<TUser>(this IServiceCollection services)
         where TUser : IdentityUser, IAppKitAccount, IEmailVerificationUser
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddOptions<AppKitAuthEmailOptions>()
-            .Validate(o => AppKitAuthEmailOptions.IsOptionalPageUrl(o.VerifyEmailUrl), AppKitAuthEmailOptions.VerifyEmailUrlRule)
+            .Validate(o => o.HasValidVerifyPage, AppKitAuthEmailOptions.VerifyRule)
             .ValidateOnStart();
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddScoped<IVerificationEmails<TUser>, VerificationEmails<TUser>>();

@@ -35,6 +35,7 @@ public class SelfRegistrationTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddAppKitSelfRegistration<TestUser, ConsentTestDbContext>(o => o.NewUser = NewUser);
+        services.Configure<AppKitAuthEmailOptions>(o => o.VerifyEmailUrl = "https://app.example/profile");
         configure(services);
         using var provider = services.BuildServiceProvider();
         var validator = provider.GetRequiredService<IAsyncStartupValidator>();
@@ -73,12 +74,69 @@ public class SelfRegistrationTests
     }
 
     [Fact]
-    public async Task Sign_up_starts_with_a_signing_key_of_the_length_AddAppKitAuth_requires()
+    public async Task Sign_up_fails_at_start_without_a_verify_page_unless_the_code_is_entered_in_the_app()
+    {
+        var message = await StartFailureAsync(s =>
+        {
+            s.Configure<AppKitAuthOptions>(o => o.Key = new string('k', AppKitAuthOptions.MinimumKeyBytes));
+            s.Configure<AppKitAuthEmailOptions>(o => o.VerifyEmailUrl = "");
+        });
+
+        Assert.Contains("VerifyEmailUrl", message, StringComparison.Ordinal);
+        Assert.Contains("VerifyInApp", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Sign_up_fails_at_start_when_the_code_is_entered_in_the_app_and_a_verify_page_is_set()
+    {
+        var message = await StartFailureAsync(s =>
+        {
+            s.Configure<AppKitAuthOptions>(o => o.Key = new string('k', AppKitAuthOptions.MinimumKeyBytes));
+            s.Configure<AppKitAuthEmailOptions>(o => { o.VerifyInApp = true; o.VerifyEmailUrl = "https://app.example/profile"; });
+        });
+
+        Assert.Contains("VerifyInApp", message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(true, "")]
+    [InlineData(false, "https://app.example/profile")]
+    public async Task Sign_up_starts_with_a_signing_key_of_the_length_AddAppKitAuth_requires(bool inApp, string page)
     {
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddAppKitSelfRegistration<TestUser, ConsentTestDbContext>(o => o.NewUser = NewUser);
         services.Configure<AppKitAuthOptions>(o => o.Key = new string('k', AppKitAuthOptions.MinimumKeyBytes));
+        services.Configure<AppKitAuthEmailOptions>(o => { o.VerifyInApp = inApp; o.VerifyEmailUrl = page; });
+        using var provider = services.BuildServiceProvider();
+
+        await provider.GetRequiredService<IAsyncStartupValidator>().ValidateAsync(TestContext.Current.CancellationToken);
+    }
+
+    private sealed class OwnEmails : IRegistrationEmails<TestUser>
+    {
+        public Task SendVerificationAsync(TestUser user, string code, string? locale, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task SendAlreadyRegisteredAsync(TestUser user, string? locale, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task SendRemovalReminderAsync(TestUser user, string code, DateTime removalAt, string? locale, CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    [Theory]
+    [InlineData(true, false, "")]
+    [InlineData(true, true, "https://app.example/profile")]
+    [InlineData(true, false, "app-specific value")]
+    [InlineData(false, false, "")]
+    [InlineData(false, false, "app-specific value")]
+    public async Task Sign_up_with_its_own_emails_starts_whatever_the_verify_options_hold(bool ownFirst, bool inApp, string page)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        if (ownFirst)
+            services.AddScoped<IRegistrationEmails<TestUser>, OwnEmails>();
+        services.AddAppKitSelfRegistration<TestUser, ConsentTestDbContext>(o => o.NewUser = NewUser);
+        if (!ownFirst)
+            services.AddScoped<IRegistrationEmails<TestUser>, OwnEmails>();
+        services.Configure<AppKitAuthOptions>(o => o.Key = new string('k', AppKitAuthOptions.MinimumKeyBytes));
+        services.Configure<AppKitAuthEmailOptions>(o => { o.VerifyInApp = inApp; o.VerifyEmailUrl = page; });
         using var provider = services.BuildServiceProvider();
 
         await provider.GetRequiredService<IAsyncStartupValidator>().ValidateAsync(TestContext.Current.CancellationToken);

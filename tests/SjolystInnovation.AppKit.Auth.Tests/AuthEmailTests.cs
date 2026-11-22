@@ -330,12 +330,36 @@ public class AuthEmailTests
     [Theory]
     [InlineData("")]
     [InlineData(null)]
-    public void Verification_emails_start_without_a_verify_page(string? page)
+    public void Verification_emails_start_without_a_verify_page_when_the_code_is_entered_in_the_app(string? page)
     {
-        using var services = Services(o => o.VerifyEmailUrl = page!, verification: true);
+        using var services = Services(o => { o.VerifyEmailUrl = page!; o.VerifyInApp = true; }, verification: true);
 
         Assert.True(string.IsNullOrEmpty(services.GetRequiredService<IOptions<AppKitAuthEmailOptions>>().Value.VerifyEmailUrl));
     }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(null)]
+    public void Verification_emails_without_a_verify_page_fail_at_startup_unless_the_code_is_entered_in_the_app(string? page)
+    {
+        using var services = Services(o => o.VerifyEmailUrl = page!, verification: true);
+
+        var error = Assert.Throws<OptionsValidationException>(() => services.GetRequiredService<IOptions<AppKitAuthEmailOptions>>().Value);
+        Assert.Contains("VerifyEmailUrl", error.Message);
+        Assert.Contains("VerifyInApp", error.Message);
+    }
+
+    [Fact]
+    public void Entering_the_code_in_the_app_with_a_verify_page_fails_at_startup()
+    {
+        using var services = Services(o => o.VerifyInApp = true, verification: true);
+
+        var error = Assert.Throws<OptionsValidationException>(() => services.GetRequiredService<IOptions<AppKitAuthEmailOptions>>().Value);
+        Assert.Contains("VerifyInApp", error.Message);
+    }
+
+    [Fact]
+    public void Entering_the_code_in_the_app_is_off_by_default() => Assert.False(new AppKitAuthEmailOptions().VerifyInApp);
 
     [Theory]
     [InlineData(" ")]
@@ -364,7 +388,7 @@ public class AuthEmailTests
     public async Task A_verification_email_without_a_verify_page_shows_the_code_and_says_to_enter_it_in_the_app(
         EmailLanguage language, string intro, string button, string fallback, string ignore, string expiry)
     {
-        using var services = Services(o => { o.VerifyEmailUrl = ""; o.Language = language; }, verification: true);
+        using var services = Services(o => { o.VerifyEmailUrl = ""; o.VerifyInApp = true; o.Language = language; }, verification: true);
         var user = new IdentityTestUser { Email = "kari@example.no", FirstName = "Kari" };
         var code = EmailVerificationCodes.Issue(user, _time);
 

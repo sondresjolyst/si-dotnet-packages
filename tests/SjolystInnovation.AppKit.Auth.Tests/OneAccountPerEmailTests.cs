@@ -127,6 +127,7 @@ public sealed class OneAccountPerEmailTests : IAsyncDisposable
             {
                 s.AddDbContext<RegistrationTestDbContext>(o => o.UseSqlite("DataSource=:memory:"));
                 s.Configure<AppKitAuthOptions>(o => o.Key = MailKeys.SigningKey);
+                s.Configure<AppKitAuthEmailOptions>(o => o.VerifyEmailUrl = "https://app.example/profile");
                 s.AddAppKitSelfRegistration<IdentityTestUser, RegistrationTestDbContext>(o =>
                 {
                     o.NewUser = r => new IdentityTestUser { Email = r.Email };
@@ -178,6 +179,7 @@ public sealed class OneAccountPerEmailTests : IAsyncDisposable
             {
                 s.AddDbContext<UnmappedConsentDbContext>(o => o.UseSqlite("DataSource=:memory:"));
                 s.Configure<AppKitAuthOptions>(o => o.Key = MailKeys.SigningKey);
+                s.Configure<AppKitAuthEmailOptions>(o => o.VerifyEmailUrl = "https://app.example/profile");
                 s.AddAppKitSelfRegistration<TestUser, UnmappedConsentDbContext>(o => o.NewUser = r => new TestUser { Email = r.Email });
             })
             .Build();

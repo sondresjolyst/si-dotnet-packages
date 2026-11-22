@@ -141,7 +141,7 @@ public class RegistrationEmailsTests
     [InlineData("nb", "Åpne appen Pyttogpanne og skriv inn koden under for å bekrefte denne e-postadressen.", "Virker ikke knappen?")]
     public async Task The_verification_email_without_a_verify_page_shows_the_code_and_says_to_enter_it_in_the_app(string locale, string intro, string fallback)
     {
-        var (emails, sender) = Build(o => o.VerifyEmailUrl = string.Empty);
+        var (emails, sender) = Build(o => { o.VerifyEmailUrl = string.Empty; o.VerifyInApp = true; });
         var user = User();
         user.EmailVerificationCodeExpiration = DateTime.UtcNow + EmailVerificationCodes.Lifetime;
 
@@ -171,6 +171,32 @@ public class RegistrationEmailsTests
     }
 
     [Fact]
+    public async Task Without_a_verify_page_or_VerifyInApp_both_emails_fail_with_a_message_that_names_the_options()
+    {
+        var (emails, sender) = Build(o => o.VerifyEmailUrl = string.Empty);
+        var user = User();
+        user.EmailVerificationCodeExpiration = DateTime.UtcNow + EmailVerificationCodes.Lifetime;
+
+        var verification = await Assert.ThrowsAsync<InvalidOperationException>(() => emails.SendVerificationAsync(user, "ABC123", null, CancellationToken.None));
+        var reminder = await Assert.ThrowsAsync<InvalidOperationException>(() => emails.SendRemovalReminderAsync(User(), "AB12CD", RemovalAt, null, CancellationToken.None));
+
+        Assert.Contains("VerifyInApp", verification.Message, StringComparison.Ordinal);
+        Assert.Contains("VerifyEmailUrl", reminder.Message, StringComparison.Ordinal);
+        Assert.Empty(sender.Sent);
+    }
+
+    [Fact]
+    public async Task VerifyInApp_with_a_verify_page_fails_with_a_message_that_names_the_options()
+    {
+        var (emails, sender) = Build(o => o.VerifyInApp = true);
+
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => emails.SendRemovalReminderAsync(User(), "AB12CD", RemovalAt, null, CancellationToken.None));
+
+        Assert.Contains("VerifyInApp", failure.Message, StringComparison.Ordinal);
+        Assert.Empty(sender.Sent);
+    }
+
+    [Fact]
     public async Task The_removal_reminder_with_a_verify_page_that_is_not_an_http_address_fails_with_a_message_that_names_the_option()
     {
         var (emails, sender) = Build(o => o.VerifyEmailUrl = "javascript:alert(1)");
@@ -186,7 +212,7 @@ public class RegistrationEmailsTests
     [InlineData("nb", "Blir den ikke bekreftet, fjernes kontoen 5. desember 2026. Logg inn i appen og skriv inn koden under for å bekrefte den.", "Bekreft e-post")]
     public async Task The_removal_reminder_without_a_verify_page_says_to_enter_the_code_in_the_app(string locale, string steps, string button)
     {
-        var (emails, sender) = Build(o => o.VerifyEmailUrl = string.Empty);
+        var (emails, sender) = Build(o => { o.VerifyEmailUrl = string.Empty; o.VerifyInApp = true; });
 
         await emails.SendRemovalReminderAsync(User(), "AB12CD", RemovalAt, locale, CancellationToken.None);
 
@@ -280,7 +306,7 @@ public class RegistrationEmailsTests
     [Fact]
     public async Task The_removal_reminder_has_no_button_without_a_verify_page()
     {
-        var (emails, sender) = Build(o => o.VerifyEmailUrl = string.Empty);
+        var (emails, sender) = Build(o => { o.VerifyEmailUrl = string.Empty; o.VerifyInApp = true; });
 
         await emails.SendRemovalReminderAsync(User(), "AB12CD", RemovalAt, null, CancellationToken.None);
 
