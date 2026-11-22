@@ -550,7 +550,7 @@ public class VippsClientTests
     [InlineData("{\"errorCode\":5}", null, null, null)]
     [InlineData("{\"errorRef\":\"R\"}", null, "R", null)]
     public void ErrorIds_ReadsOnlyStringIds(string body, string? code, string? reference, string? trace) =>
-        Assert.Equal((code, reference, trace, (string?)null, (string?)null), VippsClient.ErrorIds(body));
+        Assert.Equal((code, reference, trace, (string?)null, (string?)null, (string?)null, (string?)null), VippsClient.ErrorIds(body));
 
     [Fact]
     public async Task AFailure_WithAProblemBody_LogsTheProblemTitleAndFields_ButNotItsDetails()
@@ -565,7 +565,7 @@ public class VippsClientTests
                  "extraDetails":[{"name":"due","reason":"4791234567"},{"name":"due","reason":"x"},{"name":"Ola Nordmann","reason":"y"}]}
                 """);
 
-        await Assert.ThrowsAsync<HttpRequestException>(() => client.CreateChargeAsync("agr_secret",
+        await Assert.ThrowsAsync<VippsApiException>(() => client.CreateChargeAsync("agr_secret",
             new VippsCreateChargeRequest { AmountInOre = 100, Due = new DateOnly(2026, 12, 1), Description = "x", OrderId = "o" }, "k"));
 
         var line = Assert.Single(log.Lines, l => l.StartsWith("Error", StringComparison.Ordinal));
@@ -717,18 +717,219 @@ public class VippsClientTests
     }
 
     [Fact]
-    public async Task AFailedCall_AfterTheToken_IsAPlainHttpRequestException()
+    public async Task AFailedCall_AfterTheToken_IsAVippsApiException_AndNotATokenFailure()
     {
         var (client, vipps, _, _, _) = Create();
         vipps.Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get" ? (HttpStatusCode.OK, """{"access_token":"t"}""") : (HttpStatusCode.NotFound, "{}");
 
         var e = await Assert.ThrowsAnyAsync<HttpRequestException>(() => client.GetAgreementAsync("agr_1"));
 
-        Assert.IsNotType<VippsAccessTokenException>(e);
+        Assert.IsType<VippsApiException>(e);
         Assert.Equal(HttpStatusCode.NotFound, e.StatusCode);
     }
 
     [Fact]
     public void ErrorIds_LeavesOutAFieldNameWithADigitRun() =>
         Assert.Equal("due", VippsClient.ErrorIds("""{"extraDetails":[{"name":"due"},{"name":"p912-34-567"}]}""").Fields);
+
+    private static (VippsClient Client, ListLogger Log) FailingWith(HttpStatusCode status, string body)
+    {
+        var (client, vipps, _, _, log) = Create();
+        vipps.Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get"
+            ? (HttpStatusCode.OK, """{"access_token":"token-secret-value"}""")
+            : (status, body);
+        return (client, log);
+    }
+
+    // The documented ePayment domain error, for a reference that Vipps does not know.
+    private const string ReferenceNotFound = """
+        {"type":"https://httpstatuses.io/404","title":"Reference not found",
+         "detail":"The reference 'order-42' does not exist for MSN 111111.","instance":"/v1/payments/order-42","status":404,
+         "extraDetails":[{"name":"ErrorCode","reason":"5090"}],"traceId":"00-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d31-01"}
+        """;
+
+    private static void AssertMessageHoldsNoRequestData(Exception e)
+    {
+        foreach (var value in new[] { "order-42", "111111", "token-secret-value", "secret", "key", "4791234567", "Ola" })
+            Assert.DoesNotContain(value, e.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AGetPayment_ThatVippsDoesNotKnow_ThrowsTheVippsErrorCode()
+    {
+        var (client, log) = FailingWith(HttpStatusCode.NotFound, ReferenceNotFound);
+
+        var e = await Assert.ThrowsAsync<VippsApiException>(() => client.GetPaymentAsync("order-42"));
+
+        Assert.IsAssignableFrom<HttpRequestException>(e);
+        Assert.Equal(HttpStatusCode.NotFound, e.StatusCode);
+        Assert.Equal("get-payment", e.Operation);
+        Assert.Equal("5090", e.ErrorCode);
+        Assert.Equal("404", e.ProblemType);
+        Assert.Equal("Reference not found", e.Title);
+        Assert.Equal("00-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d31-01", e.TraceId);
+        Assert.Equal(["ErrorCode"], e.Fields);
+        Assert.True(VippsFailures.HasErrorCode(e, "5090"));
+        Assert.False(VippsFailures.HasErrorCode(e, "5091"));
+        Assert.Equal(VippsFailureKind.Refused, VippsFailures.Classify(e, CancellationToken.None));
+        Assert.Equal("Vipps get-payment failed with status 404, error code 5090 (Reference not found).", e.Message);
+        AssertMessageHoldsNoRequestData(e);
+        var line = Assert.Single(log.Lines, l => l.StartsWith("Error", StringComparison.Ordinal));
+        Assert.Contains("get-payment failed: 404 ErrorCode=404 ErrorRef=- TraceId=00-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d31-01 Title=Reference not found Fields=ErrorCode BodyLength=", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("order-42", line, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("<html><head><title>404 Not Found</title></head><body>Not Found</body></html>")]
+    [InlineData("")]
+    [InlineData("Resource not found")]
+    [InlineData("""{ "statusCode": 404, "message": "Resource not found" }""")]
+    [InlineData("""{"type":"https://httpstatuses.io/404","extraDetails":{"name":"ErrorCode","reason":"5090"}}""")]
+    [InlineData("""[{"name":"ErrorCode","reason":"5090"}]""")]
+    [InlineData("{\"extraDetails\":[{\"name\":\"ErrorCode\",\"reason\":\"5090\"}")]
+    public async Task A404_ThatIsNotAVippsError_ThrowsWithoutAVippsCode(string body)
+    {
+        var (client, _) = FailingWith(HttpStatusCode.NotFound, body);
+
+        var e = await Assert.ThrowsAsync<VippsApiException>(() => client.GetPaymentAsync("order-42"));
+
+        Assert.Equal(HttpStatusCode.NotFound, e.StatusCode);
+        Assert.Null(e.ErrorCode);
+        Assert.Null(e.Title);
+        Assert.Null(e.TraceId);
+        Assert.False(VippsFailures.HasErrorCode(e, "5090"));
+        Assert.Equal("Vipps get-payment failed with status 404.", e.Message);
+    }
+
+    [Fact]
+    public async Task A400_WithAValidationProblem_NamesTheFieldsButNoErrorCode()
+    {
+        var (client, _) = FailingWith(HttpStatusCode.BadRequest, """
+            {"type":"https://httpstatuses.io/400","title":"Bad Request","status":400,"detail":"See extraDetails for further details",
+             "instance":"/v1/payments","traceId":"00-6614b5c7ea5c404b17e45c3a398c4754-5ca6de688e27022d-01",
+             "extraDetails":[{"name":"reference","reason":"The field Reference must match the regular expression '^[a-zA-Z0-9-]{8,64}$'."}]}
+            """);
+
+        var e = await Assert.ThrowsAsync<VippsApiException>(() => client.CapturePaymentAsync("order-42", 100, "k"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, e.StatusCode);
+        Assert.Equal("capture-payment", e.Operation);
+        Assert.Null(e.ErrorCode);
+        Assert.Equal("400", e.ProblemType);
+        Assert.Equal("Bad Request", e.Title);
+        Assert.Equal("00-6614b5c7ea5c404b17e45c3a398c4754-5ca6de688e27022d-01", e.TraceId);
+        Assert.Equal(["reference"], e.Fields);
+        Assert.Equal("Vipps capture-payment failed with status 400 (Bad Request).", e.Message);
+        AssertMessageHoldsNoRequestData(e);
+    }
+
+    [Fact]
+    public async Task ARecurringProblem_GivesItsProblemType()
+    {
+        var (client, _) = FailingWith(HttpStatusCode.BadRequest, """
+            {"type":"https://developer.vippsmobilepay.com/docs/APIs/recurring-api/recurring-api-problems#charge-due-too-soon",
+             "title":"Charge not creatable","status":400,"detail":"Agreement agr_secret for 4791234567 is not active",
+             "contextId":"c0ffee00-0000-4000-8000-000000000001"}
+            """);
+
+        var e = await Assert.ThrowsAsync<VippsApiException>(() => client.GetAgreementAsync("agr_secret"));
+
+        Assert.Equal("charge-due-too-soon", e.ProblemType);
+        Assert.Null(e.ErrorCode);
+        Assert.Equal("c0ffee00-0000-4000-8000-000000000001", e.TraceId);
+        Assert.Equal("Vipps get-agreement failed with status 400 (Charge not creatable).", e.Message);
+        AssertMessageHoldsNoRequestData(e);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.InternalServerError, """{"type":"https://httpstatuses.io/500","title":"Internal error","status":500,"extraDetails":[{"name":"ErrorCode","reason":"3010"}],"traceId":"00-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d31-01"}""", "3010")]
+    [InlineData(HttpStatusCode.ServiceUnavailable, "<html><body>Service Unavailable</body></html>", null)]
+    [InlineData(HttpStatusCode.BadGateway, "", null)]
+    public async Task A5xx_ThrowsWithItsStatus_AndMayHaveGoneThrough(HttpStatusCode status, string body, string? code)
+    {
+        var (client, _) = FailingWith(status, body);
+
+        var e = await Assert.ThrowsAsync<VippsApiException>(() => client.CapturePaymentAsync("order-42", 100, "k"));
+
+        Assert.Equal(status, e.StatusCode);
+        Assert.Equal(code, e.ErrorCode);
+        Assert.Equal(VippsFailureKind.Uncertain, VippsFailures.Classify(e, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task AFailedAccessToken_IsStillAVippsAccessTokenException_AndNeverMatchesAnErrorCode()
+    {
+        var (client, vipps, _, _, _) = Create();
+        vipps.Respond = r => r.RequestUri!.AbsolutePath == "/accesstoken/get"
+            ? (HttpStatusCode.Unauthorized, """{"statusCode":401,"message":"Access denied due to invalid subscription key.","extraDetails":[{"name":"ErrorCode","reason":"5090"}]}""")
+            : (HttpStatusCode.OK, "{}");
+
+        var e = await Assert.ThrowsAsync<VippsAccessTokenException>(() => client.GetPaymentAsync("order-42"));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, e.StatusCode);
+        var inner = Assert.IsType<VippsApiException>(e.InnerException);
+        Assert.Equal("accesstoken/get", inner.Operation);
+        Assert.Equal(HttpStatusCode.Unauthorized, inner.StatusCode);
+        Assert.Equal("5090", inner.ErrorCode);
+        Assert.False(VippsFailures.HasErrorCode(e, "5090"));
+        AssertMessageHoldsNoRequestData(inner);
+    }
+
+    [Theory]
+    [InlineData("""{"extraDetails":[{"name":"ErrorCode","reason":"5090"}]}""", "5090")]
+    [InlineData("""{"extraDetails":[{"name":"errorcode","reason":"6080"}]}""", "6080")]
+    [InlineData("""{"extraDetails":["x",{"name":"reference","reason":"bad"},{"name":"ErrorCode","reason":"6080"}]}""", "6080")]
+    [InlineData("""{"extraDetails":[{"name":"ErrorCode","reason":"6080"},{"name":"ErrorCode","reason":"5090"}]}""", "6080")]
+    [InlineData("""{"extraDetails":[{"name":"ErrorCode","reason":5090}]}""", null)]
+    [InlineData("""{"extraDetails":[{"name":"ErrorCode","reason":"4791234567"}]}""", null)]
+    [InlineData("""{"extraDetails":[{"name":"ErrorCode","reason":"Ola Nordmann"}]}""", null)]
+    [InlineData("""{"extraDetails":[{"name":"ErrorCode"}]}""", null)]
+    [InlineData("""{"extraDetails":[{"name":"Error","reason":"5090"}]}""", null)]
+    [InlineData("""{"extraDetails":[{"name":5,"reason":"5090"}]}""", null)]
+    [InlineData("""{"extraDetails":null}""", null)]
+    [InlineData("""{"errorCode":"E1"}""", "E1")]
+    [InlineData("""{"errorCode":"E1","extraDetails":[{"name":"ErrorCode","reason":"5090"}]}""", "5090")]
+    public void ErrorIds_ReadsTheVippsErrorCode(string body, string? code) =>
+        Assert.Equal(code, VippsClient.ErrorIds(body).VippsCode);
+
+    [Theory]
+    [InlineData("""{"type":"https://developer.vippsmobilepay.com/docs/APIs/recurring-api/recurring-api-problems#invalid-agreement-id"}""", "invalid-agreement-id")]
+    [InlineData("""{"type":"https://httpstatuses.io/404"}""", "404")]
+    [InlineData("""{"type":"about:blank#4791234567"}""", null)]
+    [InlineData("""{"type":5}""", null)]
+    [InlineData("""{"errorCode":"E1"}""", null)]
+    public void ErrorIds_ReadsTheProblemType(string body, string? problem) =>
+        Assert.Equal(problem, VippsClient.ErrorIds(body).Problem);
+
+    [Theory]
+    [InlineData("00-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d31-01", "00-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d31-01")]
+    [InlineData("00-813B63975ADCAAEEF2B0EC7C103C40E3-706492E906541D31-01", null)]
+    [InlineData("00-813b63975adcaaeef2b0ec7c103c40e-706492e906541d31-01", null)]
+    [InlineData("00-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d31-01-4791234567", null)]
+    [InlineData("0-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d31-01", null)]
+    [InlineData("00-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d3-01", null)]
+    [InlineData("00-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d31-1", null)]
+    [InlineData("00-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d31-01\n", null)]
+    [InlineData("00-4791234567-12345678-01", null)]
+    [InlineData("100-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d31-01", null)]
+    public void ErrorIds_KeepsATraceIdInTheW3CTraceparentFormat(string id, string? kept) =>
+        Assert.Equal(kept, VippsClient.ErrorIds(JsonSerializer.Serialize(new { traceId = id })).TraceId);
+
+    [Fact]
+    public async Task AFailureMessage_LeavesOutTheFullStopOfATitle()
+    {
+        var (client, _) = FailingWith(HttpStatusCode.BadRequest, """{"title":"Your request parameters didn't validate."}""");
+
+        var e = await Assert.ThrowsAsync<VippsApiException>(() => client.GetPaymentAsync("order-42"));
+
+        Assert.Equal("Vipps get-payment failed with status 400 (Your request parameters didn't validate).", e.Message);
+    }
+
+    [Fact]
+    public void HasErrorCode_IsFalseForAPlainHttpRequestException() =>
+        Assert.False(VippsFailures.HasErrorCode(new HttpRequestException("Not Found", null, HttpStatusCode.NotFound), "5090"));
+
+    [Fact]
+    public void HasErrorCode_MatchesAnErrorCodeTheCallerSet() =>
+        Assert.True(VippsFailures.HasErrorCode(new VippsApiException("x", null, HttpStatusCode.NotFound) { ErrorCode = "5090" }, "5090"));
 }

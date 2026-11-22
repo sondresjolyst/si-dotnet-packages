@@ -1,9 +1,11 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -382,16 +384,29 @@ internal sealed partial class VippsClient : IVippsClient
         else
             LogFailed(_logger, operation, (int)response.StatusCode, ids.ErrorCode ?? "-", ids.ErrorRef ?? "-", ids.TraceId ?? "-",
                 ids.Title ?? "-", ids.Fields ?? "-", body.Length);
-        response.EnsureSuccessStatusCode();
-        return body;
+        throw new VippsApiException(FailureMessage(operation, response.StatusCode, ids.VippsCode, ids.Title), null, response.StatusCode)
+        {
+            Operation = operation,
+            ErrorCode = ids.VippsCode,
+            ProblemType = ids.Problem,
+            Title = ids.Title,
+            TraceId = ids.TraceId,
+            Fields = ids.Fields?.Split(',') ?? [],
+        };
     }
+
+    // Built only from the operation name, the status, and values the error id checks let through, so it never holds
+    // a token, a key, or request data.
+    private static string FailureMessage(string operation, HttpStatusCode status, string? errorCode, string? title) =>
+        string.Create(CultureInfo.InvariantCulture,
+            $"Vipps {operation} failed with status {(int)status}{(errorCode is null ? "" : $", error code {errorCode}")}{(title is null ? "" : $" ({title.TrimEnd('.')})")}.");
 
     // Reads the parts of an error body that carry no personal data. An RFC 7807 problem, which the Recurring
     // and ePayment APIs answer with, names its problem in the type URL and gives a title. Its detail,
     // instance, and extra detail reasons can echo the request, so only the names of the fields it blames
     // are kept. Every value is checked, and one that could carry request data, such as a run of digits, is
     // left out.
-    internal static (string? ErrorCode, string? ErrorRef, string? TraceId, string? Title, string? Fields) ErrorIds(string body)
+    internal static (string? ErrorCode, string? ErrorRef, string? TraceId, string? Title, string? Fields, string? VippsCode, string? Problem) ErrorIds(string body)
     {
         if (string.IsNullOrEmpty(body)) return default;
         try
@@ -409,11 +424,20 @@ internal sealed partial class VippsClient : IVippsClient
                     .Take(MaxProblemFields)
                     .ToList()
                 : [];
+            // The ePayment API sends its domain error code, such as 5090, as the ErrorCode entry of extraDetails.
+            var vippsCode = extra.ValueKind == JsonValueKind.Array
+                ? extra.EnumerateArray()
+                    .Where(d => d.ValueKind == JsonValueKind.Object && string.Equals(Text(d, "name"), "ErrorCode", StringComparison.OrdinalIgnoreCase))
+                    .Select(d => ProblemName(Text(d, "reason")))
+                    .FirstOrDefault()
+                : null;
             return (PlainId(Text(root, "errorCode")) ?? ProblemType(Text(root, "type")),
                 PlainId(Text(root, "errorRef")),
-                PlainId(Text(root, "traceId")) ?? PlainId(Text(root, "contextId")),
+                TraceId(Text(root, "traceId")) ?? PlainId(Text(root, "contextId")),
                 ProblemTitle(Text(root, "title")),
-                fields.Count == 0 ? null : string.Join(',', fields));
+                fields.Count == 0 ? null : string.Join(',', fields),
+                vippsCode ?? PlainId(Text(root, "errorCode")),
+                ProblemType(Text(root, "type")));
         }
         catch (JsonException)
         {
@@ -443,6 +467,13 @@ internal sealed partial class VippsClient : IVippsClient
     // A GUID, or a plain name as above.
     private static string? PlainId(string? value) =>
         value is { Length: 36 } && Guid.TryParseExact(value, "D", out _) ? value : ProblemName(value);
+
+    // A W3C traceparent, the trace id the ePayment API sends, such as 00-813b...40e3-7064...1d31-01, or a plain id as above.
+    private static string? TraceId(string? value) =>
+        value is not null && Traceparent().IsMatch(value) ? value : PlainId(value);
+
+    [GeneratedRegex(@"\A[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}\z", RegexOptions.CultureInvariant)]
+    private static partial Regex Traceparent();
 
     // A short sentence of letters, spaces, and plain punctuation, without digits, such as "Charge not creatable".
     private static string? ProblemTitle(string? value) =>
