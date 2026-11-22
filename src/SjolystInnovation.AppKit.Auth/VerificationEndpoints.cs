@@ -95,8 +95,17 @@ internal sealed class VerificationHandlers<TUser, TContext>(ILogger logger)
                 await tx.RollbackAsync(cancellationToken);
                 return AuthResults.TryAgain();
             }
-            await Get<IRefreshTokenService>(http).RevokeAllForUserAsync(user.Id, cancellationToken);
-            await tx.CommitAsync(cancellationToken);
+            try
+            {
+                await Get<IRefreshTokenService>(http).RevokeAllForUserAsync(user.Id, cancellationToken);
+                await tx.CommitAsync(cancellationToken);
+            }
+            catch (Exception e) when (DatabaseAborts.IsAbort(e))
+            {
+                // The database aborted the transaction, so nothing was stored. Like a lost save above, the caller tries again.
+                await tx.RollbackAsync(cancellationToken);
+                return AuthResults.TryAgain();
+            }
         }
 
         // Drop the user from the bearer check cache, so the earlier access tokens stop working at once on this instance.
