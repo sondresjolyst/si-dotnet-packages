@@ -30,11 +30,14 @@ public sealed class AccountTests : IAsyncDisposable
             await Task.CompletedTask;
             if (test.FailErasing)
                 throw new InvalidOperationException("eraser failed");
-            if (test.CollideErasing)
-                throw new Microsoft.EntityFrameworkCore.DbUpdateException("save failed", new FakeDbException("40001"));
+            if (test.CollideErasing is { } sqlState)
+                throw new Microsoft.EntityFrameworkCore.DbUpdateException("save failed", new FakeDbException(sqlState));
             if (test.ChangeUserErasing)
-                // Another change to the user row, so the first save of the deletion finds a stale concurrency stamp.
+            {
+                // Another change to the user row, once, so the first save of the deletion finds a stale concurrency stamp.
+                test.ChangeUserErasing = false;
                 await db.Database.ExecuteSqlAsync($"UPDATE AspNetUsers SET ConcurrencyStamp = 'changed' WHERE Id = {user.Id}", cancellationToken);
+            }
         }
     }
 
@@ -60,7 +63,7 @@ public sealed class AccountTests : IAsyncDisposable
     internal List<string> Erased { get; } = [];
     internal List<(string Id, bool WasDeleted)> Handled { get; } = [];
     internal bool FailErasing { get; set; }
-    internal bool CollideErasing { get; set; }
+    internal string? CollideErasing { get; set; }
     internal bool ChangeUserErasing { get; set; }
 
     private sealed class FakeDbException(string sqlState) : System.Data.Common.DbException("db failed")
@@ -298,12 +301,14 @@ public sealed class AccountTests : IAsyncDisposable
         Assert.Empty(Handled);
     }
 
-    [Fact]
-    public async Task A_collision_with_another_change_is_a_conflict_and_rolls_back()
+    [Theory]
+    [InlineData("40001")]
+    [InlineData("40P01")]
+    public async Task A_collision_with_another_change_is_a_conflict_and_rolls_back(string sqlState)
     {
         await StartAsync();
         await UserAsync("u1");
-        CollideErasing = true;
+        CollideErasing = sqlState;
 
         var response = await SendAsync(HttpMethod.Delete, "/api/users/u1/account");
 
@@ -339,6 +344,7 @@ public sealed class AccountTests : IAsyncDisposable
         ChangeUserErasing = true;
 
         await Assert.ThrowsAsync<AccountChangeConflictException>(() => DeleteDirectAsync("u1"));
+        ChangeUserErasing = true;
         var response = await SendAsync(HttpMethod.Delete, "/api/users/u1/account");
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
@@ -350,20 +356,67 @@ public sealed class AccountTests : IAsyncDisposable
 
     [Theory]
     [InlineData("40001", true)]
-    [InlineData("40P01", false)]
+    [InlineData("40P01", true)]
     [InlineData("23505", false)]
-    public void Only_a_serialization_failure_counts_as_a_collision(string sqlState, bool expected)
+    public void Only_a_database_abort_counts_as_a_collision(string sqlState, bool expected)
     {
-        Assert.Equal(expected, AccountDeleter<IdentityTestUser, IdentityTestDbContext>.IsSerializationFailure(new FakeDbException(sqlState)));
-        Assert.Equal(expected, AccountDeleter<IdentityTestUser, IdentityTestDbContext>.IsSerializationFailure(
+        Assert.Equal(expected, DatabaseAborts.IsAbort(new FakeDbException(sqlState)));
+        Assert.Equal(expected, DatabaseAborts.IsAbort(
             new InvalidOperationException("outer", new Microsoft.EntityFrameworkCore.DbUpdateException("middle", new FakeDbException(sqlState)))));
     }
 
     [Fact]
     public void Other_failures_are_not_collisions()
     {
-        Assert.False(AccountDeleter<IdentityTestUser, IdentityTestDbContext>.IsSerializationFailure(new InvalidOperationException("x")));
-        Assert.False(AccountDeleter<IdentityTestUser, IdentityTestDbContext>.IsSerializationFailure(null));
+        Assert.False(DatabaseAborts.IsAbort(new InvalidOperationException("x")));
+        Assert.False(DatabaseAborts.IsAbort(null));
+    }
+
+    [Fact]
+    public async Task A_retry_in_the_same_scope_after_a_conflict_deletes_the_account()
+    {
+        await StartAsync();
+        await UserAsync("u1");
+        using var scope = _host!.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityTestUser>>();
+        var deleter = scope.ServiceProvider.GetRequiredService<IAccountDeleter<IdentityTestUser>>();
+        var loaded = (await users.FindByIdAsync("u1"))!;
+        // Another request saves the user after this scope loaded it, so this scope holds a stale concurrency stamp.
+        using (var other = _host.Services.CreateScope())
+        {
+            var otherUsers = other.ServiceProvider.GetRequiredService<UserManager<IdentityTestUser>>();
+            var fresh = (await otherUsers.FindByIdAsync("u1"))!;
+            fresh.FirstName = "Ola";
+            Assert.True((await otherUsers.UpdateAsync(fresh)).Succeeded);
+        }
+
+        await Assert.ThrowsAsync<AccountChangeConflictException>(() => deleter.DeleteAsync(loaded));
+        await deleter.DeleteAsync((await users.FindByIdAsync("u1"))!);
+
+        var user = Load("u1");
+        Assert.True(user.IsDeleted);
+        Assert.Equal("deleted-u1@deleted.invalid", user.Email);
+        Assert.Equal(("u1", true), Assert.Single(Handled));
+    }
+
+    [Fact]
+    public async Task A_failed_delete_leaves_nothing_for_a_later_save_in_the_same_scope()
+    {
+        _refuseUpdates = true;
+        await StartAsync();
+        await UserAsync("u1");
+        using var scope = _host!.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityTestUser>>();
+        var stamp = Load("u1").SecurityStamp;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await scope.ServiceProvider.GetRequiredService<IAccountDeleter<IdentityTestUser>>().DeleteAsync((await users.FindByIdAsync("u1"))!));
+        await scope.ServiceProvider.GetRequiredService<IdentityTestDbContext>().SaveChangesAsync();
+
+        Assert.False(Load("u1").IsDeleted);
+        Assert.Equal("u1@example.invalid", Load("u1").Email);
+        Assert.Equal(stamp, Load("u1").SecurityStamp);
+        Assert.Equal(1, Tokens("u1"));
     }
 
     [Fact]

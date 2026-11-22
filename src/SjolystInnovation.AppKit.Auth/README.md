@@ -448,7 +448,8 @@ gone.
 You cannot delete the last active admin. `DeleteAsync` throws `LastAdminException`. The deletion runs
 in a serializable transaction with that check inside, so two admins deleting each other at once cannot
 both succeed. The database aborts one, and `DeleteAsync` throws `AccountChangeConflictException`. A
-retry may succeed.
+retry may succeed. Load the user again before you retry, because a failed deletion makes the context
+forget the entities it tracks.
 
 ## Account endpoints
 
