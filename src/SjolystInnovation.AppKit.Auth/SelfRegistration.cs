@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using SjolystInnovation.AppKit.Email;
 
 namespace SjolystInnovation.AppKit.Auth;
@@ -38,11 +39,12 @@ public static class SelfRegistrationServiceCollectionExtensions
             .Validate(o => o.MaxEmailsPerAddressPerDay > 0 && o.MaxOwnerEmailsPerAddressPerDay > 0, "The most emails per address per day must be positive.")
             .Validate(o => o.MaxSignUpsPerNetworkPerDay > 0, "The most sign-ups per network per day must be positive.")
             .Validate(o => o.MinimumAge > 0, "The minimum age must be positive.")
-            .Validate(o => !string.IsNullOrWhiteSpace(o.TermsDocument), "The terms document name must not be blank.")
+            .Validate(o => AppKitRegistrationOptions<TUser>.IsDocumentName(o.TermsDocument),
+                "The terms document name must be 1 to 32 ASCII letters, digits, hyphens or underscores.")
             .Validate(o => o.AdditionalDocuments is not null
-                    && o.AdditionalDocuments.All(d => !string.IsNullOrWhiteSpace(d) && d.Length <= 32 && d.Trim() == d && d != o.TermsDocument && d != "age")
+                    && o.AdditionalDocuments.All(d => AppKitRegistrationOptions<TUser>.IsDocumentName(d) && d != o.TermsDocument && d != "age")
                     && o.AdditionalDocuments.Distinct(StringComparer.Ordinal).Count() == o.AdditionalDocuments.Count,
-                "Every further document needs a name of at most 32 characters with no outer spaces that is not repeated and is neither the terms nor age.")
+                "Every further document needs a name of 1 to 32 ASCII letters, digits, hyphens or underscores that is not repeated and is neither the terms nor age.")
             .Validate(o => o.RemindBefore is not null && o.RemindBefore.All(r => r > TimeSpan.Zero && r < o.UnverifiedLifetime),
                 "Every reminder offset must be positive and shorter than the unverified account lifetime.")
             .ValidateOnStart();
@@ -59,6 +61,7 @@ public static class SelfRegistrationServiceCollectionExtensions
         services.TryAddScoped<IAccountConsentExporter>(sp => sp.GetRequiredService<AccountConsentService<TContext>>());
         services.TryAddEnumerable(ServiceDescriptor.Scoped<IAccountDataEraser<TUser>, AccountConsentEraser<TUser, TContext>>());
         services.TryAddScoped<IPendingConsentReader>(sp => sp.GetRequiredService<AccountConsentService<TContext>>());
+        services.TryAddSingleton(sp => new ConsentDocuments(sp.GetRequiredService<IOptions<AppKitRegistrationOptions<TUser>>>().Value.IsAcceptedDocument));
         services.TryAddScoped<IConsentRequirements, ConsentRequirements<TContext>>();
         services.TryAddScoped<IRegistrationEmails<TUser>, RegistrationEmails<TUser>>();
         services.TryAddSingleton<IUnverifiedAccountCleanup, UnverifiedAccountCleanup<TUser, TContext>>();

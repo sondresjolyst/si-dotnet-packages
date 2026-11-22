@@ -37,10 +37,10 @@ internal static class ConsentHandlers<TUser, TContext>
             errors.Add("Locale", AuthErrorCodes.TooLong, $"At most {MaxLocale} characters.", MaxLocale);
         if (named is { Length: > MaxDocument })
             errors.Add("Document", AuthErrorCodes.TooLong, $"At most {MaxDocument} characters.", MaxDocument);
+        else if (named is not null && !options.IsAcceptedDocument(named))
+            errors.Add("Document", AuthErrorCodes.UnknownDocument, "Not a document to accept.");
         if (errors.Any)
             return errors.ToResult();
-        if (named is not null && !options.IsAcceptedDocument(named))
-            return AuthResults.UnknownDocument(named);
         var document = named ?? options.TermsDocument;
 
         // The time is taken before the source is read, so a mark that comes with a newer version is never older than the acceptance.

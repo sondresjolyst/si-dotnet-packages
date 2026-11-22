@@ -23,19 +23,25 @@ public sealed class AppKitRegistrationOptions<TUser>
     /// <summary>The age a person confirms to be at least. Defaults to 16.</summary>
     public int MinimumAge { get; set; } = 16;
 
-    /// <summary>The document name of the terms in the consent rows. Defaults to <c>terms</c>.</summary>
+    /// <summary>
+    /// The document name of the terms in the consent rows. It is 1 to 32 ASCII letters, digits, hyphens or underscores. Defaults to <c>terms</c>.
+    /// </summary>
     public string TermsDocument { get; set; } = "terms";
 
     /// <summary>
     /// The further documents a person accepts at sign-up next to the terms, such as <c>privacy</c>. Each one is sent in the
     /// <c>documents</c> field of the sign-up with the version the person saw, is checked against its own current version, and gets
     /// its own consent row. Each one can also be accepted again through <c>accept-terms</c> with its name in <c>document</c>.
-    /// A name is at most 32 characters, is not blank, has no leading or trailing space, is not repeated, and is neither
-    /// <see cref="TermsDocument"/> nor <c>age</c>. Defaults to none.
+    /// A name is 1 to 32 ASCII letters, digits, hyphens or underscores, so it is never blank and has no spaces. It is not repeated,
+    /// and is neither <see cref="TermsDocument"/> nor <c>age</c>. Defaults to none.
     /// </summary>
     public IReadOnlyList<string> AdditionalDocuments { get; set; } = [];
 
-    // The documents that accept-terms takes by name: the terms, then the further documents.
+    // A document name fits the consent column and makes an unambiguous field key such as Documents.privacy.
+    internal static bool IsDocumentName(string? name) =>
+        name is { Length: > 0 and <= 32 } && name.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
+
+    // The documents that accept-terms takes by name and that a requirement may name: the terms, then the further documents.
     internal bool IsAcceptedDocument(string document) =>
         string.Equals(document, TermsDocument, StringComparison.Ordinal) || AdditionalDocuments.Contains(document, StringComparer.Ordinal);
 

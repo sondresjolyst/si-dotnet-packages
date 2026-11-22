@@ -74,8 +74,10 @@ public interface IConsentRequirements
     /// to 10 seconds of requirement cache plus <see cref="AppKitJwtBearerOptions.UserCheckCacheDuration"/> of user check cache, which
     /// is 70 seconds by default. Acceptance and mark times are compared, so instances must share a clock within the usual server tolerance.
     /// </summary>
-    /// <param name="document">The document, such as <c>terms</c>.</param>
+    /// <param name="document">The document, such as <c>terms</c>. It must be the terms document or one of the further documents of the sign-up options.</param>
     /// <param name="effectiveFrom">From when the requirement binds, in UTC.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
+    /// <exception cref="ArgumentException">When <paramref name="document"/> is neither the terms document nor a further document,
+    /// because no one could accept it and every user would stay pending.</exception>
     Task RequireAcceptanceAsync(string document, DateTime effectiveFrom, CancellationToken cancellationToken = default);
 }

@@ -873,7 +873,7 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
     [Fact]
     public async Task Requiring_acceptance_for_another_effective_time_or_document_adds_a_row()
     {
-        await StartAsync();
+        await StartAsync(configure: o => o.AdditionalDocuments = ["privacy"]);
         await RequireAsync(_start);
 
         await RequireAsync(_start.AddDays(1));

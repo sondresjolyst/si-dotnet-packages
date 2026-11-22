@@ -56,7 +56,7 @@ public static partial class AuthEndpointsExtensions
     /// or 429 <c>tooManyRequests</c> inside the cooldown, or 429 <c>tooManyAttempts</c> until the locked code has
     /// expired. It also maps <c>POST accept-terms</c> with the body <c>termsVersion</c>, optional <c>locale</c> and optional <c>document</c>,
     /// which names the terms or a further document to accept instead of the terms. A conflict about a named document holds the document,
-    /// and a name the app does not list answers 409 <c>termsChanged</c>. It is for a signed-in
+    /// and a name the app does not list is a field error <c>unknownDocument</c> on <c>Document</c>. It is for a signed-in
     /// user whether the email is verified or not. A blank version is a field error. The version must be the one that
     /// <see cref="IConsentVersionSource"/> serves, and another version answers 409 <c>termsChanged</c>. With no source, or no version
     /// from it, any version is accepted and <see cref="AccountConsent.Unversioned"/> is recorded. It records the acceptance with

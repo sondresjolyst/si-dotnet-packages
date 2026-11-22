@@ -233,16 +233,40 @@ public sealed partial class TermsAndFiltersTests
     [Theory]
     [InlineData("cookies")]
     [InlineData("age")]
-    public async Task Accepting_a_document_the_app_does_not_list_answers_409_and_records_nothing(string document)
+    public async Task Accepting_a_document_the_app_does_not_list_is_an_unknownDocument_field_error_and_records_nothing(string document)
     {
         await StartWithPrivacyAsync();
         await SeedAsync("u1");
 
         var response = await AcceptTermsAsync(new { document, termsVersion = "v2" }, await TokenAsync("u1"));
 
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Equal("termsChanged", await ErrorJson.CodeAsync(response));
-        Assert.Equal(document, await DocumentOfAsync(response));
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(["Document=unknownDocument"], await ErrorJson.FieldCodesAsync(response));
         Assert.Empty(Rows("u1"));
+    }
+
+    [Theory]
+    [InlineData("cookies")]
+    [InlineData("age")]
+    [InlineData("Privacy")]
+    public async Task Requiring_a_document_the_app_does_not_list_throws_and_marks_nothing(string document)
+    {
+        await StartWithPrivacyAsync();
+
+        var error = await Assert.ThrowsAsync<ArgumentException>(() => RequireAsync(_start, document));
+
+        Assert.Contains(document, error.Message, StringComparison.Ordinal);
+        Assert.Equal(0, Db(db => db.ConsentRequirements.Count()));
+    }
+
+    [Fact]
+    public async Task Requiring_the_terms_or_a_listed_document_marks_it()
+    {
+        await StartAsync(configure: o => { o.TermsDocument = "tos"; o.AdditionalDocuments = ["privacy"]; });
+
+        await RequireAsync(_start, "tos");
+        await RequireAsync(_start, "privacy");
+
+        Assert.Equal(["privacy", "tos"], Db(db => db.ConsentRequirements.Select(r => r.Document).OrderBy(d => d).ToList()));
     }
 }

@@ -127,8 +127,7 @@ public static class AuthErrorCodes
 
     /// <summary>
     /// The terms version the client sent is not the current one. The answer is 409, and the client should reload the terms. For a
-    /// further document, or a document named in <c>accept-terms</c>, the body also holds <c>document</c>, the document to reload. That is
-    /// also the answer when <c>accept-terms</c> names a document the app does not ask people to accept.
+    /// further document, or a document named in <c>accept-terms</c>, the body also holds <c>document</c>, the document to reload.
     /// </summary>
     public const string TermsChanged = "termsChanged";
 
@@ -154,6 +153,12 @@ public static class AuthErrorCodes
 
     /// <summary>The app's <see cref="ISignUpGuard"/> did not let the sign-up go on, for example because a captcha or an app attestation check failed. The answer is 400.</summary>
     public const string SignUpRefused = "signUpRefused";
+
+    /// <summary>
+    /// The document named on <c>accept-terms</c> is neither the terms nor a further document of the sign-up. The error is keyed by
+    /// <c>Document</c>. Posting the same name again gives the same answer.
+    /// </summary>
+    public const string UnknownDocument = "unknownDocument";
 }
 
 /// <summary>
@@ -171,10 +176,6 @@ internal static class AuthResults
     /// <summary>The answer when the version sent for a document the request named is not the current one.</summary>
     public static JsonHttpResult<AuthError> DocumentChanged(string document) =>
         Error(AuthErrorCodes.TermsChanged, $"The document {document} has changed. Read the current version and accept it again.", StatusCodes.Status409Conflict, document);
-
-    /// <summary>The answer when the request names a document that the app does not ask people to accept.</summary>
-    public static JsonHttpResult<AuthError> UnknownDocument(string document) =>
-        Error(AuthErrorCodes.TermsChanged, $"The document {document} is not one to accept. Reload the documents.", StatusCodes.Status409Conflict, document);
 
     /// <summary>The answer when a check could not store its result, so the caller learns nothing about the code.</summary>
     public static JsonHttpResult<AuthError> TryAgain() =>

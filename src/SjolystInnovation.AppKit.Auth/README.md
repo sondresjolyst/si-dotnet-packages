@@ -268,7 +268,7 @@ code for each message at the same place. The `limits` extension holds the number
 | `roleAssignFailed` | `POST {id}/roles` and `invite`, when Identity cannot give the role. | `400` |
 | `roleRemoveFailed` | `DELETE {id}/roles/{role}`, when Identity cannot take the role. | `400` |
 | `emailTaken` | `invite`, for an email with an account. Also a field error on `Email` if Identity refuses a duplicate. | `409` |
-| `termsChanged` | `register` and `accept-terms`, when the version of the terms or a further document is not the current one. For a further document, or a document named in `accept-terms`, the body also holds `document`. `accept-terms` also answers it for a document the app does not list. | `409` |
+| `termsChanged` | `register` and `accept-terms`, when the version of the terms or a further document is not the current one. For a further document, or a document named in `accept-terms`, the body also holds `document`. | `409` |
 | `invalidCode` | `verify-email`, for a wrong or expired code. | `400` |
 | `alreadyVerified` | `verify-email` and `resend-verification`, for a verified email. | `409` |
 | `tooManyAttempts` | `verify-email` and `resend-verification`, after 5 wrong codes until the code expires. | `429` |
@@ -294,6 +294,7 @@ code for each message at the same place. The `limits` extension holds the number
 | `termsNotAccepted` | `TermsAccepted` on `register`, and `Documents.{document}` for a further document the request left out. |
 | `invalidUserName` | `UserName` on `register`, for an `@` or a character Identity does not allow. |
 | `userNameTaken` | `UserName` on `register`. |
+| `unknownDocument` | `Document` on `accept-terms`, for a name that is neither `TermsDocument` nor in `AdditionalDocuments`. Posting it again gives the same answer. |
 
 `login` never says whether an email has an account, so it has no code for an unconfirmed email. A
 `429` from the rate limiter in `SjolystInnovation.AppKit.Hosting` carries `tooManyRequests`.
@@ -595,8 +596,8 @@ the same `login` answer as before.
 | `NewUser` | None | Required. Creates a user from an `AppKitRegistration` with `Email`, `UserName`, `FirstName`, `LastName`, and `Locale`. |
 | `Role` | None | The role a new user gets. |
 | `MinimumAge` | 16 | The age a person confirms to be at least. Must be positive. |
-| `TermsDocument` | `terms` | The document name of the terms in the consent rows. |
-| `AdditionalDocuments` | None | Further documents a person accepts at sign-up, such as `privacy`. Each name is at most 32 characters, unique, and neither `TermsDocument` nor `age`. |
+| `TermsDocument` | `terms` | The document name of the terms in the consent rows. 1 to 32 ASCII letters, digits, hyphens, or underscores, so it is never blank and has no spaces. |
+| `AdditionalDocuments` | None | Further documents a person accepts at sign-up, such as `privacy`. Each name is 1 to 32 ASCII letters, digits, hyphens, or underscores, so it is never blank and has no spaces. Each name is unique, and neither `TermsDocument` nor `age`. |
 | `RequireNames` | `false` | Whether `firstName` and `lastName` are required, at most 50 characters each. |
 | `AllowUserName` | `false` | Whether the person may choose a user name. |
 | `RecordTruncatedIp` | `false` | Whether each consent row keeps the caller's address cut to its first three parts for IPv4 and 48 bits for IPv6. |
@@ -720,8 +721,8 @@ To accept a document again, send its name in `document` to `accept-terms`, with 
 ```
 
 Without `document`, `accept-terms` accepts the terms and answers as before. A conflict about a named
-document holds `document`. A name that is neither `TermsDocument` nor in `AdditionalDocuments` answers
-`409 termsChanged` and records nothing.
+document holds `document`. A name that is neither `TermsDocument` nor in `AdditionalDocuments` is a
+field error, `unknownDocument` on `Document`, and records nothing.
 
 ### Asking people to accept again
 
@@ -729,7 +730,8 @@ When a document changes, publish the new text first, in every language the app s
 accepts in a language whose text was not updated still meets the requirement, since acceptances are
 compared by time. Then call `RequireAcceptanceAsync` on an injected
 `IConsentRequirements`, without a transaction around it. Calling it twice with the same document and
-time changes nothing.
+time changes nothing. The document must be `TermsDocument` or in `AdditionalDocuments`, because
+`accept-terms` takes no other name. Any other name throws an `ArgumentException` and marks nothing.
 
 ```csharp
 await requirements.RequireAcceptanceAsync("terms", DateTime.UtcNow.AddDays(14), cancellationToken);

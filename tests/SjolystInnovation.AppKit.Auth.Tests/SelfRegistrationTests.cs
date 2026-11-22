@@ -144,6 +144,24 @@ public class SelfRegistrationTests
     public void A_minimum_age_that_is_not_positive_fails() =>
         Assert.Contains("age", Failure(o => o.MinimumAge = 0));
 
+    [Theory]
+    [InlineData("terms.v2")]
+    [InlineData("terms of use")]
+    [InlineData("a-name-that-is-longer-than-32-chars")]
+    public void A_terms_document_with_other_characters_or_over_32_characters_fails(string name) =>
+        Assert.Contains("document", Failure(o => o.TermsDocument = name));
+
+    [Theory]
+    [InlineData("tos")]
+    [InlineData("terms_of-use2")]
+    [InlineData("a-name-that-is-exactly-32-chars-")]
+    public void A_terms_document_of_letters_digits_hyphens_and_underscores_is_allowed(string name)
+    {
+        using var provider = Build(o => o.TermsDocument = name);
+
+        Assert.Equal(name, Options(provider).TermsDocument);
+    }
+
     [Fact]
     public void A_blank_terms_document_fails() =>
         Assert.Contains("document", Failure(o => o.TermsDocument = " "));
@@ -172,6 +190,9 @@ public class SelfRegistrationTests
     [InlineData("privacy,privacy")]
     [InlineData("privacy ")]
     [InlineData("a-name-that-is-longer-than-32-chars")]
+    [InlineData("privacy.v2")]
+    [InlineData("pri vacy")]
+    [InlineData("personvern-ø")]
     public void A_further_document_that_is_blank_taken_repeated_or_too_long_fails(string names) =>
         Assert.Contains("further document", Failure(o => o.AdditionalDocuments = names.Split(',')));
 
