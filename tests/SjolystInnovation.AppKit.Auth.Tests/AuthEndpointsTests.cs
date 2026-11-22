@@ -32,10 +32,30 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
         public Task SendInviteAsync(IdentityTestUser user, string code, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
+    // Lets a number of user saves through, then changes the stored concurrency stamp right before the next one,
+    // as another request that saved the user in between would.
+    private sealed class StampChangedBeforeSave : SaveChangesInterceptor
+    {
+        private int _pass = -1;
+
+        public void ChangeAfter(int pass) => _pass = pass;
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            var user = eventData.Context!.ChangeTracker.Entries<IdentityTestUser>().FirstOrDefault(e => e.State == EntityState.Modified);
+            if (_pass < 0 || user is null)
+                return result;
+            if (_pass-- == 0)
+                await eventData.Context.Database.ExecuteSqlAsync($"UPDATE AspNetUsers SET ConcurrencyStamp = 'changed' WHERE Id = {user.Entity.Id}", cancellationToken);
+            return result;
+        }
+    }
+
     private const string Password = "Password1";
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
     private readonly FakeEmails _emails = new();
     private readonly VerificationEndpointsTests.LostRace _lostRace = new();
+    private readonly StampChangedBeforeSave _stampChange = new();
     private readonly FakeTimeProvider _time = new(DateTimeOffset.UtcNow);
     private string? _file;
     private IHost? _host;
@@ -79,7 +99,7 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
                             o.UseSqlite(_connection);
                         else
                             o.UseSqlite($"Data Source={_file};Pooling=False");
-                        o.AddInterceptors(_lostRace);
+                        o.AddInterceptors(_lostRace, _stampChange);
                     });
                     s.AddSingleton<TimeProvider>(_time);
                     s.AddAppKitIdentity<IdentityTestUser, IdentityTestDbContext>();
@@ -611,6 +631,24 @@ public sealed class AuthEndpointsTests : IAsyncDisposable
         Assert.Equal(AuthErrorCodes.TryAgain, await ErrorJson.CodeAsync(response));
         _lostRace.Active = false;
         Assert.Equal(HttpStatusCode.OK, (await PostAsync("login", new { email = "u1@example.invalid", password = Password })).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_reset_whose_completion_loses_on_the_stamp_still_ends_every_session_and_answers_409_tryAgain()
+    {
+        await StartAsync();
+        await UserAsync();
+        await LoginAsync();
+        var code = await CodeForAsync();
+        // The password save goes through, and another change to the user lands before the save that completes the reset.
+        _stampChange.ChangeAfter(1);
+
+        var response = await PostAsync("reset-password", new { email = "u1@example.invalid", code, newPassword = "NewPassword2" });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(AuthErrorCodes.TryAgain, await ErrorJson.CodeAsync(response));
+        Assert.Equal(0, Db(db => db.RefreshTokens.Count(t => t.Revoked == null)));
+        Assert.Equal(HttpStatusCode.OK, (await PostAsync("login", new { email = "u1@example.invalid", password = "NewPassword2" })).StatusCode);
     }
 
     [Fact]
