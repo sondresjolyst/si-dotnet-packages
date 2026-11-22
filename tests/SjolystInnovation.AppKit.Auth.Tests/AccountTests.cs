@@ -30,8 +30,14 @@ public sealed class AccountTests : IAsyncDisposable
             await Task.CompletedTask;
             if (test.FailErasing)
                 throw new InvalidOperationException("eraser failed");
-            if (test.CollideErasing)
-                throw new Microsoft.EntityFrameworkCore.DbUpdateException("save failed", new FakeDbException("40001"));
+            if (test.CollideErasing is { } sqlState)
+                throw new Microsoft.EntityFrameworkCore.DbUpdateException("save failed", new FakeDbException(sqlState));
+            if (test.ChangeUserErasing)
+            {
+                // Another change to the user row, once, so the first save of the deletion finds a stale concurrency stamp.
+                test.ChangeUserErasing = false;
+                await db.Database.ExecuteSqlAsync($"UPDATE AspNetUsers SET ConcurrencyStamp = 'changed' WHERE Id = {user.Id}", cancellationToken);
+            }
         }
     }
 
@@ -57,7 +63,8 @@ public sealed class AccountTests : IAsyncDisposable
     internal List<string> Erased { get; } = [];
     internal List<(string Id, bool WasDeleted)> Handled { get; } = [];
     internal bool FailErasing { get; set; }
-    internal bool CollideErasing { get; set; }
+    internal string? CollideErasing { get; set; }
+    internal bool ChangeUserErasing { get; set; }
 
     private sealed class FakeDbException(string sqlState) : System.Data.Common.DbException("db failed")
     {
@@ -83,7 +90,23 @@ public sealed class AccountTests : IAsyncDisposable
             Task.FromResult(user.IsDeleted ? IdentityResult.Failed(new IdentityError { Code = "No", Description = "Refused." }) : IdentityResult.Success);
     }
 
+    /// <summary>
+    /// Changes the deleted user's concurrency stamp in the database right before Identity saves the user, so
+    /// Identity's own save hits a concurrency failure and returns ConcurrencyFailure.
+    /// </summary>
+    private sealed class StaleStampStore(IdentityTestDbContext db, IdentityErrorDescriber describer)
+        : Microsoft.AspNetCore.Identity.EntityFrameworkCore.UserStore<IdentityTestUser, IdentityRole, IdentityTestDbContext>(db, describer)
+    {
+        public override async Task<IdentityResult> UpdateAsync(IdentityTestUser user, CancellationToken cancellationToken = default)
+        {
+            if (user.IsDeleted)
+                await Context.Database.ExecuteSqlAsync($"UPDATE AspNetUsers SET ConcurrencyStamp = 'changed' WHERE Id = {user.Id}", cancellationToken);
+            return await base.UpdateAsync(user, cancellationToken);
+        }
+    }
+
     private bool _refuseUpdates;
+    private bool _staleStamp;
 
     private async Task StartAsync(bool withExport = false, bool withHooks = true)
     {
@@ -98,6 +121,8 @@ public sealed class AccountTests : IAsyncDisposable
                     s.AddAppKitAccounts<IdentityTestUser, IdentityTestDbContext>();
                     if (_refuseUpdates)
                         s.AddScoped<IUserValidator<IdentityTestUser>, RefusingValidator>();
+                    if (_staleStamp)
+                        s.AddScoped<IUserStore<IdentityTestUser>, StaleStampStore>();
                     if (withHooks)
                     {
                         s.AddScoped<IAccountDataEraser<IdentityTestUser>>(sp => new TestEraser(sp.GetRequiredService<IdentityTestDbContext>(), this));
@@ -276,12 +301,14 @@ public sealed class AccountTests : IAsyncDisposable
         Assert.Empty(Handled);
     }
 
-    [Fact]
-    public async Task A_collision_with_another_change_is_a_conflict_and_rolls_back()
+    [Theory]
+    [InlineData("40001")]
+    [InlineData("40P01")]
+    public async Task A_collision_with_another_change_is_a_conflict_and_rolls_back(string sqlState)
     {
         await StartAsync();
         await UserAsync("u1");
-        CollideErasing = true;
+        CollideErasing = sqlState;
 
         var response = await SendAsync(HttpMethod.Delete, "/api/users/u1/account");
 
@@ -292,22 +319,104 @@ public sealed class AccountTests : IAsyncDisposable
         Assert.Empty(Handled);
     }
 
+    [Fact]
+    public async Task A_concurrency_failure_when_saving_the_user_is_a_conflict_and_rolls_back()
+    {
+        _staleStamp = true;
+        await StartAsync();
+        await UserAsync("u1");
+
+        await Assert.ThrowsAsync<AccountChangeConflictException>(() => DeleteDirectAsync("u1"));
+        var response = await SendAsync(HttpMethod.Delete, "/api/users/u1/account");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(AuthErrorCodes.AccountChangeConflict, await ErrorJson.CodeAsync(response));
+        Assert.False(Load("u1").IsDeleted);
+        Assert.Equal(1, Tokens("u1"));
+        Assert.Empty(Handled);
+    }
+
+    [Fact]
+    public async Task A_change_to_the_user_before_the_first_save_is_a_conflict_and_rolls_back()
+    {
+        await StartAsync();
+        await UserAsync("u1");
+        ChangeUserErasing = true;
+
+        await Assert.ThrowsAsync<AccountChangeConflictException>(() => DeleteDirectAsync("u1"));
+        ChangeUserErasing = true;
+        var response = await SendAsync(HttpMethod.Delete, "/api/users/u1/account");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(AuthErrorCodes.AccountChangeConflict, await ErrorJson.CodeAsync(response));
+        Assert.False(Load("u1").IsDeleted);
+        Assert.Equal(1, Tokens("u1"));
+        Assert.Empty(Handled);
+    }
+
     [Theory]
     [InlineData("40001", true)]
-    [InlineData("40P01", false)]
+    [InlineData("40P01", true)]
     [InlineData("23505", false)]
-    public void Only_a_serialization_failure_counts_as_a_collision(string sqlState, bool expected)
+    public void Only_a_database_abort_counts_as_a_collision(string sqlState, bool expected)
     {
-        Assert.Equal(expected, AccountDeleter<IdentityTestUser, IdentityTestDbContext>.IsSerializationFailure(new FakeDbException(sqlState)));
-        Assert.Equal(expected, AccountDeleter<IdentityTestUser, IdentityTestDbContext>.IsSerializationFailure(
+        Assert.Equal(expected, DatabaseAborts.IsAbort(new FakeDbException(sqlState)));
+        Assert.Equal(expected, DatabaseAborts.IsAbort(
             new InvalidOperationException("outer", new Microsoft.EntityFrameworkCore.DbUpdateException("middle", new FakeDbException(sqlState)))));
     }
 
     [Fact]
     public void Other_failures_are_not_collisions()
     {
-        Assert.False(AccountDeleter<IdentityTestUser, IdentityTestDbContext>.IsSerializationFailure(new InvalidOperationException("x")));
-        Assert.False(AccountDeleter<IdentityTestUser, IdentityTestDbContext>.IsSerializationFailure(null));
+        Assert.False(DatabaseAborts.IsAbort(new InvalidOperationException("x")));
+        Assert.False(DatabaseAborts.IsAbort(null));
+    }
+
+    [Fact]
+    public async Task A_retry_in_the_same_scope_after_a_conflict_deletes_the_account()
+    {
+        await StartAsync();
+        await UserAsync("u1");
+        using var scope = _host!.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityTestUser>>();
+        var deleter = scope.ServiceProvider.GetRequiredService<IAccountDeleter<IdentityTestUser>>();
+        var loaded = (await users.FindByIdAsync("u1"))!;
+        // Another request saves the user after this scope loaded it, so this scope holds a stale concurrency stamp.
+        using (var other = _host.Services.CreateScope())
+        {
+            var otherUsers = other.ServiceProvider.GetRequiredService<UserManager<IdentityTestUser>>();
+            var fresh = (await otherUsers.FindByIdAsync("u1"))!;
+            fresh.FirstName = "Ola";
+            Assert.True((await otherUsers.UpdateAsync(fresh)).Succeeded);
+        }
+
+        await Assert.ThrowsAsync<AccountChangeConflictException>(() => deleter.DeleteAsync(loaded));
+        await deleter.DeleteAsync((await users.FindByIdAsync("u1"))!);
+
+        var user = Load("u1");
+        Assert.True(user.IsDeleted);
+        Assert.Equal("deleted-u1@deleted.invalid", user.Email);
+        Assert.Equal(("u1", true), Assert.Single(Handled));
+    }
+
+    [Fact]
+    public async Task A_failed_delete_leaves_nothing_for_a_later_save_in_the_same_scope()
+    {
+        _refuseUpdates = true;
+        await StartAsync();
+        await UserAsync("u1");
+        using var scope = _host!.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityTestUser>>();
+        var stamp = Load("u1").SecurityStamp;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await scope.ServiceProvider.GetRequiredService<IAccountDeleter<IdentityTestUser>>().DeleteAsync((await users.FindByIdAsync("u1"))!));
+        await scope.ServiceProvider.GetRequiredService<IdentityTestDbContext>().SaveChangesAsync();
+
+        Assert.False(Load("u1").IsDeleted);
+        Assert.Equal("u1@example.invalid", Load("u1").Email);
+        Assert.Equal(stamp, Load("u1").SecurityStamp);
+        Assert.Equal(1, Tokens("u1"));
     }
 
     [Fact]
@@ -321,6 +430,26 @@ public sealed class AccountTests : IAsyncDisposable
 
         Assert.False(Load("last").IsDeleted);
         Assert.Empty(Erased);
+    }
+
+    [Fact]
+    public async Task The_last_admin_refusal_leaves_the_callers_other_changes_pending()
+    {
+        await StartAsync();
+        await UserAsync("last", admin: true);
+        await UserAsync("other");
+        using var scope = _host!.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<IdentityTestDbContext>();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityTestUser>>();
+        // A change of the caller's own that has nothing to do with the deletion.
+        (await db.Users.SingleAsync(u => u.Id == "other")).FirstName = "Ola";
+
+        await Assert.ThrowsAsync<LastAdminException>(async () =>
+            await scope.ServiceProvider.GetRequiredService<IAccountDeleter<IdentityTestUser>>().DeleteAsync((await users.FindByIdAsync("last"))!));
+        await db.SaveChangesAsync();
+
+        Assert.Equal("Ola", Load("other").FirstName);
+        Assert.False(Load("last").IsDeleted);
     }
 
     [Fact]

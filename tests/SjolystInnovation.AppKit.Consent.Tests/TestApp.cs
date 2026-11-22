@@ -59,6 +59,7 @@ public sealed class TestApp : IAsyncDisposable
     public const int RateLimit = 3;
 
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
+    private string? _file;
     public FakeTimeProvider Time { get; } = new(new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero));
     public FakeLogCollector Logs { get; } = new();
     private IHost _host = default!;
@@ -70,13 +71,24 @@ public sealed class TestApp : IAsyncDisposable
         Action<AppKitConsentOptions>? consent = null, bool addServices = false, IEnumerable<ConsentRecord>? seed = null, string prefix = "/api", bool signInByDefault = false)
     {
         var app = new TestApp();
-        await app._connection.OpenAsync();
+        // The retention job runs next to the test's own reads, so each gets its own connection to a database file
+        // instead of sharing the one in-memory connection.
+        if (addServices)
+            app._file = Path.Combine(Path.GetTempPath(), $"appkit-consent-{Guid.NewGuid():N}.db");
+        else
+            await app._connection.OpenAsync();
         app._host = new HostBuilder()
             .ConfigureWebHost(web => web
                 .UseTestServer()
                 .ConfigureServices(s =>
                 {
-                    s.AddDbContext<TestDbContext>(o => o.UseSqlite(app._connection));
+                    s.AddDbContext<TestDbContext>(o =>
+                    {
+                        if (app._file is null)
+                            o.UseSqlite(app._connection);
+                        else
+                            o.UseSqlite($"Data Source={app._file};Pooling=False");
+                    });
                     s.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthHandler>("Test", _ => { });
                     s.AddAuthorization(o =>
                     {
@@ -147,5 +159,10 @@ public sealed class TestApp : IAsyncDisposable
         await _host.StopAsync();
         _host.Dispose();
         await _connection.DisposeAsync();
+        if (_file is not null)
+        {
+            SqliteConnection.ClearAllPools();
+            File.Delete(_file);
+        }
     }
 }

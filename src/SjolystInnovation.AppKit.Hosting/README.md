@@ -10,6 +10,8 @@ every API without writing them again. You can adopt each piece on its own.
 dotnet add package SjolystInnovation.AppKit.Hosting
 ```
 
+The package targets .NET 11 (`net11.0`), so your app must target .NET 11 or later.
+
 ## Get started
 
 The order of the middleware matters. The sections below say why each call sits where it does.

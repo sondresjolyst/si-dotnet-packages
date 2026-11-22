@@ -83,6 +83,47 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
         }
     }
 
+    private sealed class FakeDbException(string sqlState) : System.Data.Common.DbException("db failed")
+    {
+        public override string SqlState => sqlState;
+    }
+
+    // Fails the save that deletes refresh tokens the way Npgsql 11 reports a database abort.
+    private sealed class TokenAbort : SaveChangesInterceptor
+    {
+        public string? SqlState;
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (SqlState is { } state && eventData.Context!.ChangeTracker.Entries<RefreshToken>().Any(e => e.State == EntityState.Deleted))
+                throw new DbUpdateConcurrencyException("aborted", new FakeDbException(state));
+            return base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
+    }
+
+    // Aborts the commit the way PostgreSQL does. The database has then ended the transaction itself, so a later
+    // rollback fails like Npgsql's "This NpgsqlTransaction has completed".
+    private sealed class CommitAbort : DbTransactionInterceptor
+    {
+        public string? SqlState;
+        private bool _committed;
+
+        public override ValueTask<InterceptionResult> TransactionCommittingAsync(DbTransaction transaction, TransactionEventData eventData, InterceptionResult result, CancellationToken cancellationToken = default)
+        {
+            if (SqlState is not { } state)
+                return base.TransactionCommittingAsync(transaction, eventData, result, cancellationToken);
+            _committed = true;
+            throw new FakeDbException(state);
+        }
+
+        public override ValueTask<InterceptionResult> TransactionRollingBackAsync(DbTransaction transaction, TransactionEventData eventData, InterceptionResult result, CancellationToken cancellationToken = default)
+        {
+            if (_committed)
+                throw new InvalidOperationException("This transaction has completed. It is no longer usable.");
+            return base.TransactionRollingBackAsync(transaction, eventData, result, cancellationToken);
+        }
+    }
+
     // Holds the first read of the consent rows until two requests have reached it, so both load the user before either saves it.
     private sealed class ReadGate : DbCommandInterceptor
     {
@@ -125,6 +166,8 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
     private readonly FakeEmails _emails = new();
     private readonly VerifiedLog _verified = new();
     private readonly LostRace _lostRace = new();
+    private readonly TokenAbort _tokenAbort = new();
+    private readonly CommitAbort _commitAbort = new();
     private readonly ReadGate _readGate = new();
     private string? _file;
     private IHost? _host;
@@ -166,7 +209,7 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
                             o.UseSqlite(_connection);
                         else
                             o.UseSqlite($"Data Source={_file};Pooling=False");
-                        o.AddInterceptors(_lostRace, _readGate);
+                        o.AddInterceptors(_lostRace, _readGate, _tokenAbort, _commitAbort);
                     });
                     s.AddAppKitIdentity<IdentityTestUser, RegistrationTestDbContext>();
                     s.AddAppKitAuth<RegistrationTestDbContext>(context.Configuration.GetSection("Jwt"));
@@ -468,6 +511,46 @@ public sealed class VerificationEndpointsTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal("tryAgain", await ErrorJson.CodeAsync(response));
         Assert.False(Stored("u1").EmailConfirmed);
+        Assert.Empty(_verified.Calls);
+    }
+
+    [Theory]
+    [InlineData("40001")]
+    [InlineData("40P01")]
+    public async Task A_right_code_whose_sessions_cannot_be_ended_answers_409_tryAgain(string sqlState)
+    {
+        await StartAsync();
+        var code = await SeedAsync("u1");
+        var access = await AccessTokenAsync("u1");
+        await RefreshTokenAsync("u1");
+        _tokenAbort.SqlState = sqlState;
+
+        var response = await VerifyAsync(code, access);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("tryAgain", await ErrorJson.CodeAsync(response));
+        Assert.False(Stored("u1").EmailConfirmed);
+        Assert.Equal(1, Db(db => db.RefreshTokens.Count(t => t.UserId == "u1")));
+        Assert.Empty(_verified.Calls);
+    }
+
+    [Theory]
+    [InlineData("40001")]
+    [InlineData("40P01")]
+    public async Task A_right_code_whose_commit_is_aborted_answers_409_tryAgain(string sqlState)
+    {
+        await StartAsync();
+        var code = await SeedAsync("u1");
+        var access = await AccessTokenAsync("u1");
+        await RefreshTokenAsync("u1");
+        _commitAbort.SqlState = sqlState;
+
+        var response = await VerifyAsync(code, access);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("tryAgain", await ErrorJson.CodeAsync(response));
+        Assert.False(Stored("u1").EmailConfirmed);
+        Assert.Equal(1, Db(db => db.RefreshTokens.Count(t => t.UserId == "u1")));
         Assert.Empty(_verified.Calls);
     }
 

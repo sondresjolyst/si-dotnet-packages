@@ -11,6 +11,8 @@ Use it when admins upload photos that visitors see on every page load. It builds
 dotnet add package SjolystInnovation.AppKit.Storage.Images
 ```
 
+The package targets .NET 11 (`net11.0`), so your app must target .NET 11 or later.
+
 The package depends on SkiaSharp and on its Linux native assets without dependencies, so it runs in a
 slim Linux container as well as on Windows and macOS.
 

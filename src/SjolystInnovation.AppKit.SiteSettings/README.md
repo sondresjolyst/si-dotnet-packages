@@ -16,6 +16,8 @@ own text in its own language.
 dotnet add package SjolystInnovation.AppKit.SiteSettings
 ```
 
+The package targets .NET 11 (`net11.0`), so your app must target .NET 11 or later.
+
 ## Get started
 
 Your app's settings entity implements `ICompanySettings` and `IBrandingSettings` next to any settings

@@ -226,7 +226,7 @@ public class ContentImageEndpointTests
     [Fact]
     public async Task Concurrent_requests_backfill_an_image_once()
     {
-        await using var app = await TestApp.StartAsync();
+        await using var app = await TestApp.StartAsync(file: true);
         var id = await app.SeedAsync(TestImages.Png(800, 400), ".png", "image/png");
 
         var responses = await Task.WhenAll(Enumerable.Range(0, 5).Select(_ => app.SendAsync(HttpMethod.Get, $"{Base}/{id}", roles: null, accept: "image/webp")));

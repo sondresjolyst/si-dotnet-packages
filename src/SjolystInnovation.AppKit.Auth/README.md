@@ -10,6 +10,8 @@ the package's endpoints, and can send the package's emails or keep its own.
 dotnet add package SjolystInnovation.AppKit.Auth
 ```
 
+The package targets .NET 11 (`net11.0`), so your app must target .NET 11 or later.
+
 The package depends on `SjolystInnovation.AppKit.Email`, which sends the code emails through Brevo.
 
 ## Get started
@@ -446,7 +448,8 @@ gone.
 You cannot delete the last active admin. `DeleteAsync` throws `LastAdminException`. The deletion runs
 in a serializable transaction with that check inside, so two admins deleting each other at once cannot
 both succeed. The database aborts one, and `DeleteAsync` throws `AccountChangeConflictException`. A
-retry may succeed.
+retry may succeed. Load the user again before you retry, because a failed deletion makes the context
+forget the entities it tracks.
 
 ## Account endpoints
 

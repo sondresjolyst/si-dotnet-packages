@@ -2,7 +2,7 @@
 
 This repository holds the shared .NET packages for the Sjølyst Innovation apps. They are the .NET side
 of the `@sjolystinnovation/app-kit` npm package, with one package per area. Each package is named
-`SjolystInnovation.AppKit.<Area>`, has a namespace of the same name, targets .NET 10, and is published
+`SjolystInnovation.AppKit.<Area>`, has a namespace of the same name, targets .NET 11, and is published
 on NuGet under the Apache-2.0 license.
 
 ## Packages

@@ -30,7 +30,8 @@ public interface IAccountDeleter<in TUser>
     /// Deletes the account in one transaction. Runs every <see cref="IAccountDataEraser{TUser}"/>, scrubs
     /// the user's personal data, locks the account for good, rotates its security stamp, and deletes its
     /// refresh tokens. Then runs every <see cref="IAccountDeletedHandler{TUser}"/>. Throws
-    /// <see cref="LastAdminException"/> for the last active admin. If a step fails, everything rolls back.
+    /// <see cref="LastAdminException"/> for the last active admin. If a step fails, everything rolls back and the
+    /// context forgets the entities it tracks, so load the user again before a retry.
     /// </summary>
     Task DeleteAsync(TUser user, CancellationToken cancellationToken = default);
 }
@@ -107,9 +108,16 @@ internal sealed partial class AccountDeleter<TUser, TContext>(
         {
             await DeleteInTransactionAsync(user, adminRole, cancellationToken);
         }
-        catch (Exception e) when (IsSerializationFailure(e))
+        // The last admin check runs before anything changes, so the caller's tracked entities stay as they were.
+        catch (Exception e) when (e is not LastAdminException)
         {
-            throw new AccountChangeConflictException(e);
+            // The transaction rolled back, so the tracked entities no longer match the database. Forgetting them
+            // keeps a retry or a later save in the same scope from working on stale or half deleted rows.
+            db.ChangeTracker.Clear();
+            // A database abort, or a save that finds a row changed by someone else, is a collision.
+            if (DatabaseAborts.IsAbort(e) || e is DbUpdateConcurrencyException)
+                throw new AccountChangeConflictException(e);
+            throw;
         }
 
         // Drop the user from the bearer check cache, so a token still in use stops working at once on this instance.
@@ -117,17 +125,6 @@ internal sealed partial class AccountDeleter<TUser, TContext>(
         Log.Deleted(logger, user.Id);
         foreach (var handler in handlers)
             await handler.OnDeletedAsync(user, cancellationToken);
-    }
-
-    // SQLSTATE 40001 is a serialization failure, the database's answer when two transactions collide.
-    internal static bool IsSerializationFailure(Exception? e)
-    {
-        for (; e is not null; e = e.InnerException)
-        {
-            if (e is System.Data.Common.DbException { SqlState: "40001" })
-                return true;
-        }
-        return false;
     }
 
     private async Task DeleteInTransactionAsync(TUser user, string adminRole, CancellationToken cancellationToken)
@@ -151,7 +148,14 @@ internal sealed partial class AccountDeleter<TUser, TContext>(
             // Rotating the stamp also saves the scrubbed user through Identity's validation.
             var result = await users.UpdateSecurityStampAsync(user);
             if (!result.Succeeded)
-                throw new InvalidOperationException("Deleting the account failed: " + string.Join(" ", result.Errors.Select(e => e.Description)));
+            {
+                var failure = new InvalidOperationException("Deleting the account failed: " + string.Join(" ", result.Errors.Select(e => e.Description)));
+                // Identity turns a concurrency exception from the save into this result, and the Npgsql provider
+                // reports a serialization failure as one, so it is a collision like any other.
+                if (result.Errors.Any(e => e.Code == nameof(IdentityErrorDescriber.ConcurrencyFailure)))
+                    throw new AccountChangeConflictException(failure);
+                throw failure;
+            }
             await tx.CommitAsync(cancellationToken);
         }
     }

@@ -13,6 +13,8 @@ passes them in, and keeps its own alerts and records.
 dotnet add package SjolystInnovation.AppKit.VatThreshold
 ```
 
+The package targets .NET 11 (`net11.0`), so your app must target .NET 11 or later.
+
 ## Get started
 
 ```csharp

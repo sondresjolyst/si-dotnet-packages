@@ -80,6 +80,7 @@ internal sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOption
 public sealed class TestApp : IAsyncDisposable
 {
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
+    private string? _file;
     private IHost _host = default!;
 
     public string Root { get; } = Path.Combine(Path.GetTempPath(), $"appkit-images-{Guid.NewGuid():N}");
@@ -87,10 +88,17 @@ public sealed class TestApp : IAsyncDisposable
     public HttpClient Client { get; private set; } = default!;
     public IServiceProvider Services => _host.Services;
 
-    public static async Task<TestApp> StartAsync(Action<AppKitContentImagesEndpointOptions>? endpoints = null, Dictionary<string, string?>? storage = null)
+    /// <summary>
+    /// Starts the app. Pass <paramref name="file"/> for concurrent requests, so each request gets its own
+    /// connection to a database file instead of sharing the one in-memory connection.
+    /// </summary>
+    public static async Task<TestApp> StartAsync(Action<AppKitContentImagesEndpointOptions>? endpoints = null, Dictionary<string, string?>? storage = null, bool file = false)
     {
         var app = new TestApp();
-        await app._connection.OpenAsync();
+        if (file)
+            app._file = Path.Combine(Path.GetTempPath(), $"appkit-images-{Guid.NewGuid():N}.db");
+        else
+            await app._connection.OpenAsync();
         var settings = new Dictionary<string, string?>
         {
             ["Storage:ImagesPath"] = app.Root,
@@ -105,7 +113,14 @@ public sealed class TestApp : IAsyncDisposable
                 .UseTestServer()
                 .ConfigureServices(s =>
                 {
-                    s.AddDbContext<TestDbContext>(o => o.UseSqlite((DbConnection)app._connection).AddInterceptors(app.Saves));
+                    s.AddDbContext<TestDbContext>(o =>
+                    {
+                        if (app._file is null)
+                            o.UseSqlite((DbConnection)app._connection);
+                        else
+                            o.UseSqlite($"Data Source={app._file};Pooling=False");
+                        o.AddInterceptors(app.Saves);
+                    });
                     s.AddAppKitContentImages<TestDbContext>(configuration.GetSection("Storage"));
                     s.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthHandler>("Test", _ => { });
                     s.AddAuthorization(o =>
@@ -180,6 +195,11 @@ public sealed class TestApp : IAsyncDisposable
         await _host.StopAsync();
         _host.Dispose();
         await _connection.DisposeAsync();
+        if (_file is not null)
+        {
+            SqliteConnection.ClearAllPools();
+            File.Delete(_file);
+        }
         if (Directory.Exists(Root))
             Directory.Delete(Root, recursive: true);
     }
