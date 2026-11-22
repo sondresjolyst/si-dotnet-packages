@@ -183,10 +183,11 @@ A failed call throws `VippsApiException`, an `HttpRequestException` with the sta
 `catch (HttpRequestException)` and a check of `StatusCode` work as before. See
 [Read the Vipps error](#read-the-vipps-error) for what else it carries. The call also logs the Vipps error code,
 error reference, trace ID, and body length. For an RFC 7807 problem, the answer of the Recurring and
-ePayment APIs, the logged error code is the problem id from its `type`, the trace ID is its `traceId` or
+ePayment APIs, the logged error code is the ePayment code from `extraDetails`, such as `5090`, or else
+the problem id from its `type`. The trace ID is its `traceId` or
 `contextId`, and it also logs the `title` and the names of the fields in `extraDetails`. It never logs
-the body, a problem's `detail`, or the extra detail reasons, because they may echo a phone number or a
-name. An id is logged only when it is a GUID or a plain name with fewer than seven digits. A trace ID
+the body, a problem's `detail`, or the extra detail reasons other than the error code, because they may
+echo a phone number or a name. An id is logged only when it is a GUID or a plain name with fewer than seven digits. A trace ID
 may also be a W3C trace ID such as `00-813b63975adcaaeef2b0ec7c103c40e3-706492e906541d31-01`. A title
 is logged only when it is plain words without digits. Anything else logs as `-`. If you need
 to debug, set
