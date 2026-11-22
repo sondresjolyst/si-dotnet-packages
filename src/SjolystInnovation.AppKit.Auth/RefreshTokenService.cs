@@ -180,6 +180,7 @@ internal sealed class RefreshTokenService<TContext>(
     /// <summary>Revokes every live token of the user. Retries while other requests change them.</summary>
     private async Task RevokeAfterReplayAsync(string userId, CancellationToken cancellationToken)
     {
+        var logged = false;
         for (var attempt = 1; ; attempt++)
         {
             foreach (var entry in db.ChangeTracker.Entries<RefreshToken>().ToList())
@@ -187,9 +188,12 @@ internal sealed class RefreshTokenService<TContext>(
             var now = time.GetUtcNow().UtcDateTime;
             var live = await db.RefreshTokens.Where(t => t.UserId == userId && t.Revoked == null).ToListAsync(cancellationToken);
             foreach (var t in live) t.Revoked = now;
-            // Log before the save, so a revocation that fails to save is not silent.
-            if (live.Count > 0)
+            // Log before the save, so a revocation that fails to save is not silent. Once per replay, not per try.
+            if (live.Count > 0 && !logged)
+            {
                 Log.Replayed(logger, userId, live.Count);
+                logged = true;
+            }
             try
             {
                 await db.SaveChangesAsync(cancellationToken);

@@ -457,6 +457,7 @@ public sealed class RefreshTokenServiceTests : IDisposable
         Assert.Equal(RotationStatus.Replayed, (await Service(db).RotateAsync("ada", "old")).Status);
 
         Assert.All(Tokens("ada"), t => Assert.NotNull(t.Revoked));
+        Assert.Equal("Refresh token replayed for user ada. Revoking 1 live token(s).", Assert.Single(_logger.Collector.GetSnapshot()).Message);
     }
 
     [Theory]
