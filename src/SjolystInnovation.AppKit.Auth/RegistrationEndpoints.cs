@@ -448,13 +448,11 @@ internal sealed class RegistrationEmails<TUser>(IEmailSender sender, IEmailBrand
 {
     public async Task SendVerificationAsync(TUser user, string code, string? locale, CancellationToken cancellationToken)
     {
-        if (!AppKitAuthEmailOptions.IsPageUrl(options.Value.VerifyEmailUrl))
-            throw new InvalidOperationException("AppKitAuthEmailOptions.VerifyEmailUrl must be an absolute http or https address to send the verification email.");
         var expires = (user as IEmailVerificationUser)?.EmailVerificationCodeExpiration
             ?? throw new InvalidOperationException("The user has no verification code. Issue one with EmailVerificationCodes.Issue first.");
         var brand = await brands.GetBrandAsync(cancellationToken);
         await sender.SendAsync(AuthEmailRenderer.Render(AuthEmailKind.Verify, options.Value, brand, null, user.Email!, code,
-            expires - time.GetUtcNow().UtcDateTime, options.Value.VerifyEmailUrl, Language(locale)), cancellationToken);
+            expires - time.GetUtcNow().UtcDateTime, options.Value.VerifyPage(), Language(locale)), cancellationToken);
     }
 
     public async Task SendAlreadyRegisteredAsync(TUser user, string? locale, CancellationToken cancellationToken)

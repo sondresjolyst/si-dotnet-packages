@@ -306,7 +306,9 @@ Successful answers, such as `{ message }` after a reset, have no code. Show your
 `AddAppKitAuthEmails<TUser>` registers an `IAuthEmails<TUser>` that sends the password reset and
 invite codes. `AddAppKitVerificationEmails<TUser>` adds an `IVerificationEmails<TUser>` for the email
 verification code. All three share one layout: a colored header with the company details, the code
-in a large box, a button to the app's page, and the same link as text under it.
+in a large box, a button to the app's page, and the same link as text under it. Without
+`VerifyEmailUrl`, the verification email has no button and no link. It tells the person to enter the
+code in the app.
 
 The emails go through `IEmailSender` and render with `EmailLayout`, both from
 `SjolystInnovation.AppKit.Email`, so the app's own emails can share the look. The company details come
@@ -355,7 +357,7 @@ registered business.
 | `HeaderColor` | `#182232` | The header and the code, as `#rrggbb`. |
 | `AccentColor` | `#0284c7` | The button and the code label, as `#rrggbb`. |
 | `SetPasswordUrl` | None | Required. The page that takes a reset or invite code. |
-| `VerifyEmailUrl` | None | Required with verification emails. The page that takes a verification code. |
+| `VerifyEmailUrl` | None | Optional. The page that takes a verification code, as an absolute http or https address. Leave it empty when the person enters the code in the app. |
 
 Text on the header and the button is white. If a color is too light for white text, with a WCAG
 contrast below 3 to 1, that text turns near black, and so do the code and its label. That way a
@@ -363,8 +365,10 @@ yellow brand stays readable.
 
 The links add `email` and `code` to the page's query string, so the page can fill them in. The
 email reads the expiry from the code itself, so an invite says 7 days and a reset says 30 minutes.
-The app checks the options at startup. If the user has no issued code, sending throws
-`InvalidOperationException`.
+The app checks the options at startup. A `VerifyEmailUrl` that is set must be an absolute http or
+https address, so a relative path or another scheme such as `javascript:` or `myapp:` fails the start.
+An https app link, such as an iOS universal link or an Android app link, passes and opens the app where
+it is set up. If the user has no issued code, sending throws `InvalidOperationException`.
 
 ## User administration
 
@@ -553,8 +557,8 @@ the same `login` answer as before.
    ```
 
 2. Opt in. The app needs `AddAppKitAuth` with a signing key, an `IEmailBrand`, an `IEmailSender`, and
-   `VerifyEmailUrl` from `AddAppKitAuthEmails`. To send your own emails, register
-   `IRegistrationEmails<User>` before this call. If an option cannot work, the app fails to start.
+   `AddAppKitAuthEmails`. `VerifyEmailUrl` is optional, as [Verify in the app](#verify-in-the-app)
+   shows. To send your own emails, register `IRegistrationEmails<User>` before this call. If an option cannot work, the app fails to start.
 
    ```csharp
    builder.Services.AddAppKitSelfRegistration<User, ApplicationDbContext>(o =>
@@ -638,6 +642,36 @@ After verify the person signs in again, because the sessions ended.
 Every check that needs no account runs in a fixed order before the lookup by email, so no refusal
 depends on whether the address has an account. The email is at most 200 characters and the password at
 most 128. The error codes section lists the codes.
+
+### Verify in the app
+
+An app with no web page, such as a mobile app, leaves `VerifyEmailUrl` empty. The verification email
+and the removal reminders then show the code with no button and no link, and tell the person to enter
+the code in the app. The app sends it to `verify-email` for the signed-in account.
+
+```csharp
+builder.Services.AddAppKitAuthEmails<User>(o =>
+{
+    o.SetPasswordUrl = "https://example.com/reset-password";
+    // No VerifyEmailUrl: the person types the code from the email into the app.
+});
+builder.Services.AddAppKitSelfRegistration<User, ApplicationDbContext>(o =>
+{
+    o.NewUser = r => new User { FirstName = r.FirstName, LastName = r.LastName };
+});
+```
+
+```ts
+await fetch(`${api}/verify-email`, {
+  method: "POST",
+  headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+  body: JSON.stringify({ code }),
+});
+```
+
+To open the app from the email instead, set `VerifyEmailUrl` to an https app link. The package does not
+take a custom scheme such as `myapp://verify`. Gmail and some other mail apps remove such links, and
+the text link under the button would not open in a browser.
 
 ### User names
 

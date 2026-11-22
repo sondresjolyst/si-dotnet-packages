@@ -57,6 +57,21 @@ public class SelfRegistrationTests
         Assert.Contains("signing key", message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("/profile")]
+    [InlineData("treeclicker://verify")]
+    public async Task Sign_up_fails_at_start_when_the_verify_page_is_set_but_is_not_an_http_address(string page)
+    {
+        var message = await StartFailureAsync(s =>
+        {
+            s.Configure<AppKitAuthOptions>(o => o.Key = new string('k', AppKitAuthOptions.MinimumKeyBytes));
+            s.Configure<AppKitAuthEmailOptions>(o => o.VerifyEmailUrl = page);
+        });
+
+        Assert.Contains("VerifyEmailUrl", message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Sign_up_starts_with_a_signing_key_of_the_length_AddAppKitAuth_requires()
     {

@@ -236,6 +236,7 @@ public class AuthEmailTests
         Assert.Equal("Verify your email", email.Subject);
         Assert.Contains(">Verify email</span>", email.HtmlBody);
         Assert.Contains("Enter the code below in Pyttogpanne to confirm this email address.", email.HtmlBody);
+        Assert.Contains("Button not working? Copy this link:", email.HtmlBody);
         Assert.Contains($"href=\"https://pyttogpanne.example/profile?email=kari%40example.no&amp;code={code}\"", email.HtmlBody);
         Assert.Contains("The code expires in 1 hour.", email.HtmlBody);
     }
@@ -326,15 +327,75 @@ public class AuthEmailTests
         Assert.Contains(option, error.Message);
     }
 
-    [Fact]
-    public void The_verify_page_is_required_only_with_verification_emails()
+    [Theory]
+    [InlineData("")]
+    [InlineData(null)]
+    public void Verification_emails_start_without_a_verify_page(string? page)
     {
-        using var without = Services(o => o.VerifyEmailUrl = "");
-        Assert.Equal("", without.GetRequiredService<IOptions<AppKitAuthEmailOptions>>().Value.VerifyEmailUrl);
+        using var services = Services(o => o.VerifyEmailUrl = page!, verification: true);
 
-        using var with = Services(o => o.VerifyEmailUrl = "", verification: true);
-        var error = Assert.Throws<OptionsValidationException>(() => with.GetRequiredService<IOptions<AppKitAuthEmailOptions>>().Value);
+        Assert.True(string.IsNullOrEmpty(services.GetRequiredService<IOptions<AppKitAuthEmailOptions>>().Value.VerifyEmailUrl));
+    }
+
+    [Theory]
+    [InlineData(" ")]
+    [InlineData("profile")]
+    [InlineData("/profile")]
+    [InlineData("//pyttogpanne.example/profile")]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("JavaScript:alert(1)")]
+    [InlineData("data:text/html,<script>alert(1)</script>")]
+    [InlineData("file:///C:/Windows/win.ini")]
+    [InlineData("vbscript:msgbox(1)")]
+    [InlineData("ftp://pyttogpanne.example/profile")]
+    [InlineData("mailto:post@pyttogpanne.example")]
+    [InlineData("treeclicker://verify")]
+    public void A_verify_page_that_is_set_must_be_an_absolute_http_or_https_address(string page)
+    {
+        using var services = Services(o => o.VerifyEmailUrl = page, verification: true);
+
+        var error = Assert.Throws<OptionsValidationException>(() => services.GetRequiredService<IOptions<AppKitAuthEmailOptions>>().Value);
         Assert.Contains("VerifyEmailUrl", error.Message);
+    }
+
+    [Theory]
+    [InlineData(EmailLanguage.English, "Open the Pyttogpanne app and enter the code below to confirm this email address.", "Verify email", "Button not working?", "If you did not sign up, ignore this email.", "The code expires in 1 hour.")]
+    [InlineData(EmailLanguage.Norwegian, "Åpne appen Pyttogpanne og skriv inn koden under for å bekrefte denne e-postadressen.", "Bekreft e-post", "Virker ikke knappen?", "Har du ikke registrert deg, kan du se bort fra e-posten.", "Koden utløper om 1 time.")]
+    public async Task A_verification_email_without_a_verify_page_shows_the_code_and_says_to_enter_it_in_the_app(
+        EmailLanguage language, string intro, string button, string fallback, string ignore, string expiry)
+    {
+        using var services = Services(o => { o.VerifyEmailUrl = ""; o.Language = language; }, verification: true);
+        var user = new IdentityTestUser { Email = "kari@example.no", FirstName = "Kari" };
+        var code = EmailVerificationCodes.Issue(user, _time);
+
+        await services.GetRequiredService<IVerificationEmails<IdentityTestUser>>().SendEmailVerificationAsync(user, code, default);
+
+        var html = System.Net.WebUtility.HtmlDecode(Assert.Single(_sender.Sent).HtmlBody);
+        Assert.Contains(intro, html);
+        Assert.Contains($">{code}</div>", html);
+        Assert.Contains(expiry, html);
+        Assert.Contains(ignore, html);
+        Assert.DoesNotContain("href=", html);
+        Assert.DoesNotContain($">{button}</a>", html);
+        Assert.DoesNotContain(fallback, html);
+        Assert.DoesNotContain("code=", html);
+    }
+
+    [Fact]
+    public async Task A_Norwegian_verification_email_with_a_verify_page_keeps_the_button_and_the_link()
+    {
+        using var services = Services(o => o.Language = EmailLanguage.Norwegian, verification: true);
+        var user = new IdentityTestUser { Email = "kari@example.no", FirstName = "Kari" };
+        var code = EmailVerificationCodes.Issue(user, _time);
+
+        await services.GetRequiredService<IVerificationEmails<IdentityTestUser>>().SendEmailVerificationAsync(user, code, default);
+
+        var html = System.Net.WebUtility.HtmlDecode(Assert.Single(_sender.Sent).HtmlBody);
+        Assert.Contains("Skriv inn koden under i Pyttogpanne for å bekrefte denne e-postadressen.", html);
+        Assert.DoesNotContain("Åpne appen", html);
+        Assert.Contains(">Bekreft e-post</a>", html);
+        Assert.Contains("Virker ikke knappen? Kopier denne lenken:", html);
+        Assert.Contains($"href=\"https://pyttogpanne.example/profile?email=kari%40example.no&code={code}\"", html);
     }
 
     [Fact]
