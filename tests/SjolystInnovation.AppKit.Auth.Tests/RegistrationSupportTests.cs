@@ -272,6 +272,21 @@ public class RegistrationEmailsTests
         Assert.DoesNotContain(user.EmailVerificationCodeHash!, email.HtmlBody);
     }
 
+    [Theory]
+    [InlineData("en", "On the sign-in page, choose that you forgot your password.")]
+    [InlineData("nb", "Velg at du har glemt passordet på innloggingssiden.")]
+    public async Task The_already_registered_email_names_the_step_in_words_when_the_reset_code_is_entered_in_the_app(string locale, string step)
+    {
+        var (emails, sender) = Build(o => o.SetPasswordInApp = true);
+
+        await emails.SendAlreadyRegisteredAsync(User(), locale, CancellationToken.None);
+
+        var html = System.Net.WebUtility.HtmlDecode(Assert.Single(sender.Sent).HtmlBody);
+        Assert.DoesNotContain("href=", html);
+        // The step keeps a gap to the closing paragraph, as there is no button between them.
+        Assert.Contains($"<p style=\"margin:10px 0;{EmailLayout.TextStyle}\">{step}</p>", html);
+    }
+
     [Fact]
     public async Task The_already_registered_email_names_the_step_in_words_when_there_is_no_reset_page()
     {

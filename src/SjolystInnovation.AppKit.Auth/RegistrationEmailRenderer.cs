@@ -55,14 +55,15 @@ internal static class RegistrationEmailRenderer
         ? $"{date.Day.ToString(CultureInfo.InvariantCulture)}. {NorwegianMonths[date.Month - 1]} {date.Year.ToString(CultureInfo.InvariantCulture)}"
         : $"{date.Day.ToString(CultureInfo.InvariantCulture)} {EnglishMonths[date.Month - 1]} {date.Year.ToString(CultureInfo.InvariantCulture)}";
 
-    // The notice has no code. It links to the reset page when the options hold one, and otherwise names the step in words.
+    // The notice has no code. It links to the reset page when the options hold one, and otherwise names the step in words,
+    // as it also does when the reset code is entered in the app.
     internal static EmailMessage AlreadyRegistered(AppKitAuthEmailOptions options, EmailLanguage language, EmailBrand brand, string? firstName, string to)
     {
         var text = language == EmailLanguage.Norwegian ? NorwegianAlreadyRegistered : EnglishAlreadyRegistered;
-        var page = AppKitAuthEmailOptions.IsPageUrl(options.SetPasswordUrl) ? options.SetPasswordUrl : null;
+        var page = !options.SetPasswordInApp && AppKitAuthEmailOptions.IsPageUrl(options.SetPasswordUrl) ? options.SetPasswordUrl : null;
         var words = AuthEmailRenderer.Words(language);
         var step = page is null && text.Step is { } s
-            ? $"""<p style="margin:10px 0 0;{EmailLayout.TextStyle}">{AuthEmailRenderer.H(s)}</p>"""
+            ? $"""<p style="margin:10px 0;{EmailLayout.TextStyle}">{AuthEmailRenderer.H(s)}</p>"""
             : string.Empty;
         var body = $"""
                 {Hello(words, firstName)}
