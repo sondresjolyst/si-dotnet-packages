@@ -9,11 +9,13 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace SjolystInnovation.AppKit.Auth.Tests;
@@ -50,9 +52,16 @@ public sealed class IdentityAndBearerTests : IAsyncDisposable
 {
     private const string Key = "bearer-test-signing-key-0123456789abcdef";
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
+    private readonly FakeTimeProvider _cacheTime = new();
     private IHost? _host;
 
     public IdentityAndBearerTests() => _connection.Open();
+
+    /// <summary>The cache's clock, moved by the test instead of by waiting.</summary>
+    private sealed class CacheClock(TimeProvider time) : Microsoft.Extensions.Internal.ISystemClock
+    {
+        public DateTimeOffset UtcNow => time.GetUtcNow();
+    }
 
     public async ValueTask DisposeAsync()
     {
@@ -65,7 +74,7 @@ public sealed class IdentityAndBearerTests : IAsyncDisposable
     }
 
     private async Task<HttpClient> StartAsync(Func<IdentityTestUser, bool>? isActive = null, Action<AppKitJwtBearerOptions>? configure = null,
-        bool bearerFirst = false, string issuer = "appkit")
+        bool bearerFirst = false, string issuer = "appkit", bool fakeCacheClock = false)
     {
         _host = new HostBuilder()
             .ConfigureWebHost(web => web
@@ -79,6 +88,8 @@ public sealed class IdentityAndBearerTests : IAsyncDisposable
                 .ConfigureServices((context, s) =>
                 {
                     s.AddDbContext<IdentityTestDbContext>(o => o.UseSqlite(_connection));
+                    if (fakeCacheClock)
+                        s.Configure<MemoryCacheOptions>(o => o.Clock = new CacheClock(_cacheTime));
                     s.AddAppKitAuth<IdentityTestDbContext>(context.Configuration.GetSection("Jwt"));
                     if (bearerFirst)
                         s.AddAppKitJwtBearer(isActive, configure);
@@ -233,7 +244,7 @@ public sealed class IdentityAndBearerTests : IAsyncDisposable
     [Fact]
     public async Task Deleting_an_account_stops_its_token_once_the_cached_answer_expires()
     {
-        var client = await StartAsync(isActive: u => !u.IsDeleted, configure: o => o.UserCheckCacheDuration = TimeSpan.FromMilliseconds(300));
+        var client = await StartAsync(isActive: u => !u.IsDeleted, configure: o => o.UserCheckCacheDuration = TimeSpan.FromMinutes(1), fakeCacheClock: true);
         var token = await TokenForNewUserAsync("u1");
         Assert.Equal(HttpStatusCode.OK, (await GetAsync(client, "/me", token)).StatusCode);
 
@@ -244,8 +255,9 @@ public sealed class IdentityAndBearerTests : IAsyncDisposable
             await db.SaveChangesAsync();
         }
 
+        _cacheTime.Advance(TimeSpan.FromSeconds(59));
         Assert.Equal(HttpStatusCode.OK, (await GetAsync(client, "/me", token)).StatusCode);
-        await Task.Delay(400);
+        _cacheTime.Advance(TimeSpan.FromSeconds(2));
         Assert.Equal(HttpStatusCode.Unauthorized, (await GetAsync(client, "/me", token)).StatusCode);
     }
 
@@ -277,7 +289,7 @@ public sealed class IdentityAndBearerTests : IAsyncDisposable
     [Fact]
     public async Task A_role_taken_away_stops_counting_once_the_cached_answer_expires()
     {
-        var client = await StartAsync(configure: o => o.UserCheckCacheDuration = TimeSpan.FromMilliseconds(300));
+        var client = await StartAsync(configure: o => o.UserCheckCacheDuration = TimeSpan.FromMinutes(1), fakeCacheClock: true);
         var token = await AdminTokenAsync("demoted", inRole: true, roleInToken: true);
         Assert.Equal(HttpStatusCode.OK, (await GetAsync(client, "/admin", token)).StatusCode);
 
@@ -287,8 +299,9 @@ public sealed class IdentityAndBearerTests : IAsyncDisposable
             await users.RemoveFromRoleAsync((await users.FindByIdAsync("demoted"))!, "Admin");
         }
 
+        _cacheTime.Advance(TimeSpan.FromSeconds(59));
         Assert.Equal(HttpStatusCode.OK, (await GetAsync(client, "/admin", token)).StatusCode);
-        await Task.Delay(400);
+        _cacheTime.Advance(TimeSpan.FromSeconds(2));
         Assert.Equal(HttpStatusCode.Forbidden, (await GetAsync(client, "/admin", token)).StatusCode);
     }
 
