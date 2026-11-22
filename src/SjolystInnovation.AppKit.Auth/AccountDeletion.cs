@@ -151,7 +151,14 @@ internal sealed partial class AccountDeleter<TUser, TContext>(
             // Rotating the stamp also saves the scrubbed user through Identity's validation.
             var result = await users.UpdateSecurityStampAsync(user);
             if (!result.Succeeded)
-                throw new InvalidOperationException("Deleting the account failed: " + string.Join(" ", result.Errors.Select(e => e.Description)));
+            {
+                var failure = new InvalidOperationException("Deleting the account failed: " + string.Join(" ", result.Errors.Select(e => e.Description)));
+                // Identity turns a concurrency exception from the save into this result, and the Npgsql provider
+                // reports a serialization failure as one, so it is a collision like any other.
+                if (result.Errors.Any(e => e.Code == nameof(IdentityErrorDescriber.ConcurrencyFailure)))
+                    throw new AccountChangeConflictException(failure);
+                throw failure;
+            }
             await tx.CommitAsync(cancellationToken);
         }
     }

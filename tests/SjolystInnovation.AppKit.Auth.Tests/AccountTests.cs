@@ -83,7 +83,23 @@ public sealed class AccountTests : IAsyncDisposable
             Task.FromResult(user.IsDeleted ? IdentityResult.Failed(new IdentityError { Code = "No", Description = "Refused." }) : IdentityResult.Success);
     }
 
+    /// <summary>
+    /// Changes the deleted user's concurrency stamp in the database right before Identity saves the user, so
+    /// Identity's own save hits a concurrency failure and returns ConcurrencyFailure.
+    /// </summary>
+    private sealed class StaleStampStore(IdentityTestDbContext db, IdentityErrorDescriber describer)
+        : Microsoft.AspNetCore.Identity.EntityFrameworkCore.UserStore<IdentityTestUser, IdentityRole, IdentityTestDbContext>(db, describer)
+    {
+        public override async Task<IdentityResult> UpdateAsync(IdentityTestUser user, CancellationToken cancellationToken = default)
+        {
+            if (user.IsDeleted)
+                await Context.Database.ExecuteSqlAsync($"UPDATE AspNetUsers SET ConcurrencyStamp = 'changed' WHERE Id = {user.Id}", cancellationToken);
+            return await base.UpdateAsync(user, cancellationToken);
+        }
+    }
+
     private bool _refuseUpdates;
+    private bool _staleStamp;
 
     private async Task StartAsync(bool withExport = false, bool withHooks = true)
     {
@@ -98,6 +114,8 @@ public sealed class AccountTests : IAsyncDisposable
                     s.AddAppKitAccounts<IdentityTestUser, IdentityTestDbContext>();
                     if (_refuseUpdates)
                         s.AddScoped<IUserValidator<IdentityTestUser>, RefusingValidator>();
+                    if (_staleStamp)
+                        s.AddScoped<IUserStore<IdentityTestUser>, StaleStampStore>();
                     if (withHooks)
                     {
                         s.AddScoped<IAccountDataEraser<IdentityTestUser>>(sp => new TestEraser(sp.GetRequiredService<IdentityTestDbContext>(), this));
@@ -289,6 +307,23 @@ public sealed class AccountTests : IAsyncDisposable
         Assert.Equal("Another change to the accounts happened at the same time. Try again.", (await JsonAsync(response)).GetProperty("message").GetString());
         Assert.Equal(AuthErrorCodes.AccountChangeConflict, await ErrorJson.CodeAsync(response));
         Assert.False(Load("u1").IsDeleted);
+        Assert.Empty(Handled);
+    }
+
+    [Fact]
+    public async Task A_concurrency_failure_when_saving_the_user_is_a_conflict_and_rolls_back()
+    {
+        _staleStamp = true;
+        await StartAsync();
+        await UserAsync("u1");
+
+        await Assert.ThrowsAsync<AccountChangeConflictException>(() => DeleteDirectAsync("u1"));
+        var response = await SendAsync(HttpMethod.Delete, "/api/users/u1/account");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(AuthErrorCodes.AccountChangeConflict, await ErrorJson.CodeAsync(response));
+        Assert.False(Load("u1").IsDeleted);
+        Assert.Equal(1, Tokens("u1"));
         Assert.Empty(Handled);
     }
 
