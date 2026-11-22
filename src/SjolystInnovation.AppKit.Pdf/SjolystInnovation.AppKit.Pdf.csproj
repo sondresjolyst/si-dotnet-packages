@@ -18,6 +18,6 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="PuppeteerSharp" Version="25.15.0" />
+    <PackageReference Include="PuppeteerSharp" Version="25.17.1" />
   </ItemGroup>
 </Project>

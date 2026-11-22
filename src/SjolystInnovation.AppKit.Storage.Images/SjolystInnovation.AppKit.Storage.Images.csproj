@@ -18,9 +18,9 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.14" />
-    <PackageReference Include="SkiaSharp" Version="4.155.0" />
-    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.155.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.15" />
+    <PackageReference Include="SkiaSharp" Version="4.156.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.156.1" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\SjolystInnovation.AppKit.Storage\SjolystInnovation.AppKit.Storage.csproj" />
