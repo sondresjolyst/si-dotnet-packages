@@ -37,12 +37,12 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
         }
     }
 
-    private sealed class RecordingEraser(List<string> erased, string? failFor = null) : IAccountDataEraser<IdentityTestUser>
+    private sealed class RecordingEraser(List<string> erased, string? failFor = null, Exception? throws = null) : IAccountDataEraser<IdentityTestUser>
     {
         public async Task EraseAsync(IdentityTestUser user, CancellationToken cancellationToken)
         {
             if (user.Id == failFor)
-                throw new InvalidOperationException("The eraser failed.");
+                throw throws ?? new InvalidOperationException("The eraser failed.");
             erased.Add(user.Id);
             await Task.CompletedTask;
         }
@@ -59,6 +59,7 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
     private readonly FakeTimeProvider _time = new(Start);
     private readonly RecordingEmails _emails = new();
     private readonly List<string> _erased = [];
+    private Exception? _eraserThrows;
     private IHost? _host;
     private HttpClient _client = default!;
 
@@ -98,7 +99,7 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
                     });
                     s.AddSingleton<IRegistrationEmails<IdentityTestUser>>(_emails);
                     s.AddSingleton<IAuthEmails<IdentityTestUser>>(new InviteEmails());
-                    s.AddScoped<IAccountDataEraser<IdentityTestUser>>(_ => new RecordingEraser(_erased, failEraserFor));
+                    s.AddScoped<IAccountDataEraser<IdentityTestUser>>(_ => new RecordingEraser(_erased, failEraserFor, _eraserThrows));
                     s.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, TestAuthHandler>("Test", _ => { });
                     s.PostConfigure<AuthenticationOptions>(o => o.DefaultScheme = o.DefaultAuthenticateScheme = o.DefaultChallengeScheme = o.DefaultForbidScheme = "Test");
                     s.AddAuthorization(o => o.AddPolicy("Admin", p => p.RequireRole("Admin")));
@@ -495,6 +496,22 @@ public sealed class UnverifiedAccountCleanupTests : IAsyncDisposable
         _time.Advance(TimeSpan.FromDays(1));
         Assert.Equal(new UnverifiedCleanupResult(0, 1, 0), await RunAsync());
         Assert.Single(_emails.Reminders);
+    }
+
+    [Fact]
+    public async Task An_eraser_that_throws_a_concurrency_exception_leaves_the_account_counts_it_as_skipped_and_logs_a_warning()
+    {
+        _eraserThrows = new DbUpdateConcurrencyException("The eraser lost a race.");
+        await StartAsync(failEraserFor: "old");
+        await SeedAsync("old", Lifetime + TimeSpan.FromDays(2));
+
+        var result = await RunAsync();
+
+        Assert.Equal(new UnverifiedCleanupResult(0, 0, 0, 1), result);
+        Assert.True(Exists("old"));
+        var records = _host!.Services.GetFakeLogCollector().GetSnapshot();
+        var warning = Assert.Single(records, r => r.Level == LogLevel.Warning && r.Message.Contains("old", StringComparison.Ordinal));
+        Assert.IsType<DbUpdateConcurrencyException>(warning.Exception);
     }
 
     [Fact]

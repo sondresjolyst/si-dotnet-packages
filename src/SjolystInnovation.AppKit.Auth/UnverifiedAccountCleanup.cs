@@ -20,7 +20,7 @@ public interface IRemovalReminderUser
 /// <param name="Removed">How many accounts were removed.</param>
 /// <param name="Reminded">How many removal reminders were sent.</param>
 /// <param name="Failed">How many accounts failed and were left as they were.</param>
-/// <param name="Skipped">How many accounts were left alone because another host removed or changed them at the same moment.</param>
+/// <param name="Skipped">How many accounts were left alone because another host removed or changed them at the same moment, or because an eraser threw a concurrency exception.</param>
 public sealed record UnverifiedCleanupResult(int Removed, int Reminded, int Failed, int Skipped = 0);
 
 /// <summary>Removes accounts that came through the sign-up and never verified their email, and reminds their owners first.</summary>
@@ -36,7 +36,8 @@ public interface IUnverifiedAccountCleanup
     /// implements <see cref="IRemovalReminderUser"/>. A reminder carries a fresh code, counts toward
     /// <see cref="AppKitRegistrationOptions{TUser}.MaxOwnerEmailsPerAddressPerDay"/> and waits for a later run when the address is over it. An account that is locked after
     /// too many wrong codes is reminded in a later run. One failing account is logged and does not stop the run. An account that
-    /// another host removed or changed at the same moment is counted as skipped and logged at debug level, not as a failure.
+    /// another host removed or changed at the same moment is counted as skipped and logged at debug level, not as a failure. An account whose
+    /// <see cref="IAccountDataEraser{TUser}"/> threw a concurrency exception is counted as skipped too and logged as a warning, and the next run tries it again.
     /// The run also removes the sign-up email counts from before yesterday.
     /// </summary>
     Task<UnverifiedCleanupResult> RunOnceAsync(CancellationToken cancellationToken = default);
@@ -98,10 +99,10 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
                         break;
                 }
             }
-            catch (DbUpdateConcurrencyException)
+            catch (DbUpdateConcurrencyException ex)
             {
                 skipped++;
-                Log.LostRace(logger, id);
+                Log.UnexpectedConcurrency(logger, ex, id);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -128,10 +129,10 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
                             break;
                     }
                 }
-                catch (DbUpdateConcurrencyException)
+                catch (DbUpdateConcurrencyException ex)
                 {
                     skipped++;
-                    Log.LostRace(logger, id);
+                    Log.UnexpectedConcurrency(logger, ex, id);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -269,6 +270,9 @@ internal sealed partial class UnverifiedAccountCleanup<TUser, TContext>(
 
         [LoggerMessage(Level = LogLevel.Debug, Message = "Skipped unverified account {UserId}, because another host removed or changed it at the same moment.")]
         public static partial void LostRace(ILogger logger, string userId);
+
+        [LoggerMessage(Level = LogLevel.Warning, Message = "Skipped unverified account {UserId}, because app code threw a concurrency exception. The account stays and the next run tries it again.")]
+        public static partial void UnexpectedConcurrency(ILogger logger, Exception exception, string userId);
 
         [LoggerMessage(Level = LogLevel.Information, Message = "Unverified account cleanup removed {Removed}, reminded {Reminded}, failed {Failed} and skipped {Skipped}.")]
         public static partial void Ran(ILogger logger, int removed, int reminded, int failed, int skipped);
