@@ -45,7 +45,11 @@ public static partial class AuthEndpointsExtensions
     /// The app's <see cref="ISignUpGuard"/>, when registered, runs after the field checks and before any lookup, and a no answers 400 <c>signUpRefused</c>.
     /// No network gets more than <see cref="AppKitRegistrationOptions{TUser}.MaxSignUpsPerNetworkPerDay"/> sign-ups a day. A request counts once the field checks, the guard and the terms check have passed and before the lookup by email, and over the cap it answers 429 <c>tooManyRequests</c> and nothing happens.
     /// Every other one of these cases answers 200 with the same body. Whatever user name the factory in <see cref="AppKitRegistrationOptions{TUser}.NewUser"/> sets is replaced. The account gets the user name the person chose
-    /// when <see cref="AppKitRegistrationOptions{TUser}.AllowUserName"/> is on and one was sent, and otherwise a generated one, a new GUID in its <c>N</c> form, never the email. Sign-in is by email, so the user name is not shown or typed.
+    /// when <see cref="AppKitRegistrationOptions{TUser}.AllowUserName"/> or <see cref="AppKitRegistrationOptions{TUser}.RequireUserName"/> is on and one was sent, and otherwise a generated one, a new GUID in its <c>N</c> form, never the email. Sign-in is by email, so a generated name is not shown or typed.
+    /// With <see cref="AppKitRegistrationOptions{TUser}.RequireUserName"/> a missing or blank user name is a field error <c>required</c>. A chosen user name is trimmed,
+    /// and one shorter than <see cref="AppKitRegistrationOptions{TUser}.MinUserNameLength"/> is <c>tooShort</c> and one longer than
+    /// <see cref="AppKitRegistrationOptions{TUser}.MaxUserNameLength"/> is <c>tooLong</c>, each with the number in <c>limits</c>. Without a maximum from the app,
+    /// the maximum is 50 or the narrower user name column of the model when that is under 50.
     /// A user name that contains <c>@</c> is refused, because a chosen one could otherwise look like another person's email.
     /// A chosen user name also goes through the allowed characters and the duplicate check of Identity before any lookup by email,
     /// so a bad name is <c>invalidUserName</c> and a taken one is <c>userNameTaken</c>, the same for a new and an existing email.
@@ -148,14 +152,15 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
         var locale = string.IsNullOrWhiteSpace(request.Locale) ? null : request.Locale.Trim();
         var registration = new AppKitRegistration(
             email,
-            options.AllowUserName && !string.IsNullOrWhiteSpace(request.UserName) ? request.UserName.Trim() : null,
+            options.TakesUserName && !string.IsNullOrWhiteSpace(request.UserName) ? request.UserName.Trim() : null,
             options.RequireNames ? request.FirstName?.Trim() ?? string.Empty : string.Empty,
             options.RequireNames ? request.LastName?.Trim() ?? string.Empty : string.Empty,
             locale);
 
         // Everything that needs no account, in one fixed order: fields, password, age, terms, terms version, further documents.
         var errors = new AuthFieldErrors();
-        CheckFields(errors, options, request, email, termsVersion, locale, registration);
+        var maxUserName = options.EffectiveMaxUserNameLength(UserNameColumns.Narrowest(Get<TContext>(http).Model, typeof(TUser))?.Length);
+        CheckFields(errors, options, request, email, termsVersion, locale, registration, maxUserName);
         var probe = options.NewUser!(registration);
         probe.Email = email;
         // The user name comes only from the person or from the library. Whatever the app's factory set is replaced by the name the
@@ -244,7 +249,7 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
     }
 
     private static void CheckFields(AuthFieldErrors errors, AppKitRegistrationOptions<TUser> options, RegisterRequest request,
-        string email, string termsVersion, string? locale, AppKitRegistration registration)
+        string email, string termsVersion, string? locale, AppKitRegistration registration, int maxUserName)
     {
         if (email.Length == 0)
             errors.Required("Email");
@@ -259,13 +264,28 @@ internal sealed class RegistrationHandlers<TUser, TContext>(ILogger logger)
             errors.Name("FirstName", registration.FirstName, MaxName);
             errors.Name("LastName", registration.LastName, MaxName);
         }
-        if (options.AllowUserName && registration.UserName is { Length: > MaxName })
-            errors.Add("UserName", AuthErrorCodes.TooLong, $"At most {MaxName} characters.", MaxName);
-        else if (options.AllowUserName && registration.UserName is { } userName && userName.Contains('@', StringComparison.Ordinal))
-            errors.Add("UserName", AuthErrorCodes.InvalidUserName, "The user name cannot contain @.");
+        if (options.TakesUserName)
+            CheckUserNameFields(errors, options, registration.UserName, maxUserName);
         errors.Name("TermsVersion", termsVersion, MaxTermsVersion);
         if (locale is { Length: > MaxLocale })
             errors.Add("Locale", AuthErrorCodes.TooLong, $"At most {MaxLocale} characters.", MaxLocale);
+    }
+
+    // The user name rules that need no lookup. A missing name is an error only when the app requires one, and otherwise the
+    // account gets a generated name. The name is trimmed, so the lengths count what is stored.
+    private static void CheckUserNameFields(AuthFieldErrors errors, AppKitRegistrationOptions<TUser> options, string? userName, int max)
+    {
+        if (userName is null)
+        {
+            if (options.RequireUserName)
+                errors.Required("UserName");
+        }
+        else if (userName.Length > max)
+            errors.Add("UserName", AuthErrorCodes.TooLong, $"At most {max} characters.", max);
+        else if (userName.Length < options.MinUserNameLength)
+            errors.Add("UserName", AuthErrorCodes.TooShort, $"At least {options.MinUserNameLength} characters.", options.MinUserNameLength);
+        else if (userName.Contains('@', StringComparison.Ordinal))
+            errors.Add("UserName", AuthErrorCodes.InvalidUserName, "The user name cannot contain @.");
     }
 
     // The version sent for each further document the app lists, in the order of the list. A document the request leaves out is not

@@ -240,8 +240,8 @@ An error that belongs to no field answers a JSON body with the message and the c
 ```
 
 A field error answers a validation problem. The `codes` extension is keyed like `errors`, with one
-code for each message at the same place. The `limits` extension holds the number for `tooLong` and
-`passwordTooShort`:
+code for each message at the same place. The `limits` extension holds the number for `tooLong`,
+`tooShort`, and `passwordTooShort`:
 
 ```json
 {
@@ -282,7 +282,8 @@ code for each message at the same place. The `limits` extension holds the number
 | --- | --- |
 | `required` | Any required field that is blank. |
 | `invalidEmail` | `Email` on `login`, `request-password-reset`, `reset-password`, `invite`, and `register`, also over 200 characters. |
-| `tooLong` | `FirstName`, `LastName`, and `UserName`, over 50 characters. On `register` also `Password`, `TermsVersion`, `Locale`, and `Documents.{document}`. On `accept-terms` also `Document`. The limit is in `limits`. |
+| `tooLong` | `FirstName` and `LastName`, over 50 characters. `UserName` on `register`, over `MaxUserNameLength`. On `register` also `Password`, `TermsVersion`, `Locale`, and `Documents.{document}`. On `accept-terms` also `Document`. The limit is in `limits`. |
+| `tooShort` | `UserName` on `register`, under `MinUserNameLength`. The limit is in `limits`. |
 | `passwordTooShort` | `NewPassword`. Identity's required length is in `limits`. |
 | `passwordRequiresDigit`, `passwordRequiresLower`, `passwordRequiresUpper` | `NewPassword`. |
 | `passwordRequiresNonAlphanumeric`, `passwordRequiresUniqueChars` | `NewPassword`, when the app's Identity options require them. |
@@ -599,7 +600,10 @@ the same `login` answer as before.
 | `TermsDocument` | `terms` | The document name of the terms in the consent rows. 1 to 32 ASCII letters, digits, hyphens, or underscores, so it is never blank and has no spaces. |
 | `AdditionalDocuments` | None | Further documents a person accepts at sign-up, such as `privacy`. Each name is 1 to 32 ASCII letters, digits, hyphens, or underscores, so it is never blank and has no spaces. Each name is unique, and neither `TermsDocument` nor `age`. |
 | `RequireNames` | `false` | Whether `firstName` and `lastName` are required, at most 50 characters each. |
-| `AllowUserName` | `false` | Whether the person may choose a user name. |
+| `AllowUserName` | `false` | Whether the person may choose a user name. Without one the account gets a generated one. |
+| `RequireUserName` | `false` | Whether every sign-up must send a user name. A missing or blank one is `required` on `UserName`. It also turns on what `AllowUserName` does, so that need not be set. |
+| `MinUserNameLength` | 1 | The fewest characters of a user name, after trimming. Shorter is `tooShort`. At least 1 and at most `MaxUserNameLength`. |
+| `MaxUserNameLength` | 50, or the narrower of the `UserName` and `NormalizedUserName` columns when that is under 50 | The most characters of a user name, after trimming. Longer is `tooLong`. When the sign-up takes a user name, the app fails to start if a value it sets is longer than either column, 256 with the Identity default. The check reads `HasMaxLength`, not a `HasColumnType` override, so keep `HasMaxLength` in step with the column type. |
 | `RecordTruncatedIp` | `false` | Whether each consent row keeps the caller's address cut to its first three parts for IPv4 and 48 bits for IPv6. |
 | `ResendCooldown` | 1 minute | The wait before a new verification code, and between notices to one existing mailbox. |
 | `MaxEmailsPerAddressPerDay` | 5 | The most emails per mailbox and UTC day that anyone who types the address can cause. |
@@ -621,7 +625,7 @@ latest consent row of the user.
 
 | Route | Who | What it does |
 | --- | --- | --- |
-| `POST register` with `email`, `password`, `ageConfirmed`, `termsAccepted`, `termsVersion`, and optional `userName`, `firstName`, `lastName`, `locale`, `documents` | Anyone | Answers `200 { message }` for a new and an existing address alike. A new address gets an unverified account and a code by email. An existing active account gets a notice instead, at most once per `ResendCooldown`. A field error is a validation problem, a version that is not current gives `409`, a refusal from `ISignUpGuard` gives `400`, and a network over its cap gives `429`. |
+| `POST register` with `email`, `password`, `ageConfirmed`, `termsAccepted`, `termsVersion`, and optional `userName`, `firstName`, `lastName`, `locale`, `documents`. `userName` is required with `RequireUserName`. | Anyone | Answers `200 { message }` for a new and an existing address alike. A new address gets an unverified account and a code by email. An existing active account gets a notice instead, at most once per `ResendCooldown`. A field error is a validation problem, a version that is not current gives `409`, a refusal from `ISignUpGuard` gives `400`, and a network over its cap gives `429`. |
 | `POST verify-email` with `code` | Signed-in user | Confirms the email, ends every session, and answers `200 { message }`. A wrong or expired code gives `400`, a verified account `409`, and 5 wrong codes `429`. |
 | `POST resend-verification` | Signed-in user | Sends a new code and answers `200 { message }`. Inside the cooldown, or over the owner cap, it gives `429`. While 5 wrong codes lock the current one, it gives `429` until that code has expired. A verified account gives `409`. |
 | `POST accept-terms` with `termsVersion`, optional `locale`, optional `document` | Signed-in user | Records the acceptance of the terms, or of the document named in `document`, and answers `204`, whether the email is verified or not. A version that is not current gives `409`. |
@@ -637,10 +641,36 @@ most 128. The error codes section lists the codes.
 
 ### User names
 
-A user name comes only from the person, and only when `AllowUserName` is on. It is at most 50
-characters, never contains `@`, and passes the allowed characters and the duplicate check of Identity.
-In every other case the account gets a generated one, never the email. Whatever user name `NewUser`
-sets is replaced. Sign-in is by email, so a generated name is never shown or typed.
+A user name comes only from the person, and only when `AllowUserName` or `RequireUserName` is on. It
+is trimmed, is `MinUserNameLength` to `MaxUserNameLength` characters, 1 to 50 by default, never
+contains `@`, and passes the allowed characters and the duplicate check of Identity. With
+`RequireUserName` a sign-up without one is refused with `required`. In every other case the account
+gets a generated one, never the email. Whatever user name `NewUser` sets is replaced. Sign-in is by
+email, so a generated name is never shown or typed.
+
+An app that shows the user name, for example in a menu, requires one:
+
+```csharp
+builder.Services.AddAppKitSelfRegistration<User, ApplicationDbContext>(o =>
+{
+    o.NewUser = r => new User();
+    o.RequireUserName = true;
+    o.MinUserNameLength = 3;
+    o.MaxUserNameLength = 64;
+});
+```
+
+Without a `MaxUserNameLength` from the app, the maximum is 50, or the narrower of the `UserName` and
+`NormalizedUserName` columns in the EF model when that is under 50. A value the app sets is kept, and the
+app fails to start when it is longer than either column, or when `MinUserNameLength` is longer than the
+maximum that applies. The check reads the length that `HasMaxLength` sets. It does not read a
+`HasColumnType` override such as `varchar(32)`, so an app that narrows a column that way also sets
+`HasMaxLength` to the same length.
+
+These rules cover the sign-up only. `invite` takes no user name from the request and uses the one that
+`AppKitUserAdminOptions.NewUser` sets, or else the email. The first admin seed uses the one that the
+`newUser` argument of `SeedAppKitFirstAdminAsync` sets, or else the email. `PUT {id}/profile` does not
+change the user name.
 
 ### Terms and age
 

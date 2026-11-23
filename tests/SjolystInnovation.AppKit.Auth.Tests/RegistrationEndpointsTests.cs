@@ -696,6 +696,141 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
         Assert.Equal(["UserName=50"], await ErrorJson.LimitsAsync(response));
     }
 
+    // The rules garge-api has today: a user name of 3 to 64 characters on every sign-up.
+    private static void GargeUserNames(AppKitRegistrationOptions<IdentityTestUser> o)
+    {
+        o.RequireUserName = true;
+        o.MinUserNameLength = 3;
+        o.MaxUserNameLength = 64;
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task A_required_user_name_that_is_missing_or_blank_is_a_required_error(string? sent)
+    {
+        await StartAsync(GargeUserNames);
+
+        var response = await RegisterAsync(Body(NewEmail, ("userName", sent)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(["UserName=required"], await ErrorJson.FieldCodesAsync(response));
+        Assert.Empty(await ErrorJson.LimitsAsync(response));
+        Assert.Equal(0, Db(db => db.Users.Count()));
+    }
+
+    [Fact]
+    public async Task A_required_user_name_left_out_of_the_body_is_a_required_error()
+    {
+        await StartAsync(GargeUserNames);
+
+        var response = await RegisterAsync(Body(NewEmail));
+
+        Assert.Equal(["UserName=required"], await ErrorJson.FieldCodesAsync(response));
+    }
+
+    [Fact]
+    public async Task RequireUserName_accepts_a_user_name_without_AllowUserName()
+    {
+        await StartAsync(o => o.RequireUserName = true);
+
+        var response = await RegisterAsync(Body(NewEmail, ("userName", "ada")));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("ada", Db(db => db.Users.Single()).UserName);
+    }
+
+    [Theory]
+    [InlineData("ab")]
+    [InlineData(" ab ")]
+    [InlineData("a")]
+    public async Task A_user_name_under_the_minimum_is_a_tooShort_error_with_the_minimum_in_limits(string sent)
+    {
+        await StartAsync(GargeUserNames);
+
+        var response = await RegisterAsync(Body(NewEmail, ("userName", sent)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(["UserName=tooShort"], await ErrorJson.FieldCodesAsync(response));
+        Assert.Equal(["UserName=3"], await ErrorJson.LimitsAsync(response));
+        Assert.Equal(["At least 3 characters."], await ErrorJson.MessagesAsync(response, "UserName"));
+    }
+
+    [Fact]
+    public async Task A_user_name_over_the_maximum_is_a_tooLong_error_with_the_maximum_in_limits()
+    {
+        await StartAsync(GargeUserNames);
+
+        var response = await RegisterAsync(Body(NewEmail, ("userName", new string('x', 65))));
+
+        Assert.Equal(["UserName=tooLong"], await ErrorJson.FieldCodesAsync(response));
+        Assert.Equal(["UserName=64"], await ErrorJson.LimitsAsync(response));
+        Assert.Equal(["At most 64 characters."], await ErrorJson.MessagesAsync(response, "UserName"));
+    }
+
+    [Theory]
+    [InlineData(3)]
+    [InlineData(64)]
+    public async Task A_user_name_at_either_limit_is_accepted(int length)
+    {
+        await StartAsync(GargeUserNames);
+        var name = new string('x', length);
+
+        var response = await RegisterAsync(Body(NewEmail, ("userName", $" {name} ")));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(name, Db(db => db.Users.Single()).UserName);
+    }
+
+    [Fact]
+    public async Task A_maximum_over_50_lets_a_longer_user_name_through_when_user_names_are_only_allowed()
+    {
+        await StartAsync(o => { o.AllowUserName = true; o.MaxUserNameLength = 64; });
+
+        var response = await RegisterAsync(Body(NewEmail, ("userName", new string('x', 64))));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task An_allowed_user_name_under_the_minimum_is_refused_and_a_missing_one_still_gets_a_generated_name()
+    {
+        await StartAsync(o => { o.AllowUserName = true; o.MinUserNameLength = 3; });
+
+        var shortName = await RegisterAsync(Body(NewEmail, ("userName", "ab")));
+        var missing = await RegisterAsync(Body(NewEmail));
+
+        Assert.Equal(["UserName=tooShort"], await ErrorJson.FieldCodesAsync(shortName));
+        Assert.Equal(HttpStatusCode.OK, missing.StatusCode);
+        Assert.Matches("^[0-9a-f]{32}$", Db(db => db.Users.Single()).UserName);
+    }
+
+    [Fact]
+    public async Task Without_the_new_options_a_one_character_user_name_is_still_accepted()
+    {
+        await StartAsync(o => o.AllowUserName = true);
+
+        var response = await RegisterAsync(Body(NewEmail, ("userName", "a")));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("a", Db(db => db.Users.Single()).UserName);
+    }
+
+    [Fact]
+    public async Task A_missing_required_user_name_reads_the_same_for_a_new_and_an_existing_email()
+    {
+        await StartAsync(GargeUserNames);
+        await SeedAsync("taken", verified: true);
+
+        var forNew = await RegisterAsync(Body(NewEmail));
+        var forExisting = await RegisterAsync(Body("taken@example.invalid"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, forNew.StatusCode);
+        Assert.Equal(await TextAsync(forNew), await TextAsync(forExisting));
+        Assert.Equal(0, _emails.Total);
+    }
+
     [Fact]
     public async Task A_user_name_nobody_asked_for_is_not_checked()
     {

@@ -2,7 +2,7 @@ namespace SjolystInnovation.AppKit.Auth;
 
 /// <summary>The details of a person who signs up, passed to the new-user factory.</summary>
 /// <param name="Email">The email address the person gave.</param>
-/// <param name="UserName">The user name the person chose, or null when the app does not ask for one.</param>
+/// <param name="UserName">The user name the person chose, trimmed, or null when the app does not take one or the person sent none.</param>
 /// <param name="FirstName">The first name, or an empty string when the app does not ask for names.</param>
 /// <param name="LastName">The last name, or an empty string when the app does not ask for names.</param>
 /// <param name="Locale">The language the person uses, or null when the client sent none.</param>
@@ -13,7 +13,8 @@ public sealed class AppKitRegistrationOptions<TUser>
 {
     /// <summary>
     /// A function that creates a user from an <see cref="AppKitRegistration"/>. Required. The sign-up replaces the user name that it
-    /// sets with the one the person chose when <see cref="AllowUserName"/> is on and one was sent, and otherwise with a generated one.
+    /// sets with the one the person chose when <see cref="AllowUserName"/> or <see cref="RequireUserName"/> is on and one was sent,
+    /// and otherwise with a generated one.
     /// </summary>
     public Func<AppKitRegistration, TUser>? NewUser { get; set; }
 
@@ -48,8 +49,51 @@ public sealed class AppKitRegistrationOptions<TUser>
     /// <summary>Whether the sign-up requires a first and a last name. Defaults to false.</summary>
     public bool RequireNames { get; set; }
 
-    /// <summary>Whether the sign-up accepts a user name. Defaults to false.</summary>
+    /// <summary>
+    /// Whether the sign-up accepts a user name. Without one the account gets a generated one. Defaults to false.
+    /// </summary>
     public bool AllowUserName { get; set; }
+
+    /// <summary>
+    /// Whether every sign-up must send a user name. A missing or blank one is a <c>required</c> field error on <c>UserName</c>.
+    /// It also makes the sign-up accept a user name, so <see cref="AllowUserName"/> need not be set. Defaults to false.
+    /// </summary>
+    public bool RequireUserName { get; set; }
+
+    /// <summary>
+    /// The fewest characters of a user name, counted after trimming. A shorter one is a <c>tooShort</c> field error with the
+    /// minimum in <c>limits</c>. It applies when <see cref="AllowUserName"/> or <see cref="RequireUserName"/> is on. Must be at
+    /// least 1 and at most <see cref="MaxUserNameLength"/>. Defaults to 1.
+    /// </summary>
+    public int MinUserNameLength { get; set; } = 1;
+
+    /// <summary>
+    /// The most characters of a user name, counted after trimming. A longer one is a <c>tooLong</c> field error with the maximum
+    /// in <c>limits</c>. It applies when <see cref="AllowUserName"/> or <see cref="RequireUserName"/> is on. Defaults to 50, or to
+    /// the narrower of the <c>UserName</c> and <c>NormalizedUserName</c> columns in the EF model when that is under 50. A value the
+    /// app sets is kept as it is, and the app fails to start when it is longer than either column, 256 in the Identity default.
+    /// The check reads the length that <c>HasMaxLength</c> sets in the model, not a <c>HasColumnType</c> override, so an app that
+    /// narrows a column through its column type must also set <c>HasMaxLength</c> to the same length.
+    /// </summary>
+    public int MaxUserNameLength
+    {
+        get => _maxUserNameLength ?? DefaultMaxUserNameLength;
+        set => _maxUserNameLength = value;
+    }
+
+    private int? _maxUserNameLength;
+
+    internal const int DefaultMaxUserNameLength = 50;
+
+    // The maximum the sign-up applies, given the narrowest user name column of the model. A maximum the app set is never lowered,
+    // and the start fails instead when it does not fit.
+    internal int EffectiveMaxUserNameLength(int? column) =>
+        _maxUserNameLength is null && column is { } width ? Math.Min(DefaultMaxUserNameLength, width) : MaxUserNameLength;
+
+    internal bool MaxUserNameLengthIsSet => _maxUserNameLength is not null;
+
+    // A user name is read from the request when the app allows or requires one.
+    internal bool TakesUserName => AllowUserName || RequireUserName;
 
     /// <summary>Whether to store a shortened IP address with each consent. Defaults to false.</summary>
     public bool RecordTruncatedIp { get; set; }
