@@ -12,7 +12,9 @@ namespace SjolystInnovation.AppKit.Auth;
 /// <param name="Button">The button text.</param>
 /// <param name="Closing">The last paragraph.</param>
 /// <param name="AppIntro">The first paragraph when there is no page to link to, so the person enters the code in the app. Null to keep <paramref name="Intro"/>.</param>
-internal sealed record RegistrationEmailText(string Badge, string Subject, string Heading, string Intro, string? Step, string Button, string Closing, string? AppIntro = null);
+/// <param name="AppStep">The step in words when the reset code is entered in the app. Null to keep <paramref name="Step"/>.</param>
+internal sealed record RegistrationEmailText(string Badge, string Subject, string Heading, string Intro, string? Step, string Button, string Closing,
+    string? AppIntro = null, string? AppStep = null);
 
 // Renders the two sign-up emails that carry no reset or invite code: the notice that someone tried to sign up with an
 // address that has an account, and the reminder that an unverified account is about to be removed. They use the shared layout.
@@ -28,13 +30,15 @@ internal static class RegistrationEmailRenderer
         "Sign-up", "Someone tried to sign up at {0}", "Someone tried to sign up with your email",
         "Someone tried to sign up at {0} with this email address, but it already has an account. If it was you and you cannot sign in, reset your password.",
         "On the sign-in page, choose that you forgot your password.", "Reset password",
-        "If it was not you, nothing has changed and you do not need to do anything.");
+        "If it was not you, nothing has changed and you do not need to do anything.",
+        AppStep: "On the sign-in screen in the app, select that you forgot your password.");
 
     private static readonly RegistrationEmailText NorwegianAlreadyRegistered = new(
         "Registrering", "Noen prøvde å registrere seg hos {0}", "Noen prøvde å registrere seg med e-posten din",
         "Noen prøvde å registrere seg hos {0} med denne e-postadressen, men den har allerede en konto. Var det deg og du ikke kommer inn, kan du tilbakestille passordet.",
         "Velg at du har glemt passordet på innloggingssiden.", "Tilbakestill passordet",
-        "Har du ikke gjort det selv, er ingenting endret, og du trenger ikke gjøre noe.");
+        "Har du ikke gjort det selv, er ingenting endret, og du trenger ikke gjøre noe.",
+        AppStep: "Velg at du har glemt passordet på innloggingsskjermen i appen.");
 
     private static readonly RegistrationEmailText EnglishReminder = new(
         "Reminder", "Your account at {0} will be removed", "Verify your email to keep your account",
@@ -55,14 +59,14 @@ internal static class RegistrationEmailRenderer
         ? $"{date.Day.ToString(CultureInfo.InvariantCulture)}. {NorwegianMonths[date.Month - 1]} {date.Year.ToString(CultureInfo.InvariantCulture)}"
         : $"{date.Day.ToString(CultureInfo.InvariantCulture)} {EnglishMonths[date.Month - 1]} {date.Year.ToString(CultureInfo.InvariantCulture)}";
 
-    // The notice has no code. It links to the reset page when the options hold one, and otherwise names the step in words,
-    // as it also does when the reset code is entered in the app.
+    // The notice has no code. It links to the reset page when the options hold one, and otherwise names the step in words.
+    // When the reset code is entered in the app, the step says it happens in the app.
     internal static EmailMessage AlreadyRegistered(AppKitAuthEmailOptions options, EmailLanguage language, EmailBrand brand, string? firstName, string to)
     {
         var text = language == EmailLanguage.Norwegian ? NorwegianAlreadyRegistered : EnglishAlreadyRegistered;
         var page = !options.SetPasswordInApp && AppKitAuthEmailOptions.IsPageUrl(options.SetPasswordUrl) ? options.SetPasswordUrl : null;
         var words = AuthEmailRenderer.Words(language);
-        var step = page is null && text.Step is { } s
+        var step = page is null && (options.SetPasswordInApp ? text.AppStep ?? text.Step : text.Step) is { } s
             ? $"""<p style="margin:10px 0;{EmailLayout.TextStyle}">{AuthEmailRenderer.H(s)}</p>"""
             : string.Empty;
         var body = $"""

@@ -411,9 +411,9 @@ public class AuthEmailTests
 
     [Theory]
     [InlineData(EmailLanguage.English, false, "Password reset code", "We got a request to reset your password in the Pyttogpanne app. Open the app and enter the code below to choose a new one.", "Choose a new password", "Button not working?", "If you did not ask for this, ignore this email. Your password stays the same.", "The code expires in 30 minutes.")]
-    [InlineData(EmailLanguage.English, true, "Set your password at Pyttogpanne", "An account has been created for you in the Pyttogpanne app. Open the app and enter the code below to choose a password.", "Set your password", "Button not working?", "If you did not expect this, ignore this email.", "The code expires in 7 days.")]
+    [InlineData(EmailLanguage.English, true, "Set your password in the Pyttogpanne app", "An account has been created for you in the Pyttogpanne app. Open the app and enter the code below to choose a password.", "Set your password", "Button not working?", "If you did not expect this, ignore this email.", "The code expires in 7 days.")]
     [InlineData(EmailLanguage.Norwegian, false, "Tilbakestill passordet", "Vi har fått en forespørsel om å tilbakestille passordet ditt i appen Pyttogpanne. Åpne appen og skriv inn koden under for å velge et nytt.", "Velg nytt passord", "Virker ikke knappen?", "Har du ikke bedt om dette, kan du se bort fra e-posten. Passordet endres ikke.", "Koden utløper om 30 minutter.")]
-    [InlineData(EmailLanguage.Norwegian, true, "Sett passordet ditt hos Pyttogpanne", "Det er opprettet en konto for deg i appen Pyttogpanne. Åpne appen og skriv inn koden under for å velge et passord.", "Sett passord", "Virker ikke knappen?", "Venter du ikke denne e-posten, kan du se bort fra den.", "Koden utløper om 7 dager.")]
+    [InlineData(EmailLanguage.Norwegian, true, "Sett passordet ditt i appen Pyttogpanne", "Det er opprettet en konto for deg i appen Pyttogpanne. Åpne appen og skriv inn koden under for å velge et passord.", "Sett passord", "Virker ikke knappen?", "Venter du ikke denne e-posten, kan du se bort fra den.", "Koden utløper om 7 dager.")]
     public async Task Reset_and_invite_emails_without_a_page_show_the_code_and_say_to_enter_it_in_the_app(
         EmailLanguage language, bool invite, string subject, string intro, string button, string fallback, string ignore, string expiry)
     {
@@ -438,30 +438,34 @@ public class AuthEmailTests
         Assert.DoesNotContain("code=", html);
     }
 
+    // The expected emails were rendered by the version before SetPasswordInApp, so a web app with a page gets the same bytes.
     [Theory]
-    [InlineData(EmailLanguage.English, false)]
-    [InlineData(EmailLanguage.English, true)]
-    [InlineData(EmailLanguage.Norwegian, false)]
-    [InlineData(EmailLanguage.Norwegian, true)]
-    public async Task Reset_and_invite_emails_with_a_page_render_as_before(EmailLanguage language, bool invite)
+    [InlineData(EmailLanguage.English, false, "reset-en", "Password reset code")]
+    [InlineData(EmailLanguage.English, true, "invite-en", "Set your password at Pyttogpanne")]
+    [InlineData(EmailLanguage.Norwegian, false, "reset-nb", "Tilbakestill passordet")]
+    [InlineData(EmailLanguage.Norwegian, true, "invite-nb", "Sett passordet ditt hos Pyttogpanne")]
+    public async Task Reset_and_invite_emails_with_a_page_match_the_emails_sent_before_SetPasswordInApp(
+        EmailLanguage language, bool invite, string expected, string subject)
     {
-        const string Page = "https://pyttogpanne.example/nb/reset-password";
         using var services = Services(o => o.Language = language);
-        var user = invite ? User(TimeSpan.FromDays(7)) : User();
         var emails = services.GetRequiredService<IAuthEmails<IdentityTestUser>>();
 
         if (invite)
-            await emails.SendInviteAsync(user, "AB12CD", default);
+            await emails.SendInviteAsync(User(TimeSpan.FromDays(7)), "AB12CD", default);
         else
-            await emails.SendPasswordResetAsync(user, "AB12CD", default);
+            await emails.SendPasswordResetAsync(User(), "AB12CD", default);
 
-        var options = new AppKitAuthEmailOptions { Language = language, SetPasswordUrl = Page };
-        var expected = AuthEmailRenderer.Render(invite ? AuthEmailKind.Invite : AuthEmailKind.Reset, options, Brand, user.FirstName, user.Email!, "AB12CD",
-            user.PasswordResetCodeExpiration!.Value - _time.GetUtcNow().UtcDateTime, Page);
         var email = Assert.Single(_sender.Sent);
-        Assert.Equal(expected.Subject, email.Subject);
-        Assert.Equal(expected.HtmlBody, email.HtmlBody);
-        Assert.Contains($"href=\"{Page}?email=kari%2Btest%40example.no&amp;code=AB12CD\"", email.HtmlBody);
+        Assert.Equal(subject, email.Subject);
+        Assert.Equal(ExpectedEmail(expected), email.HtmlBody);
+    }
+
+    private static string ExpectedEmail(string name)
+    {
+        using var stream = typeof(AuthEmailTests).Assembly.GetManifestResourceStream($"ExpectedEmails.{name}.html")
+            ?? throw new InvalidOperationException($"No expected email named {name}.");
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
     }
 
     [Theory]

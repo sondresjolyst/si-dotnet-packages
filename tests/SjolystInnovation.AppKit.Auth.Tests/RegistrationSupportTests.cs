@@ -273,9 +273,9 @@ public class RegistrationEmailsTests
     }
 
     [Theory]
-    [InlineData("en", "On the sign-in page, choose that you forgot your password.")]
-    [InlineData("nb", "Velg at du har glemt passordet på innloggingssiden.")]
-    public async Task The_already_registered_email_names_the_step_in_words_when_the_reset_code_is_entered_in_the_app(string locale, string step)
+    [InlineData("en", "On the sign-in screen in the app, select that you forgot your password.", "sign-in page")]
+    [InlineData("nb", "Velg at du har glemt passordet på innloggingsskjermen i appen.", "innloggingssiden")]
+    public async Task The_already_registered_email_names_the_step_in_the_app_when_the_reset_code_is_entered_in_the_app(string locale, string step, string webStep)
     {
         var (emails, sender) = Build(o => o.SetPasswordInApp = true);
 
@@ -283,21 +283,24 @@ public class RegistrationEmailsTests
 
         var html = System.Net.WebUtility.HtmlDecode(Assert.Single(sender.Sent).HtmlBody);
         Assert.DoesNotContain("href=", html);
+        Assert.DoesNotContain(webStep, html);
         // The step keeps a gap to the closing paragraph, as there is no button between them.
         Assert.Contains($"<p style=\"margin:10px 0;{EmailLayout.TextStyle}\">{step}</p>", html);
     }
 
-    [Fact]
-    public async Task The_already_registered_email_names_the_step_in_words_when_there_is_no_reset_page()
+    [Theory]
+    [InlineData("en", "On the sign-in page, choose that you forgot your password.", "If it was not you, nothing has changed")]
+    [InlineData("nb", "Velg at du har glemt passordet på innloggingssiden.", "Har du ikke gjort det selv, er ingenting endret")]
+    public async Task The_already_registered_email_names_the_step_in_words_when_there_is_no_reset_page(string locale, string step, string closing)
     {
         var (emails, sender) = Build(o => o.SetPasswordUrl = string.Empty);
 
-        await emails.SendAlreadyRegisteredAsync(User(), null, CancellationToken.None);
+        await emails.SendAlreadyRegisteredAsync(User(), locale, CancellationToken.None);
 
-        var email = Assert.Single(sender.Sent);
-        Assert.DoesNotContain("href=", email.HtmlBody);
-        Assert.Contains("On the sign-in page, choose that you forgot your password.", email.HtmlBody);
-        Assert.Contains("If it was not you, nothing has changed", email.HtmlBody);
+        var html = System.Net.WebUtility.HtmlDecode(Assert.Single(sender.Sent).HtmlBody);
+        Assert.DoesNotContain("href=", html);
+        Assert.Contains(step, html);
+        Assert.Contains(closing, html);
     }
 
     [Fact]

@@ -562,7 +562,7 @@ the same `login` answer as before.
 
 2. Opt in. The app needs `AddAppKitAuth` with a signing key, an `IEmailBrand`, and an `IEmailSender`.
    The default emails also need `VerifyEmailUrl`, or `VerifyInApp` as
-   [Verify in the app](#verify-in-the-app) shows. The sign-up does not need `AddAppKitAuthEmails`,
+   [Codes entered in the app](#codes-entered-in-the-app) shows. The sign-up does not need `AddAppKitAuthEmails`,
    which only the reset and invite emails need. Without a `SetPasswordUrl`, or with `SetPasswordInApp`,
    the notice to an existing account names the reset step in words. To send your own emails, register
    `IRegistrationEmails<User>` before this call. The app then keeps any `VerifyEmailUrl` and `VerifyInApp`. If an option cannot
@@ -651,14 +651,16 @@ Every check that needs no account runs in a fixed order before the lookup by ema
 depends on whether the address has an account. The email is at most 200 characters and the password at
 most 128. The error codes section lists the codes.
 
-### Verify in the app
+### Codes entered in the app
 
 An app with no web page, such as a mobile app, sets `VerifyInApp` and `SetPasswordInApp`, and leaves
 `VerifyEmailUrl` and `SetPasswordUrl` empty. The verification email and the removal reminders then show
 the code with no button and no link, and tell the person to enter the code in the app. The reset and
-invite emails do the same. The notice to an existing account names the reset step in words. The app
+invite emails do the same, and the invite subject names the app. The notice to an existing account
+tells the person to select that they forgot the password on the sign-in screen in the app. The app
 sends a verification code to `verify-email` for the signed-in account, and a reset or invite code to
-`reset-password` with the email and the new password.
+`reset-password` with the email and the new password. The example calls `AddAppKitAuthEmails`, because
+that call covers the reset and invite emails. The sign-up alone needs only the options.
 
 ```csharp
 builder.Services.AddAppKitAuthEmails<User>(o =>

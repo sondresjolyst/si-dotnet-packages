@@ -233,7 +233,9 @@ internal enum AuthEmailKind
 /// <param name="Button">The button text.</param>
 /// <param name="Ignore">The paragraph for a person who did not expect the email.</param>
 /// <param name="AppIntro">The first paragraph when there is no page to link to, so the person enters the code in the app. Null to keep <paramref name="Intro"/>.</param>
-internal sealed record AuthEmailText(string Badge, string Subject, string Heading, string Intro, string Button, string Ignore, string? AppIntro = null);
+/// <param name="AppSubject">The subject when there is no page to link to. <c>{0}</c> is the brand name. Null to keep <paramref name="Subject"/>.</param>
+internal sealed record AuthEmailText(string Badge, string Subject, string Heading, string Intro, string Button, string Ignore,
+    string? AppIntro = null, string? AppSubject = null);
 
 /// <summary>The words shared by every email kind in one language.</summary>
 internal sealed record AuthEmailWords(
@@ -258,7 +260,8 @@ internal static class AuthEmailRenderer
             [AuthEmailKind.Invite] = new("Invitation", "Set your password at {0}", "Set your password",
                 "An account has been created for you at {0}. Use the code below to choose a password.",
                 "Set your password", "If you did not expect this, ignore this email.",
-                "An account has been created for you in the {0} app. Open the app and enter the code below to choose a password."),
+                "An account has been created for you in the {0} app. Open the app and enter the code below to choose a password.",
+                "Set your password in the {0} app"),
             [AuthEmailKind.Verify] = new("Verify email", "Verify your email", "Verify your email",
                 "Enter the code below in {0} to confirm this email address.",
                 "Verify email", "If you did not sign up, ignore this email.",
@@ -278,7 +281,8 @@ internal static class AuthEmailRenderer
             [AuthEmailKind.Invite] = new("Invitasjon", "Sett passordet ditt hos {0}", "Sett passordet ditt",
                 "Det er opprettet en konto for deg hos {0}. Bruk koden under for å velge et passord.",
                 "Sett passord", "Venter du ikke denne e-posten, kan du se bort fra den.",
-                "Det er opprettet en konto for deg i appen {0}. Åpne appen og skriv inn koden under for å velge et passord."),
+                "Det er opprettet en konto for deg i appen {0}. Åpne appen og skriv inn koden under for å velge et passord.",
+                "Sett passordet ditt i appen {0}"),
             [AuthEmailKind.Verify] = new("Bekreft e-post", "Bekreft e-posten din", "Bekreft e-posten din",
                 "Skriv inn koden under i {0} for å bekrefte denne e-postadressen.",
                 "Bekreft e-post", "Har du ikke registrert deg, kan du se bort fra e-posten.",
@@ -335,7 +339,7 @@ internal static class AuthEmailRenderer
         return primary.Equals("en", StringComparison.OrdinalIgnoreCase) ? EmailLanguage.English : fallback;
     }
 
-    // Without a page there is no button and no link, and the intro tells the person to enter the code in the app.
+    // Without a page there is no button and no link, and the intro and subject tell the person to enter the code in the app.
     internal static EmailMessage Render(AuthEmailKind kind, AppKitAuthEmailOptions options, EmailBrand brand,
         string? firstName, string to, string code, TimeSpan lifetime, string? page, EmailLanguage? language = null)
     {
@@ -344,6 +348,7 @@ internal static class AuthEmailRenderer
         var text = words.Kinds[kind];
         var link = page is null ? null : Link(page, to, code);
         var intro = link is null && text.AppIntro is { } appIntro ? appIntro : text.Intro;
+        var subject = link is null && text.AppSubject is { } appSubject ? appSubject : text.Subject;
         var hello = string.IsNullOrWhiteSpace(firstName) ? words.Hello : F(words.HelloName, H(firstName));
         var codeColor = EmailLayout.ReadsOnWhite(options.HeaderColor) ? options.HeaderColor : EmailLayout.Ink;
         var labelColor = EmailLayout.ReadsOnWhite(options.AccentColor) ? options.AccentColor : EmailLayout.Ink;
@@ -372,6 +377,6 @@ internal static class AuthEmailRenderer
             AfterButtonHtml = afterButton,
             Footer = F(words.Footer, brand.LegalName is { Length: > 0 } legal ? legal : brand.Name),
         });
-        return new EmailMessage(to, F(text.Subject, brand.Name), html);
+        return new EmailMessage(to, F(subject, brand.Name), html);
     }
 }
