@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Vipps-v2.0.0...SjolystInnovation.AppKit.Vipps-v2.1.0) (2026-11-23)
+
+
+### Features
+
+* **vipps:** carry the Vipps error details on failed calls ([#167](https://github.com/sondresjolyst/si-dotnet-packages/issues/167)) ([7f8114b](https://github.com/sondresjolyst/si-dotnet-packages/commit/7f8114b4a37666d448e64f24291161d44cc8d3f5))
+* **vipps:** log the ePayment error code from extraDetails ([#169](https://github.com/sondresjolyst/si-dotnet-packages/issues/169)) ([8a96426](https://github.com/sondresjolyst/si-dotnet-packages/commit/8a96426c7e8ef89e406bb13fa77b54831d2c1b4e))
+
 ## [2.0.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Vipps-v1.4.1...SjolystInnovation.AppKit.Vipps-v2.0.0) (2026-11-22)
 
 

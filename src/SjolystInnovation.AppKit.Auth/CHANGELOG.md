@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.1.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v2.0.0...SjolystInnovation.AppKit.Auth-v2.1.0) (2026-11-23)
+
+
+### Features
+
+* **auth:** accept further documents such as a privacy policy at sign-up ([#170](https://github.com/sondresjolyst/si-dotnet-packages/issues/170)) ([50d2137](https://github.com/sondresjolyst/si-dotnet-packages/commit/50d2137fd65d191320ce574f509764719bdb935e))
+* **auth:** let the reset and invite emails carry the code alone with SetPasswordInApp ([#174](https://github.com/sondresjolyst/si-dotnet-packages/issues/174)) ([9abf839](https://github.com/sondresjolyst/si-dotnet-packages/commit/9abf839e18a2190d07f733c55aeb934e7b867fd8))
+* **auth:** let the sign-up require a user name with a minimum and maximum length ([#171](https://github.com/sondresjolyst/si-dotnet-packages/issues/171)) ([ce59fc6](https://github.com/sondresjolyst/si-dotnet-packages/commit/ce59fc690ddc8852f3cd7250e98f43ac3dbb52a9))
+* **auth:** let the sign-up verify an email with the code alone through VerifyInApp ([#173](https://github.com/sondresjolyst/si-dotnet-packages/issues/173)) ([7356ead](https://github.com/sondresjolyst/si-dotnet-packages/commit/7356ead55907c0c94d562d9ae05e24740f86b1d6))
+
 ## [2.0.0](https://github.com/sondresjolyst/si-dotnet-packages/compare/SjolystInnovation.AppKit.Auth-v1.1.2...SjolystInnovation.AppKit.Auth-v2.0.0) (2026-11-22)
 
 
