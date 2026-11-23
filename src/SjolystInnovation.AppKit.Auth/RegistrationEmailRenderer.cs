@@ -11,7 +11,8 @@ namespace SjolystInnovation.AppKit.Auth;
 /// <param name="Step">A paragraph that names the step in words, used when there is no page to link to. Null for none.</param>
 /// <param name="Button">The button text.</param>
 /// <param name="Closing">The last paragraph.</param>
-internal sealed record RegistrationEmailText(string Badge, string Subject, string Heading, string Intro, string? Step, string Button, string Closing);
+/// <param name="AppIntro">The first paragraph when there is no page to link to, so the person enters the code in the app. Null to keep <paramref name="Intro"/>.</param>
+internal sealed record RegistrationEmailText(string Badge, string Subject, string Heading, string Intro, string? Step, string Button, string Closing, string? AppIntro = null);
 
 // Renders the two sign-up emails that carry no reset or invite code: the notice that someone tried to sign up with an
 // address that has an account, and the reminder that an unverified account is about to be removed. They use the shared layout.
@@ -39,13 +40,15 @@ internal static class RegistrationEmailRenderer
         "Reminder", "Your account at {0} will be removed", "Verify your email to keep your account",
         "The email address of your account at {0} is not verified yet. If it stays unverified, the account is removed on {1}. To verify it, sign in and enter the code below.",
         null, "Verify email",
-        "If you do not want the account, ignore this email. It is then removed on the date above.");
+        "If you do not want the account, ignore this email. It is then removed on the date above.",
+        "The email address of your account at {0} is not verified yet. If it stays unverified, the account is removed on {1}. To verify it, sign in to the app and enter the code below.");
 
     private static readonly RegistrationEmailText NorwegianReminder = new(
         "Påminnelse", "Kontoen din hos {0} blir fjernet", "Bekreft e-posten din for å beholde kontoen",
         "E-postadressen til kontoen din hos {0} er ikke bekreftet ennå. Blir den ikke bekreftet, fjernes kontoen {1}. Logg inn og skriv inn koden under for å bekrefte den.",
         null, "Bekreft e-post",
-        "Vil du ikke ha kontoen, kan du se bort fra e-posten. Den fjernes da på datoen over.");
+        "Vil du ikke ha kontoen, kan du se bort fra e-posten. Den fjernes da på datoen over.",
+        "E-postadressen til kontoen din hos {0} er ikke bekreftet ennå. Blir den ikke bekreftet, fjernes kontoen {1}. Logg inn i appen og skriv inn koden under for å bekrefte den.");
 
     // The date as a person reads it in the email's language, without depending on the culture data of the host.
     internal static string Date(DateTime date, EmailLanguage language) => language == EmailLanguage.Norwegian
@@ -69,15 +72,16 @@ internal static class RegistrationEmailRenderer
         return Build(options, language, brand, to, text, body, after, page, words);
     }
 
-    // The reminder carries a fresh code and links to the verify page when the options hold one.
+    // The reminder carries a fresh code and links to the verify page when the options hold one. Without one it tells the
+    // person to enter the code in the app.
     internal static EmailMessage Reminder(AppKitAuthEmailOptions options, EmailLanguage language, EmailBrand brand, string? firstName, string to, string code, DateTime removalAt)
     {
         var text = language == EmailLanguage.Norwegian ? NorwegianReminder : EnglishReminder;
-        var page = AppKitAuthEmailOptions.IsPageUrl(options.VerifyEmailUrl) ? AuthEmailRenderer.Link(options.VerifyEmailUrl, to, code) : null;
+        var page = options.VerifyPage() is { } verify ? AuthEmailRenderer.Link(verify, to, code) : null;
         var words = AuthEmailRenderer.Words(language);
         var codeColor = EmailLayout.ReadsOnWhite(options.HeaderColor) ? options.HeaderColor : EmailLayout.Ink;
         var labelColor = EmailLayout.ReadsOnWhite(options.AccentColor) ? options.AccentColor : EmailLayout.Ink;
-        var intro = string.Format(CultureInfo.InvariantCulture, text.Intro, brand.Name, Date(removalAt, language));
+        var intro = string.Format(CultureInfo.InvariantCulture, page is null && text.AppIntro is { } appIntro ? appIntro : text.Intro, brand.Name, Date(removalAt, language));
         var body = $$"""
                 {{Hello(words, firstName)}}
                 <p style="margin:0;{{EmailLayout.TextStyle}}">{{AuthEmailRenderer.H(intro)}}</p>

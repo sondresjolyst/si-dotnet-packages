@@ -83,13 +83,33 @@ public sealed class AppKitAuthEmailOptions
     public string SetPasswordUrl { get; set; } = string.Empty;
 
     /// <summary>
-    /// The absolute address of the app's page that takes an email verification code. Only
-    /// <see cref="AuthEmailServiceCollectionExtensions.AddAppKitVerificationEmails{TUser}"/> requires it.
+    /// The absolute http or https address of the app's page that takes an email verification code. The verification
+    /// email and the removal reminders link to it with <c>email</c> and <c>code</c> added to the query string. An https
+    /// app link that opens the app works here too. Leave it empty only with <see cref="VerifyInApp"/>.
     /// </summary>
     public string VerifyEmailUrl { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Whether the person types the verification code into the app instead of opening a page, for an app with no web
+    /// page such as a mobile app. The verification email and the removal reminders then show the code and tell the
+    /// person to enter it in the app, with no button and no link. <see cref="VerifyEmailUrl"/> must then be empty.
+    /// Defaults to false, so an empty <see cref="VerifyEmailUrl"/> still fails the start.
+    /// </summary>
+    public bool VerifyInApp { get; set; }
+
     internal static bool IsPageUrl(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp);
+
+    // Code-only is an explicit choice, so a web app whose page setting went missing still fails. A page set next to it
+    // fails too, because the emails would leave it out.
+    internal bool HasValidVerifyPage => VerifyInApp ? string.IsNullOrEmpty(VerifyEmailUrl) : IsPageUrl(VerifyEmailUrl);
+
+    internal const string VerifyRule =
+        "AppKitAuthEmailOptions.VerifyEmailUrl must be an absolute http or https address. With AppKitAuthEmailOptions.VerifyInApp set to true it must be empty instead.";
+
+    // The verify page, or null when the code is entered in the app. Options that break the rule throw, so nothing is sent.
+    internal string? VerifyPage() => !HasValidVerifyPage ? throw new InvalidOperationException(VerifyRule)
+        : VerifyInApp ? null : VerifyEmailUrl;
 }
 
 /// <summary>Sends the email verification code with the same layout as the other auth emails.</summary>
@@ -125,15 +145,16 @@ public static class AuthEmailServiceCollectionExtensions
 
     /// <summary>
     /// Registers an <see cref="IVerificationEmails{TUser}"/> for apps that verify email addresses. It uses
-    /// the options from <see cref="AddAppKitAuthEmails{TUser}"/>, which you must also register, and
-    /// requires <see cref="AppKitAuthEmailOptions.VerifyEmailUrl"/>.
+    /// the options from <see cref="AddAppKitAuthEmails{TUser}"/>, which you must also register. It
+    /// requires <see cref="AppKitAuthEmailOptions.VerifyEmailUrl"/>, or <see cref="AppKitAuthEmailOptions.VerifyInApp"/>
+    /// with no page, in which case the email shows the code with no link.
     /// </summary>
     public static IServiceCollection AddAppKitVerificationEmails<TUser>(this IServiceCollection services)
         where TUser : IdentityUser, IAppKitAccount, IEmailVerificationUser
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddOptions<AppKitAuthEmailOptions>()
-            .Validate(o => AppKitAuthEmailOptions.IsPageUrl(o.VerifyEmailUrl), "AppKitAuthEmailOptions.VerifyEmailUrl must be an absolute http or https address.")
+            .Validate(o => o.HasValidVerifyPage, AppKitAuthEmailOptions.VerifyRule)
             .ValidateOnStart();
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddScoped<IVerificationEmails<TUser>, VerificationEmails<TUser>>();
@@ -172,7 +193,7 @@ internal sealed class VerificationEmails<TUser>(IEmailSender sender, IEmailBrand
             ?? throw new InvalidOperationException("The user has no verification code. Issue one with EmailVerificationCodes.Issue first.");
         var brand = await brands.GetBrandAsync(cancellationToken);
         var email = AuthEmailRenderer.Render(AuthEmailKind.Verify, options.Value, brand, user.FirstName, user.Email!, code,
-            expires - time.GetUtcNow().UtcDateTime, options.Value.VerifyEmailUrl);
+            expires - time.GetUtcNow().UtcDateTime, options.Value.VerifyPage());
         await sender.SendAsync(email, cancellationToken);
     }
 }
@@ -185,7 +206,14 @@ internal enum AuthEmailKind
 }
 
 /// <summary>The words of one email kind in one language.</summary>
-internal sealed record AuthEmailText(string Badge, string Subject, string Heading, string Intro, string Button, string Ignore);
+/// <param name="Badge">The label in the header.</param>
+/// <param name="Subject">The subject. <c>{0}</c> is the brand name.</param>
+/// <param name="Heading">The heading above the body.</param>
+/// <param name="Intro">The first paragraph. <c>{0}</c> is the brand name.</param>
+/// <param name="Button">The button text.</param>
+/// <param name="Ignore">The paragraph for a person who did not expect the email.</param>
+/// <param name="AppIntro">The first paragraph when there is no page to link to, so the person enters the code in the app. Null to keep <paramref name="Intro"/>.</param>
+internal sealed record AuthEmailText(string Badge, string Subject, string Heading, string Intro, string Button, string Ignore, string? AppIntro = null);
 
 /// <summary>The words shared by every email kind in one language.</summary>
 internal sealed record AuthEmailWords(
@@ -211,7 +239,8 @@ internal static class AuthEmailRenderer
                 "Set your password", "If you did not expect this, ignore this email."),
             [AuthEmailKind.Verify] = new("Verify email", "Verify your email", "Verify your email",
                 "Enter the code below in {0} to confirm this email address.",
-                "Verify email", "If you did not sign up, ignore this email."),
+                "Verify email", "If you did not sign up, ignore this email.",
+                "Open the {0} app and enter the code below to confirm this email address."),
         });
 
     private static readonly AuthEmailWords Norwegian = new(
@@ -228,7 +257,8 @@ internal static class AuthEmailRenderer
                 "Sett passord", "Venter du ikke denne e-posten, kan du se bort fra den."),
             [AuthEmailKind.Verify] = new("Bekreft e-post", "Bekreft e-posten din", "Bekreft e-posten din",
                 "Skriv inn koden under i {0} for å bekrefte denne e-postadressen.",
-                "Bekreft e-post", "Har du ikke registrert deg, kan du se bort fra e-posten."),
+                "Bekreft e-post", "Har du ikke registrert deg, kan du se bort fra e-posten.",
+                "Åpne appen {0} og skriv inn koden under for å bekrefte denne e-postadressen."),
         });
 
     internal static string H(string? value) => WebUtility.HtmlEncode(value ?? string.Empty);
@@ -281,13 +311,15 @@ internal static class AuthEmailRenderer
         return primary.Equals("en", StringComparison.OrdinalIgnoreCase) ? EmailLanguage.English : fallback;
     }
 
+    // Without a page there is no button and no link, and the intro tells the person to enter the code in the app.
     internal static EmailMessage Render(AuthEmailKind kind, AppKitAuthEmailOptions options, EmailBrand brand,
-        string? firstName, string to, string code, TimeSpan lifetime, string page, EmailLanguage? language = null)
+        string? firstName, string to, string code, TimeSpan lifetime, string? page, EmailLanguage? language = null)
     {
         var emailLanguage = language ?? options.Language;
         var words = Words(emailLanguage);
         var text = words.Kinds[kind];
-        var link = Link(page, to, code);
+        var link = page is null ? null : Link(page, to, code);
+        var intro = link is null && text.AppIntro is { } appIntro ? appIntro : text.Intro;
         var hello = string.IsNullOrWhiteSpace(firstName) ? words.Hello : F(words.HelloName, H(firstName));
         var codeColor = EmailLayout.ReadsOnWhite(options.HeaderColor) ? options.HeaderColor : EmailLayout.Ink;
         var labelColor = EmailLayout.ReadsOnWhite(options.AccentColor) ? options.AccentColor : EmailLayout.Ink;
@@ -295,20 +327,24 @@ internal static class AuthEmailRenderer
 
         var body = $$"""
                 <p style="margin:0 0 10px;{{Paragraph}}">{{hello}}</p>
-                <p style="margin:0;{{Paragraph}}">{{H(F(text.Intro, brand.Name))}}</p>
+                <p style="margin:0;{{Paragraph}}">{{H(F(intro, brand.Name))}}</p>
                 <div style="text-align:center;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:{{labelColor}};margin:22px 0 6px">{{H(words.CodeLabel)}}</div>
                 <div style="text-align:center;font-family:'Courier New',Courier,monospace;font-size:32px;font-weight:700;letter-spacing:.3em;color:{{codeColor}};background:#f1f5f9;border:1px solid #cbd5e1;border-radius:8px;padding:18px 12px;margin:0 0 20px">{{H(code)}}</div>
             """;
         var afterButton = $$"""
                 <p style="margin:0 0 8px;{{Paragraph}}">{{H(F(words.Expiry, Duration(lifetime, words)))}}</p>
                 <p style="margin:0;{{Paragraph}}">{{H(text.Ignore)}}</p>
-                <p style="margin:16px 0 0;color:#6b7280;font-size:11px;line-height:1.5;word-break:break-all">{{H(words.Fallback)}} {{H(link)}}</p>
             """;
+        if (link is not null)
+            afterButton += $"""
+
+                    <p style="margin:16px 0 0;color:#6b7280;font-size:11px;line-height:1.5;word-break:break-all">{H(words.Fallback)} {H(link)}</p>
+                """;
         var html = EmailLayout.Render(new EmailLayoutRequest(Company(brand), Language(emailLanguage), text.Badge, text.Heading, body)
         {
             HeaderColor = options.HeaderColor,
             AccentColor = options.AccentColor,
-            Button = new EmailButton(text.Button, link),
+            Button = link is null ? null : new EmailButton(text.Button, link),
             AfterButtonHtml = afterButton,
             Footer = F(words.Footer, brand.LegalName is { Length: > 0 } legal ? legal : brand.Name),
         });

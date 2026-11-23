@@ -25,7 +25,7 @@ public static class SelfRegistrationServiceCollectionExtensions
     /// that sends the verification email, the notice to an existing account and the removal reminder through
     /// <see cref="IEmailSender"/> in the layout of the other auth emails, unless the app registered its own first. The verification
     /// email and the reminder greet with no name. The default needs an <see cref="IEmailBrand"/> and an <see cref="IEmailSender"/>,
-    /// and <see cref="AppKitAuthEmailOptions.VerifyEmailUrl"/> for the verification email. It registers the default <see cref="IConsentRequirements"/>. The bearer check then reads whether the email is confirmed and which documents the user must accept again, and the login and refresh answers gain <c>emailVerified</c> and <c>pendingConsents</c>. It also makes access tokens carry a hash of the security stamp, so verifying an email ends earlier access tokens at once. A token without that claim, issued before the app opted in, stays valid until it expires. It also registers <see cref="IUnverifiedAccountCleanup"/> and a hosted service that runs it when the app starts and once a day, unless <see cref="AppKitRegistrationOptions{TUser}.RunCleanupInBackground"/> is false. The app also fails to start when the EF model of <typeparamref name="TContext"/> has no unique index on the normalised email of <typeparamref name="TUser"/>. <see cref="AccountConsentModelBuilderExtensions.AddAppKitAccountConsents{TUser}"/> adds it. The check reads the model only and cannot see the database, so the app must also apply the migration that creates the index. The account export then lists the consent rows of the user under <c>consents</c>, without the IP address, and deleting an account clears the stored IP address and locale of its consent rows and keeps the rows. An app that never calls this sees no change.
+    /// and <see cref="AppKitAuthEmailOptions.VerifyEmailUrl"/> as an absolute http or https address, or <see cref="AppKitAuthEmailOptions.VerifyInApp"/> with no page. Otherwise the app fails to start. It does not need <see cref="AuthEmailServiceCollectionExtensions.AddAppKitAuthEmails{TUser}"/>, which only the reset and invite emails need. Without a reset page, the notice to an existing account names the reset step in words. It registers the default <see cref="IConsentRequirements"/>. The bearer check then reads whether the email is confirmed and which documents the user must accept again, and the login and refresh answers gain <c>emailVerified</c> and <c>pendingConsents</c>. It also makes access tokens carry a hash of the security stamp, so verifying an email ends earlier access tokens at once. A token without that claim, issued before the app opted in, stays valid until it expires. It also registers <see cref="IUnverifiedAccountCleanup"/> and a hosted service that runs it when the app starts and once a day, unless <see cref="AppKitRegistrationOptions{TUser}.RunCleanupInBackground"/> is false. The app also fails to start when the EF model of <typeparamref name="TContext"/> has no unique index on the normalised email of <typeparamref name="TUser"/>. <see cref="AccountConsentModelBuilderExtensions.AddAppKitAccountConsents{TUser}"/> adds it. The check reads the model only and cannot see the database, so the app must also apply the migration that creates the index. The account export then lists the consent rows of the user under <c>consents</c>, without the IP address, and deleting an account clears the stored IP address and locale of its consent rows and keeps the rows. An app that never calls this sees no change.
     /// </summary>
     public static IServiceCollection AddAppKitSelfRegistration<TUser, TContext>(
         this IServiceCollection services, Action<AppKitRegistrationOptions<TUser>> configure)
@@ -53,6 +53,11 @@ public static class SelfRegistrationServiceCollectionExtensions
             .Validate(o => o.RemindBefore is not null && o.RemindBefore.All(r => r > TimeSpan.Zero && r < o.UnverifiedLifetime),
                 "Every reminder offset must be positive and shorter than the unverified account lifetime.")
             .ValidateOnStart();
+        // The default sign-up emails need a verify page or VerifyInApp. An app that sends its own emails keeps any values.
+        // The check reads the registrations when it runs, so it sees an IRegistrationEmails added after this call too.
+        services.AddOptions<AppKitAuthEmailOptions>()
+            .Validate(o => !UsesDefaultEmails<TUser>(services) || o.HasValidVerifyPage, AppKitAuthEmailOptions.VerifyRule)
+            .ValidateOnStart();
         // The sign-up count hashes are keyed from the signing key. Without AddAppKitAuth the key stays empty and fails here.
         services.AddOptions<AppKitAuthOptions>()
             .Validate(o => AppKitAuthOptions.IsLongEnough(o.Key),
@@ -74,6 +79,10 @@ public static class SelfRegistrationServiceCollectionExtensions
         services.AddHostedService<UnverifiedAccountCleanupService<TUser>>();
         return services;
     }
+
+    // The last registration wins in the container, so it decides which emails the sign-up sends.
+    private static bool UsesDefaultEmails<TUser>(IServiceCollection services) where TUser : IdentityUser =>
+        services.LastOrDefault(d => d.ServiceType == typeof(IRegistrationEmails<TUser>))?.ImplementationType == typeof(RegistrationEmails<TUser>);
 }
 
 // Fails the start of the app when the model has no unique index on the normalised email. The sign-up relies on it to
