@@ -3,9 +3,15 @@ using Microsoft.Extensions.Caching.Memory;
 
 namespace SjolystInnovation.AppKit.Auth;
 
+// The documents a requirement may name, from the sign-up options: the terms and the further documents.
+internal sealed class ConsentDocuments(Func<string, bool> isListed)
+{
+    public bool IsListed(string document) => isListed(document);
+}
+
 // The default IConsentRequirements. A requirement is unique on document and effective time, so marking it twice changes nothing.
 // The caller must not hold a transaction around the call, for the same reason as for the consent insert.
-internal sealed class ConsentRequirements<TContext>(TContext db, TimeProvider time, IMemoryCache? cache = null, IConsentVersionSource? versions = null) : IConsentRequirements
+internal sealed class ConsentRequirements<TContext>(TContext db, TimeProvider time, ConsentDocuments documents, IMemoryCache? cache = null, IConsentVersionSource? versions = null) : IConsentRequirements
     where TContext : DbContext, IAccountConsentDbContext
 {
     private const int MaxVersion = 64;
@@ -13,6 +19,11 @@ internal sealed class ConsentRequirements<TContext>(TContext db, TimeProvider ti
     public async Task RequireAcceptanceAsync(string document, DateTime effectiveFrom, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(document);
+        // accept-terms takes only these names, so a requirement for any other document would leave every user pending for good.
+        if (!documents.IsListed(document))
+            throw new ArgumentException(
+                $"The document {document} is neither the terms document nor in AdditionalDocuments, so no one could accept it. Add it to AdditionalDocuments first.",
+                nameof(document));
 
         if (!await ExistsAsync(document, effectiveFrom, cancellationToken))
         {

@@ -268,7 +268,7 @@ code for each message at the same place. The `limits` extension holds the number
 | `roleAssignFailed` | `POST {id}/roles` and `invite`, when Identity cannot give the role. | `400` |
 | `roleRemoveFailed` | `DELETE {id}/roles/{role}`, when Identity cannot take the role. | `400` |
 | `emailTaken` | `invite`, for an email with an account. Also a field error on `Email` if Identity refuses a duplicate. | `409` |
-| `termsChanged` | `register` and `accept-terms`, when the terms version is not the current one. | `409` |
+| `termsChanged` | `register` and `accept-terms`, when the version of the terms or a further document is not the current one. For a further document, or a document named in `accept-terms`, the body also holds `document`. | `409` |
 | `invalidCode` | `verify-email`, for a wrong or expired code. | `400` |
 | `alreadyVerified` | `verify-email` and `resend-verification`, for a verified email. | `409` |
 | `tooManyAttempts` | `verify-email` and `resend-verification`, after 5 wrong codes until the code expires. | `429` |
@@ -282,7 +282,7 @@ code for each message at the same place. The `limits` extension holds the number
 | --- | --- |
 | `required` | Any required field that is blank. |
 | `invalidEmail` | `Email` on `login`, `request-password-reset`, `reset-password`, `invite`, and `register`, also over 200 characters. |
-| `tooLong` | `FirstName`, `LastName`, and `UserName`, over 50 characters. On `register` also `Password`, `TermsVersion`, and `Locale`. The limit is in `limits`. |
+| `tooLong` | `FirstName`, `LastName`, and `UserName`, over 50 characters. On `register` also `Password`, `TermsVersion`, `Locale`, and `Documents.{document}`. On `accept-terms` also `Document`. The limit is in `limits`. |
 | `passwordTooShort` | `NewPassword`. Identity's required length is in `limits`. |
 | `passwordRequiresDigit`, `passwordRequiresLower`, `passwordRequiresUpper` | `NewPassword`. |
 | `passwordRequiresNonAlphanumeric`, `passwordRequiresUniqueChars` | `NewPassword`, when the app's Identity options require them. |
@@ -291,9 +291,10 @@ code for each message at the same place. The `limits` extension holds the number
 | `unknownRole` | `Role` on `invite`. |
 | `emailTaken` | `Email` on `invite`, when Identity refuses a duplicate. |
 | `ageNotConfirmed` | `AgeConfirmed` on `register`. |
-| `termsNotAccepted` | `TermsAccepted` on `register`. |
+| `termsNotAccepted` | `TermsAccepted` on `register`, and `Documents.{document}` for a further document the request left out. |
 | `invalidUserName` | `UserName` on `register`, for an `@` or a character Identity does not allow. |
 | `userNameTaken` | `UserName` on `register`. |
+| `unknownDocument` | `Document` on `accept-terms`, for a name that is neither `TermsDocument` nor in `AdditionalDocuments`. Posting it again gives the same answer. |
 
 `login` never says whether an email has an account, so it has no code for an unconfirmed email. A
 `429` from the rate limiter in `SjolystInnovation.AppKit.Hosting` carries `tooManyRequests`.
@@ -519,7 +520,7 @@ only, so save it after each call.
 ## Sign-up
 
 An app can opt in to public sign-up. It adds `register`, `verify-email`, `resend-verification`, and
-`accept-terms`. A person signs up with an email and a password, accepts the terms, confirms an age, and
+`accept-terms`. A person signs up with an email and a password, accepts the terms and any further documents, confirms an age, and
 verifies the email with a code. The app removes accounts that never verify. An app that does not call
 `AddAppKitSelfRegistration` is unchanged. It gets no route, no consent table read, no new claim, and
 the same `login` answer as before.
@@ -595,7 +596,8 @@ the same `login` answer as before.
 | `NewUser` | None | Required. Creates a user from an `AppKitRegistration` with `Email`, `UserName`, `FirstName`, `LastName`, and `Locale`. |
 | `Role` | None | The role a new user gets. |
 | `MinimumAge` | 16 | The age a person confirms to be at least. Must be positive. |
-| `TermsDocument` | `terms` | The document name of the terms in the consent rows. |
+| `TermsDocument` | `terms` | The document name of the terms in the consent rows. 1 to 32 ASCII letters, digits, hyphens, or underscores, so it is never blank and has no spaces. |
+| `AdditionalDocuments` | None | Further documents a person accepts at sign-up, such as `privacy`. Each name is 1 to 32 ASCII letters, digits, hyphens, or underscores, so it is never blank and has no spaces. Each name is unique, and neither `TermsDocument` nor `age`. |
 | `RequireNames` | `false` | Whether `firstName` and `lastName` are required, at most 50 characters each. |
 | `AllowUserName` | `false` | Whether the person may choose a user name. |
 | `RecordTruncatedIp` | `false` | Whether each consent row keeps the caller's address cut to its first three parts for IPv4 and 48 bits for IPv6. |
@@ -619,10 +621,10 @@ latest consent row of the user.
 
 | Route | Who | What it does |
 | --- | --- | --- |
-| `POST register` with `email`, `password`, `ageConfirmed`, `termsAccepted`, `termsVersion`, and optional `userName`, `firstName`, `lastName`, `locale` | Anyone | Answers `200 { message }` for a new and an existing address alike. A new address gets an unverified account and a code by email. An existing active account gets a notice instead, at most once per `ResendCooldown`. A field error is a validation problem, a version that is not current gives `409`, a refusal from `ISignUpGuard` gives `400`, and a network over its cap gives `429`. |
+| `POST register` with `email`, `password`, `ageConfirmed`, `termsAccepted`, `termsVersion`, and optional `userName`, `firstName`, `lastName`, `locale`, `documents` | Anyone | Answers `200 { message }` for a new and an existing address alike. A new address gets an unverified account and a code by email. An existing active account gets a notice instead, at most once per `ResendCooldown`. A field error is a validation problem, a version that is not current gives `409`, a refusal from `ISignUpGuard` gives `400`, and a network over its cap gives `429`. |
 | `POST verify-email` with `code` | Signed-in user | Confirms the email, ends every session, and answers `200 { message }`. A wrong or expired code gives `400`, a verified account `409`, and 5 wrong codes `429`. |
 | `POST resend-verification` | Signed-in user | Sends a new code and answers `200 { message }`. Inside the cooldown, or over the owner cap, it gives `429`. While 5 wrong codes lock the current one, it gives `429` until that code has expired. A verified account gives `409`. |
-| `POST accept-terms` with `termsVersion`, optional `locale` | Signed-in user | Records the acceptance and answers `204`, whether the email is verified or not. A version that is not current gives `409`. |
+| `POST accept-terms` with `termsVersion`, optional `locale`, optional `document` | Signed-in user | Records the acceptance of the terms, or of the document named in `document`, and answers `204`, whether the email is verified or not. A version that is not current gives `409`. |
 
 Verify and resend need the signed-in account, because a code alone never verifies one. The code
 reaches the owner of the address, and the password belongs to whoever signed up. If the code alone
@@ -644,7 +646,7 @@ sets is replaced. Sign-in is by email, so a generated name is never shown or typ
 
 A sign-up stores two rows in `AccountConsents` with the source `register`. One is the terms, with
 `TermsDocument` and the version. The other is the age, with the document `age` and `MinimumAge` as its
-version. A row holds the user, document, version, locale, time, source, and the shortened address when
+version. Each document in `AdditionalDocuments` adds one more row. A row holds the user, document, version, locale, time, source, and the shortened address when
 `RecordTruncatedIp` is on. Rows are only added. `accept-terms` adds rows with the source `reaccept`.
 
 An `IConsentVersionSource` tells the package which version of a document is current. The sign-up and
@@ -672,13 +674,64 @@ A request with no locale gets the version of the first language in `Locales`. Th
 [SiteSettings package](../SjolystInnovation.AppKit.SiteSettings/README.md#current-version) describes
 how a version is made.
 
+### More than one document
+
+To have people accept a privacy policy next to the terms, list it in `AdditionalDocuments`:
+
+```csharp
+builder.Services.AddAppKitSelfRegistration<User, ApplicationDbContext>(o =>
+{
+    o.NewUser = r => new User();
+    o.AdditionalDocuments = ["privacy"];
+});
+```
+
+The terms stay in `termsAccepted` and `termsVersion`. The client sends each further document in
+`documents`, with the version the person saw:
+
+```json
+{
+  "email": "ada@example.com",
+  "password": "Password1",
+  "ageConfirmed": true,
+  "termsAccepted": true,
+  "termsVersion": "2026-11-01",
+  "documents": { "privacy": "2026-10-15" },
+  "locale": "en"
+}
+```
+
+Each document is checked against its own current version from `IConsentVersionSource`, in the same way
+as the terms, and gets its own row. A listed document that the request leaves out is a field error,
+`termsNotAccepted` on `Documents.privacy`. A version that is not current answers `409 termsChanged`
+with the document in the body:
+
+```json
+{ "message": "The document privacy has changed. Read the current version and accept it again.", "code": "termsChanged", "document": "privacy" }
+```
+
+The sign-up ignores names in `documents` that the app does not list, and the terms in `documents`.
+An app without `AdditionalDocuments` and a client without `documents` work as before.
+
+To accept a document again, send its name in `document` to `accept-terms`, with its version in
+`termsVersion`:
+
+```json
+{ "document": "privacy", "termsVersion": "2026-12-01", "locale": "en" }
+```
+
+Without `document`, `accept-terms` accepts the terms and answers as before. A conflict about a named
+document holds `document`. A name that is neither `TermsDocument` nor in `AdditionalDocuments` is a
+field error, `unknownDocument` on `Document`, and records nothing.
+
 ### Asking people to accept again
 
 When a document changes, publish the new text first, in every language the app serves. A person who
 accepts in a language whose text was not updated still meets the requirement, since acceptances are
 compared by time. Then call `RequireAcceptanceAsync` on an injected
 `IConsentRequirements`, without a transaction around it. Calling it twice with the same document and
-time changes nothing.
+time changes nothing. The document must be `TermsDocument` or in `AdditionalDocuments`, because
+`accept-terms` takes no other name. Any other name throws an `ArgumentException` and marks nothing.
 
 ```csharp
 await requirements.RequireAcceptanceAsync("terms", DateTime.UtcNow.AddDays(14), cancellationToken);
@@ -688,10 +741,16 @@ A requirement binds from `effectiveFrom`. A user is pending for the document fro
 user's latest acceptance of it, of any version, was made at or after the time of the call. An
 acceptance before `effectiveFrom` still counts, so a person can accept ahead of the day. Accepting
 always works, and a pending user always gets a new row. The version in the requirement is a record and
-is never compared.
+is never compared. Each document has its own requirements, so a new privacy policy makes people pending
+for `privacy` only, and accepting it clears that one.
+
+```csharp
+await requirements.RequireAcceptanceAsync("privacy", DateTime.UtcNow.AddDays(14), cancellationToken);
+```
 
 For an opted-in app, `login` and `refresh-token` answer `{ token, refreshToken, emailVerified,
-pendingConsents }`, where `pendingConsents` lists `document` and `version`.
+pendingConsents }`, where `pendingConsents` lists `document` and `version` for each pending document
+on its own, in name order. `AppKitClaims.GetPendingConsents` gives the same list on the server.
 
 ### Filters
 

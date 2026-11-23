@@ -110,7 +110,10 @@ public static class AuthErrorCodes
     /// <summary>The person did not confirm the minimum age. The error is keyed by <c>AgeConfirmed</c>.</summary>
     public const string AgeNotConfirmed = "ageNotConfirmed";
 
-    /// <summary>The person did not tick the box for the terms at sign-up. The error is keyed by <c>TermsAccepted</c>.</summary>
+    /// <summary>
+    /// The person did not tick the box for the terms at sign-up. The error is keyed by <c>TermsAccepted</c>. For a further document
+    /// that the sign-up asks for and the request left out, it is keyed by <c>Documents.</c> and the document name, such as <c>Documents.privacy</c>.
+    /// </summary>
     public const string TermsNotAccepted = "termsNotAccepted";
 
     /// <summary>The user must accept a document again. The answer is 403 from <c>RequireCurrentTerms</c>.</summary>
@@ -122,7 +125,10 @@ public static class AuthErrorCodes
     /// <summary>The user name has characters Identity does not allow. The error is keyed by <c>UserName</c>.</summary>
     public const string InvalidUserName = "invalidUserName";
 
-    /// <summary>The terms version the client sent is not the current one. The answer is 409, and the client should reload the terms.</summary>
+    /// <summary>
+    /// The terms version the client sent is not the current one. The answer is 409, and the client should reload the terms. For a
+    /// further document, or a document named in <c>accept-terms</c>, the body also holds <c>document</c>, the document to reload.
+    /// </summary>
     public const string TermsChanged = "termsChanged";
 
     /// <summary>The verification code is wrong or expired.</summary>
@@ -147,15 +153,29 @@ public static class AuthErrorCodes
 
     /// <summary>The app's <see cref="ISignUpGuard"/> did not let the sign-up go on, for example because a captcha or an app attestation check failed. The answer is 400.</summary>
     public const string SignUpRefused = "signUpRefused";
+
+    /// <summary>
+    /// The document named on <c>accept-terms</c> is neither the terms nor a further document of the sign-up. The error is keyed by
+    /// <c>Document</c>. Posting the same name again gives the same answer.
+    /// </summary>
+    public const string UnknownDocument = "unknownDocument";
 }
 
-/// <summary>The body of an error that belongs to no field: the English message and its code.</summary>
-internal sealed record AuthError(string Message, string Code);
+/// <summary>
+/// The body of an error that belongs to no field: the English message and its code. A conflict about a document that the
+/// request named also holds that document.
+/// </summary>
+internal sealed record AuthError(string Message, string Code,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? Document = null);
 
 internal static class AuthResults
 {
-    public static JsonHttpResult<AuthError> Error(string code, string message, int status) =>
-        TypedResults.Json(new AuthError(message, code), statusCode: status);
+    public static JsonHttpResult<AuthError> Error(string code, string message, int status, string? document = null) =>
+        TypedResults.Json(new AuthError(message, code, document), statusCode: status);
+
+    /// <summary>The answer when the version sent for a document the request named is not the current one.</summary>
+    public static JsonHttpResult<AuthError> DocumentChanged(string document) =>
+        Error(AuthErrorCodes.TermsChanged, $"The document {document} has changed. Read the current version and accept it again.", StatusCodes.Status409Conflict, document);
 
     /// <summary>The answer when a check could not store its result, so the caller learns nothing about the code.</summary>
     public static JsonHttpResult<AuthError> TryAgain() =>

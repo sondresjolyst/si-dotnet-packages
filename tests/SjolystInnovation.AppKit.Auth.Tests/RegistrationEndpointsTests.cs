@@ -867,10 +867,10 @@ public sealed class RegistrationEndpointsTests : IAsyncDisposable
     [Fact]
     public async Task A_requirement_for_another_document_does_not_change_what_a_sign_up_stores()
     {
-        await StartAsync(versionSource: false);
+        await StartAsync(o => o.AdditionalDocuments = ["privacy"], versionSource: false);
         await RequireAsync(TimeSpan.Zero, "privacy");
 
-        var response = await RegisterAsync(Body(NewEmail, ("termsVersion", "whatever")));
+        var response = await RegisterAsync(Body(NewEmail, ("termsVersion", "whatever"), ("documents", new Dictionary<string, string> { ["privacy"] = "p1" })));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(AccountConsent.Unversioned, Db(db => db.AccountConsents.Single(c => c.Document == "terms").Version));

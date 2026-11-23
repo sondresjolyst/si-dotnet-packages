@@ -127,10 +127,13 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
         // A source that gives no version for a locale it does not know, and one for a request without a locale.
         public bool NullForUnknownLocale { get; set; }
 
+        // The version of a document other than the terms, by document name. A document not named here gets the terms version.
+        public Dictionary<string, string?> PerDocument { get; } = [];
+
         public async Task<string?> GetCurrentVersionAsync(string document, string? locale, CancellationToken cancellationToken)
         {
             Locales.Add(locale);
-            var current = PerLocale ? (locale == "en" ? "en-1" : "nb-1") : Current;
+            var current = PerDocument.TryGetValue(document, out var own) ? own : PerLocale ? (locale == "en" ? "en-1" : "nb-1") : Current;
             if (NullForUnknownLocale && locale is not null and not "nb" and not "en")
                 current = null;
             if (OnFirstRead is { } hook)
@@ -870,7 +873,7 @@ public sealed partial class TermsAndFiltersTests : IAsyncDisposable
     [Fact]
     public async Task Requiring_acceptance_for_another_effective_time_or_document_adds_a_row()
     {
-        await StartAsync();
+        await StartAsync(configure: o => o.AdditionalDocuments = ["privacy"]);
         await RequireAsync(_start);
 
         await RequireAsync(_start.AddDays(1));
