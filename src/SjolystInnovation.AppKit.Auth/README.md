@@ -308,6 +308,7 @@ invite codes. `AddAppKitVerificationEmails<TUser>` adds an `IVerificationEmails<
 verification code. All three share one layout: a colored header with the company details, the code
 in a large box, a button to the app's page, and the same link as text under it. With `VerifyInApp`,
 the verification email has no button and no link. It tells the person to enter the code in the app.
+`SetPasswordInApp` does the same for the reset and invite emails.
 
 The emails go through `IEmailSender` and render with `EmailLayout`, both from
 `SjolystInnovation.AppKit.Email`, so the app's own emails can share the look. The company details come
@@ -355,7 +356,8 @@ registered business.
 | `Language` | `English` | `English` or `Norwegian`. |
 | `HeaderColor` | `#182232` | The header and the code, as `#rrggbb`. |
 | `AccentColor` | `#0284c7` | The button and the code label, as `#rrggbb`. |
-| `SetPasswordUrl` | None | Required. The page that takes a reset or invite code. |
+| `SetPasswordUrl` | None | Required, unless `SetPasswordInApp` is set. The page that takes a reset or invite code, as an absolute http or https address. |
+| `SetPasswordInApp` | `false` | Whether the person types the reset or invite code into the app instead of opening a page. `SetPasswordUrl` must then be empty. |
 | `VerifyEmailUrl` | None | Required with verification emails and the default sign-up emails, unless `VerifyInApp` is set. The page that takes a verification code, as an absolute http or https address. |
 | `VerifyInApp` | `false` | Whether the person types the verification code into the app instead of opening a page. `VerifyEmailUrl` must then be empty. |
 
@@ -365,11 +367,12 @@ yellow brand stays readable.
 
 The links add `email` and `code` to the page's query string, so the page can fill them in. The
 email reads the expiry from the code itself, so an invite says 7 days and a reset says 30 minutes.
-The app checks the options at startup. `VerifyEmailUrl` must be an absolute http or https address,
-so a missing value, a relative path or another scheme such as `javascript:` or `myapp:` fails the
-start. An https app link, such as an iOS universal link or an Android app link, passes and opens the
-app where it is set up. With `VerifyInApp`, a `VerifyEmailUrl` that is set fails the start, because
-the emails would leave it out. If the user has no issued code, sending throws `InvalidOperationException`.
+The app checks the options at startup. `SetPasswordUrl` and `VerifyEmailUrl` must be absolute http or
+https addresses, so a missing value, a relative path or another scheme such as `javascript:` or `myapp:`
+fails the start. An https app link, such as an iOS universal link or an Android app link, passes and
+opens the app where it is set up. With `SetPasswordInApp` or `VerifyInApp`, a page that is set for the
+same emails fails the start, because the emails would leave it out. If the user has no issued code,
+sending throws `InvalidOperationException`.
 
 ## User administration
 
@@ -559,10 +562,10 @@ the same `login` answer as before.
 
 2. Opt in. The app needs `AddAppKitAuth` with a signing key, an `IEmailBrand`, and an `IEmailSender`.
    The default emails also need `VerifyEmailUrl`, or `VerifyInApp` as
-   [Verify in the app](#verify-in-the-app) shows. The sign-up does not need `AddAppKitAuthEmails`,
-   which only the reset and invite emails need. Without a `SetPasswordUrl`, the notice to an existing
-   account names the reset step in words. To send your own emails, register `IRegistrationEmails<User>`
-   before this call. The app then keeps any `VerifyEmailUrl` and `VerifyInApp`. If an option cannot
+   [Codes entered in the app](#codes-entered-in-the-app) shows. The sign-up does not need `AddAppKitAuthEmails`,
+   which only the reset and invite emails need. Without a `SetPasswordUrl`, or with `SetPasswordInApp`,
+   the notice to an existing account names the reset step in words. To send your own emails, register
+   `IRegistrationEmails<User>` before this call. The app then keeps any `VerifyEmailUrl` and `VerifyInApp`. If an option cannot
    work, the app fails to start.
 
    ```csharp
@@ -648,15 +651,23 @@ Every check that needs no account runs in a fixed order before the lookup by ema
 depends on whether the address has an account. The email is at most 200 characters and the password at
 most 128. The error codes section lists the codes.
 
-### Verify in the app
+### Codes entered in the app
 
-An app with no web page, such as a mobile app, sets `VerifyInApp` and leaves `VerifyEmailUrl` empty.
-The verification email and the removal reminders then show the code with no button and no link, and
-tell the person to enter the code in the app. The app sends it to `verify-email` for the signed-in
-account.
+An app with no web page, such as a mobile app, sets `VerifyInApp` and `SetPasswordInApp`, and leaves
+`VerifyEmailUrl` and `SetPasswordUrl` empty. The verification email and the removal reminders then show
+the code with no button and no link, and tell the person to enter the code in the app. The reset and
+invite emails do the same, and the invite subject names the app. The notice to an existing account
+tells the person to select that they forgot the password on the sign-in screen in the app. The app
+sends a verification code to `verify-email` for the signed-in account, and a reset or invite code to
+`reset-password` with the email and the new password. The example calls `AddAppKitAuthEmails`, because
+that call covers the reset and invite emails. The sign-up alone needs only the options.
 
 ```csharp
-builder.Services.Configure<AppKitAuthEmailOptions>(o => o.VerifyInApp = true);
+builder.Services.AddAppKitAuthEmails<User>(o =>
+{
+    o.VerifyInApp = true;
+    o.SetPasswordInApp = true;
+});
 builder.Services.AddAppKitSelfRegistration<User, ApplicationDbContext>(o =>
 {
     o.NewUser = r => new User { FirstName = r.FirstName, LastName = r.LastName };
@@ -669,10 +680,15 @@ await fetch(`${api}/verify-email`, {
   headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
   body: JSON.stringify({ code }),
 });
+
+await fetch(`${api}/reset-password`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ email, code, newPassword }),
+});
 ```
 
-The password reset and invite emails still link to a page. An app that maps the sign-in endpoints
-still needs `AddAppKitAuthEmails` with a `SetPasswordUrl` today, and then sets `VerifyInApp` there.
+Each option covers its own emails, so an app can verify in the app and still reset on a web page.
 
 To open the app from the email instead, set `VerifyEmailUrl` to an https app link. The package does not
 take a custom scheme such as `myapp://verify`. Gmail and some other mail apps remove such links, and
